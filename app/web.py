@@ -51,6 +51,7 @@ from app.pathing import (
 from app.comfy_manager import ComfyProcessManager
 from app.desktop_capabilities import DesktopIntegration
 from app.installer_layout import InstallerLayoutValidator
+from app.intelligence import CampaignIntelligenceLibrary
 from app.npc_identity import NPCIdentityRegistry
 from app.runtime_config import AppRuntimeConfig, ImageRuntimeConfig, ModelRuntimeConfig, RuntimeConfigStore
 from engine.campaign_engine import CampaignEngine, TurnResult
@@ -98,6 +99,7 @@ class WebRuntime:
         self.scene_visual_store = self._load_scene_visual_store()
         self.comfy_manager = ComfyProcessManager()
         self.desktop = DesktopIntegration()
+        self.intelligence_library = CampaignIntelligenceLibrary(self.paths.content_data / "intelligence")
 
         self.engine = CampaignEngine(self._create_model_adapter(), data_dir=self.paths.content_data)
         self.image_adapter = self._create_image_adapter()
@@ -6919,6 +6921,39 @@ class WebRuntime:
         result = self.image_adapter.generate(request, workflow_manager)
         return result
 
+
+    def list_intelligence_sources(self) -> dict[str, Any]:
+        return {"sources": self.intelligence_library.list_sources()}
+
+    def import_intelligence_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = self.intelligence_library.import_source(
+            Path(str(payload.get("source_path", ""))),
+            title=str(payload.get("title", "")),
+            category=str(payload.get("category", "imported")),
+            priority=int(payload.get("priority", 0) or 0),
+            enabled=bool(payload.get("enabled", True)),
+        )
+        return {"source": entry, "sources": self.intelligence_library.list_sources()}
+
+    def replace_intelligence_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = self.intelligence_library.replace_source(
+            str(payload.get("id", "")),
+            Path(str(payload.get("source_path", ""))),
+            title=str(payload.get("title", "")) if "title" in payload else None,
+        )
+        return {"source": entry, "sources": self.intelligence_library.list_sources()}
+
+    def set_intelligence_enabled(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = self.intelligence_library.set_enabled(str(payload.get("id", "")), bool(payload.get("enabled", True)))
+        return {"source": entry, "sources": self.intelligence_library.list_sources()}
+
+    def set_intelligence_priority(self, payload: dict[str, Any]) -> dict[str, Any]:
+        entry = self.intelligence_library.set_priority(str(payload.get("id", "")), int(payload.get("priority", 0) or 0))
+        return {"source": entry, "sources": self.intelligence_library.list_sources()}
+
+    def read_enabled_intelligence_sources(self) -> dict[str, Any]:
+        return {"sources": self.intelligence_library.read_enabled_sources()}
+
     def get_comfy_debug_bundle(self) -> dict[str, Any]:
         adapter_snapshot: dict[str, Any] = {}
         if hasattr(self.image_adapter, "get_debug_snapshot"):
@@ -6991,6 +7026,43 @@ def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+
+
+    @app.get("/api/developer/intelligence")
+    def developer_intelligence() -> dict[str, Any]:
+        return runtime.list_intelligence_sources()
+
+    @app.get("/api/developer/intelligence/enabled")
+    def developer_intelligence_enabled() -> dict[str, Any]:
+        return runtime.read_enabled_intelligence_sources()
+
+    @app.post("/api/developer/intelligence/import")
+    def developer_intelligence_import(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return runtime.import_intelligence_source(payload)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(exc)) from exc
+
+    @app.post("/api/developer/intelligence/replace")
+    def developer_intelligence_replace(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return runtime.replace_intelligence_source(payload)
+        except (FileNotFoundError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(exc)) from exc
+
+    @app.post("/api/developer/intelligence/enabled")
+    def developer_intelligence_set_enabled(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return runtime.set_intelligence_enabled(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(exc)) from exc
+
+    @app.post("/api/developer/intelligence/priority")
+    def developer_intelligence_set_priority(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return runtime.set_intelligence_priority(payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(exc)) from exc
 
     @app.get("/api/debug/comfyui-last")
     def debug_comfyui_last() -> dict[str, Any]:

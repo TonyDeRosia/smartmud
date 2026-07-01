@@ -1,0 +1,52 @@
+[
+  {
+    "id": "player_agency",
+    "filename": "core/player_agency.md",
+    "title": "Player Agency",
+    "category": "core",
+    "priority": 999,
+    "enabled": true,
+    "imported_at": "2026-07-01T15:22:42+00:00",
+    "updated_at": "2026-07-01T15:22:42+00:00"
+  },
+  {
+    "id": "dialogue_realism",
+    "filename": "core/dialogue_realism.md",
+    "title": "Dialogue Realism",
+    "category": "core",
+    "priority": 998,
+    "enabled": true,
+    "imported_at": "2026-07-01T15:22:42+00:00",
+    "updated_at": "2026-07-01T15:22:42+00:00"
+  },
+  {
+    "id": "npc_identity",
+    "filename": "core/npc_identity.md",
+    "title": "NPC Identity",
+    "category": "core",
+    "priority": 997,
+    "enabled": true,
+    "imported_at": "2026-07-01T15:22:42+00:00",
+    "updated_at": "2026-07-01T15:22:42+00:00"
+  },
+  {
+    "id": "world_consistency",
+    "filename": "core/world_consistency.md",
+    "title": "World Consistency",
+    "category": "core",
+    "priority": 996,
+    "enabled": true,
+    "imported_at": "2026-07-01T15:22:42+00:00",
+    "updated_at": "2026-07-01T15:22:42+00:00"
+  },
+  {
+    "id": "memory_rules",
+    "filename": "core/memory_rules.md",
+    "title": "Memory Rules",
+    "category": "core",
+    "priority": 995,
+    "enabled": true,
+    "imported_at": "2026-07-01T15:22:42+00:00",
+    "updated_at": "2026-07-01T15:22:42+00:00"
+  }
+]
