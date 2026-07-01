@@ -5517,27 +5517,63 @@ class WebRuntime:
             "You can keep it brief; missing details can be discovered through play."
         )
 
-    def _infer_character_identity(self, text: str) -> dict[str, str]:
+    def _infer_character_identity(self, text: str) -> dict[str, Any]:
         clean = re.sub(r"\s+", " ", str(text or "")).strip()
         lowered = clean.lower()
-        inferred: dict[str, str] = {"background": clean}
-        name_patterns = [r"(?:my name is|i am called|i'm called|call me|i am|i'm) ([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+)?)"]
+        inferred: dict[str, Any] = {"background": clean}
+        name_patterns = [
+            r"\bmy name is\s+([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+)?)",
+            r"\b(?:i am|i'm)\s+([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+)?)(?=\s*,|\s+an?\b|\s+the\b|\.|$)",
+            r"\bname\s+([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+)?)",
+            r"\b(?:i am called|i'm called|call me)\s+([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+)?)",
+        ]
         for pattern in name_patterns:
             match = re.search(pattern, clean, flags=re.IGNORECASE)
             if match:
                 inferred["name"] = match.group(1).strip(" .,;:")
                 break
-        role_match = re.search(r"(?:a|an|the) ([a-z][a-z '\-]{2,40}?)(?: named| called| with| who| from|,|\.|$)", clean, flags=re.IGNORECASE)
-        if role_match:
-            role = role_match.group(1).strip(" .,;:")
-            if role not in {"name", "world"}:
+        known_roles = (
+            "archmage", "mage", "wizard", "sorcerer", "witch", "warlock", "ranger", "knight", "soldier",
+            "veteran soldier", "pilot", "sci-fi pilot", "captain", "rogue", "thief", "cleric", "priest",
+            "druid", "bard", "fighter", "paladin", "monk", "barbarian", "gunslinger", "detective",
+        )
+        for role in sorted(known_roles, key=len, reverse=True):
+            if re.search(rf"\b{re.escape(role)}\b", lowered):
                 inferred["role"] = role
-        species_match = re.search(r"\b(human|elf|dwarf|halfling|orc|half-orc|gnome|tiefling|dragonborn|android|alien|fae|vampire|werewolf)\b", lowered)
+                break
+        if "role" not in inferred:
+            role_match = re.search(r"(?:a|an|the) ([a-z][a-z '\-]{2,40}?)(?: named| called| with| who| from|,|\.|$)", clean, flags=re.IGNORECASE)
+            if role_match:
+                role = role_match.group(1).strip(" .,;:")
+                if role not in {"name", "world"}:
+                    inferred["role"] = role
+        species_match = re.search(r"\b(human|elf|elven|dwarf|halfling|orc|half-orc|gnome|tiefling|dragonborn|android|alien|fae|vampire|werewolf)\b", lowered)
         if species_match:
             inferred["species"] = species_match.group(1)
-        appearance_markers = ("look", "appear", "wear", "eyes", "hair", "scar", "tall", "short", "armored", "cloak")
-        if any(marker in lowered for marker in appearance_markers):
-            inferred["appearance"] = clean
+        appearance_parts: list[str] = []
+        for pattern in (
+            r"\b(?:very\s+)?(?:tall|short|slender|broad|scarred|armored)\b",
+            r"\b(?:black|brown|blonde|silver|white|red|blue|green|gray|grey) hair\b",
+            r"\b(?:black|brown|blue|green|gray|grey|gold|amber|violet) eyes\b",
+            r"\b(?:wearing|wears|clad in) [^,.;]+",
+            r"\b(?:with|has) [^,.;]*(?:hair|eyes|scar|cloak|robes|armor)[^,.;]*",
+        ):
+            appearance_parts.extend(match.group(0).strip(" .,;:") for match in re.finditer(pattern, clean, flags=re.IGNORECASE))
+        if appearance_parts:
+            inferred["appearance"] = ", ".join(dict.fromkeys(appearance_parts))
+        claims: list[str] = []
+        claim_patterns = (
+            r"\bmany spells(?: in my arsenal)?\b",
+            r"\bmaster (?:swordsman|archer|duelist|assassin)\b",
+            r"\bveteran soldier\b",
+            r"\bstarting out with [^,.;]+",
+        )
+        for pattern in claim_patterns:
+            claims.extend(match.group(0).strip(" .,;:") for match in re.finditer(pattern, clean, flags=re.IGNORECASE))
+        if claims:
+            inferred["starting_claims"] = list(dict.fromkeys(claims))
+        if any("many spells" in claim.lower() for claim in claims):
+            inferred["needs_ability_followup"] = "spells"
         goal_match = re.search(r"(?:want to|goal is to|seeking|searching for|trying to|hope to) ([^.]+)", clean, flags=re.IGNORECASE)
         if goal_match:
             inferred["goals"] = goal_match.group(1).strip(" .,;:")
@@ -5552,6 +5588,63 @@ class WebRuntime:
             return False
         identity_markers = ("my name is", "i am ", "i'm ", "i am called", "call me", "with ", "seeking", "background", "appearance")
         return any(marker in clean for marker in identity_markers) or len(clean.split()) >= 5
+
+    def _starter_inventory_for_character(self, inferred: dict[str, Any]) -> list[dict[str, Any]]:
+        state = self.session.state
+        role = str(inferred.get("role", "") or state.player.char_class or "").lower()
+        intro = str(inferred.get("background", "")).lower()
+        theme = str(state.world_meta.world_theme or state.settings.profile or "").lower()
+        tone = str(state.world_meta.tone or state.settings.narration_tone or "").lower()
+        text = " ".join([role, intro, theme, tone])
+        if "archmage" in text or "wizard" in text or "mage" in text:
+            names = [("spellbook", "key_items"), ("arcane focus", "items"), ("travel robes", "armor"), ("component pouch", "items")]
+        elif "ranger" in text:
+            names = [("bow", "weapons"), ("hunting knife", "weapons"), ("cloak", "armor"), ("rations", "consumables")]
+        elif "sci-fi" in text or "pilot" in text or "starship" in text or "space" in text:
+            names = [("sidearm", "weapons"), ("flight jacket", "armor"), ("datapad", "key_items")]
+        elif "knight" in text:
+            names = [("sword", "weapons"), ("shield", "armor"), ("travel cloak", "armor"), ("rations", "consumables")]
+        elif "soldier" in text:
+            names = [("service weapon", "weapons"), ("field kit", "items"), ("weathered uniform", "armor")]
+        else:
+            names = [("travel pack", "items"), ("rations", "consumables")]
+        return [
+            {"id": f"starter_{index}_{name.replace(' ', '_')}", "name": name, "category": category, "quantity": 1, "notes": "Guided character creation starter item."}
+            for index, (name, category) in enumerate(names)
+        ]
+
+    def _apply_guided_starter_inventory(self, inferred: dict[str, Any]) -> None:
+        runtime = self.session.state.structured_state.runtime
+        entries = self._starter_inventory_for_character(inferred)
+        runtime.inventory_state = {"entries": entries, "currency": {"gold": 0, "silver": 0, "copper": 0}}
+        self._normalize_inventory_state(runtime.inventory_state)
+        runtime.inventory = [str(entry.get("name", "")).strip() for entry in runtime.inventory_state.get("entries", []) if str(entry.get("name", "")).strip()]
+        self.session.state.player.inventory = list(runtime.inventory)
+
+    def _add_guided_ability_proposals(self, inferred: dict[str, Any]) -> None:
+        if not inferred.get("needs_ability_followup"):
+            return
+        runtime = self.session.state.structured_state.runtime
+        if not isinstance(runtime.campaign_events, list):
+            runtime.campaign_events = []
+        if any(event.get("type") == "ability_suggested" and event.get("title") == "Starting Spell List" and event.get("status") == "pending" for event in runtime.campaign_events if isinstance(event, dict)):
+            return
+        runtime.campaign_events.append(
+            {
+                "id": f"guided_ability_{int(time.time() * 1000)}",
+                "type": "ability_suggested",
+                "title": "Starting Spell List",
+                "description": "The DM should ask what spells or magical specialties the player wants known at start.",
+                "status": "pending",
+                "payload": {"name": "Starting Spell List", "category": "spell", "tags": ["starter", "guided_creation"], "source_metadata": {"source": "guided_character_creation"}},
+            }
+        )
+
+    def _guided_followup_question(self, inferred: dict[str, Any]) -> str:
+        if inferred.get("needs_ability_followup") == "spells":
+            name = str(inferred.get("name") or self.session.state.player.name or "your character").strip()
+            return f"What kinds of spells is {name} known for? You can list a few, or describe the style of magic."
+        return "Tell me one more important detail before we begin."
 
     def _upsert_guided_main_character_sheet(self, text: str) -> CharacterSheet:
         state = self.session.state
@@ -5571,11 +5664,15 @@ class WebRuntime:
             notes.append(f"Species: {inferred['species']}")
         if inferred.get("appearance"):
             sheet.description = inferred["appearance"]
+        if inferred.get("starting_claims"):
+            notes.append(f"Starting claims: {', '.join(inferred['starting_claims'])}")
         if inferred.get("goals"):
             notes.append(f"Starting goal: {inferred['goals']}")
         if inferred.get("background"):
             notes.append(f"Player introduction: {inferred['background']}")
         sheet.notes = "\n".join(dict.fromkeys([part for part in [sheet.notes, *notes] if part]))
+        self._apply_guided_starter_inventory(inferred)
+        self._add_guided_ability_proposals(inferred)
         return sheet
 
     def _guided_opening_scene(self, state: CampaignState, sheet: CharacterSheet) -> str:
@@ -5594,11 +5691,26 @@ class WebRuntime:
     def _handle_character_creation_answer(self, text: str, request_started: float, request_received_at: str) -> dict[str, Any]:
         clean_text = text.strip()
         self._append_message("player", clean_text, persist=False)
+        inferred = self._infer_character_identity(clean_text)
         sheet = self._upsert_guided_main_character_sheet(clean_text)
+        self.session.state.recent_memory.append(f"Player introduced main character: {clean_text}")
+        if inferred.get("needs_ability_followup"):
+            followup = self._guided_followup_question(inferred)
+            self._append_message("narrator", followup, persist=False)
+            self._flush_history_store()
+            self.save_active_campaign(self.session.active_slot)
+            total_ms = (time.perf_counter() - request_started) * 1000
+            return {
+                "narrative": followup,
+                "system_messages": [],
+                "messages": [{"type": "narrator", "text": followup}],
+                "should_exit": False,
+                "metadata": {"startup_flow": "character_creation_needs_followup", "timing": {"total_request_ms": round(total_ms, 2), "request_received_at": request_received_at}},
+                "state": self.serialize_state(),
+            }
         self.session.state.startup_state = "ready"
         opening = self._guided_opening_scene(self.session.state, sheet)
         self._append_message("narrator", opening, persist=False)
-        self.session.state.recent_memory.append(f"Player introduced main character: {clean_text}")
         self._flush_history_store()
         self.save_active_campaign(self.session.active_slot)
         total_ms = (time.perf_counter() - request_started) * 1000
