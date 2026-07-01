@@ -1957,6 +1957,12 @@ async function refreshState() {
   if (campaignDisplayModeIndicator) {
     campaignDisplayModeIndicator.textContent = `Display Mode: ${displayModeText}`;
   }
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    chatInput.placeholder = state.startup_state === 'character_creation'
+      ? 'Tell the DM who you are: name, role, appearance, and what matters to you.'
+      : 'What do you do?';
+  }
   ingestPersistedCampaignSettings(
     {
       image_generation_enabled: !!state.settings.image_generation_enabled,
@@ -2824,8 +2830,8 @@ async function createCampaignFromForm() {
       display_mode: 'story',
       suggested_moves_enabled: !!document.getElementById('form-suggested-moves-enabled')?.checked,
       play_style: playStyle,
-      character_sheets: draftCharacterSheets,
-      character_sheet_guidance_strength: document.getElementById('form-character-sheet-guidance-strength')?.value || 'light',
+      character_sheets: [],
+      character_sheet_guidance_strength: 'light',
     };
     await api('/api/campaign/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),

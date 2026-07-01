@@ -5492,3 +5492,56 @@ def test_install_image_engine_attaches_when_setup_flow_already_owned(tmp_path: P
     assert result["ok"] is True
     assert result["status"] == "running"
     assert result["startup_status"]["state"] == "repairing-install"
+
+
+def test_new_campaign_starts_guided_character_creation(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    created = runtime.create_campaign({"campaign_name": "Guided Start", "world_theme": "sky pirates", "slot": "slot_guided"})
+
+    assert created["state"]["startup_state"] == "character_creation"
+    assert runtime.session.message_history
+    first_message = runtime.session.message_history[0]["text"].lower()
+    assert "who you are" in first_message
+    assert "name" in first_message
+    assert "class or role" in first_message
+
+
+def test_guided_character_answer_creates_sheet_and_opening_scene(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    runtime.create_campaign({"campaign_name": "Guided Start", "world_theme": "classic fantasy", "slot": "slot_guided_answer"})
+
+    result = runtime.handle_player_input("I am Lyra, an elven ranger with silver hair, seeking my lost brother.")
+
+    state = result["state"]
+    assert state["startup_state"] == "ready"
+    assert state["character_sheets"]
+    main = next(sheet for sheet in state["character_sheets"] if sheet["sheet_type"] == "main_character")
+    assert main["name"] == "Lyra"
+    assert "ranger" in main["role"].lower()
+    assert "silver hair" in main["description"].lower()
+    assert "lost brother" in main["notes"].lower()
+    assert "what do you do" in result["narrative"].lower()
+
+
+def test_guided_character_answer_allows_missing_fields(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    runtime.create_campaign({"slot": "slot_guided_sparse"})
+
+    result = runtime.handle_player_input("A tired traveler with a lantern.")
+
+    assert result["state"]["startup_state"] == "ready"
+    assert result["state"]["character_sheets"]
+    assert "what do you do" in result["narrative"].lower()
+
+
+def test_legacy_campaign_without_startup_state_loads_ready(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    created = runtime.create_campaign({"slot": "slot_legacy_startup"})
+    save_path = runtime.paths.saves / "slot_legacy_startup.json"
+    payload = json.loads(save_path.read_text(encoding="utf-8"))
+    payload.pop("startup_state", None)
+    save_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    runtime.switch_campaign("slot_legacy_startup")
+
+    assert runtime.session.state.startup_state == "ready"

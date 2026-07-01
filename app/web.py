@@ -4557,6 +4557,7 @@ class WebRuntime:
                 "player_concept": state.world_meta.player_concept,
             },
             "character_sheet_guidance_strength": state.character_sheet_guidance_strength,
+            "startup_state": getattr(state, "startup_state", "ready"),
             "character_sheets": [
                 {
                     "id": sheet.id,
@@ -5456,9 +5457,11 @@ class WebRuntime:
             state.settings.play_style.scene_visual_mode = self._normalize_scene_visual_mode(
                 play_style_payload.get("scene_visual_mode", state.settings.play_style.scene_visual_mode)
             )
+        state.startup_state = "character_creation"
         self._seed_scene_state(state)
         self.session = WebSession(state=state, active_slot=slot)
         self.session.message_history = []
+        self._append_message("narrator", self._character_creation_prompt(state), persist=False)
         self.scene_visual_store.pop(slot, None)
         self.scene_visual_store.pop(self._campaign_namespace(slot), None)
         self._persist_scene_visual_store()
@@ -5467,9 +5470,116 @@ class WebRuntime:
         self.save_active_campaign(slot)
         return {"slot": slot, "state": self.serialize_state()}
 
+    def _character_creation_prompt(self, state: CampaignState) -> str:
+        theme = str(state.world_meta.world_theme or "this world").strip() or "this world"
+        tone = str(state.world_meta.tone or "adventurous").strip() or "adventurous"
+        return (
+            f"Welcome to {state.campaign_name}. Before the adventure begins, tell me who you are in this {tone} {theme} world. "
+            "What is your name, class or role, appearance, and anything you want known before the adventure begins? "
+            "You can keep it brief; missing details can be discovered through play."
+        )
+
+    def _infer_character_identity(self, text: str) -> dict[str, str]:
+        clean = re.sub(r"\s+", " ", str(text or "")).strip()
+        lowered = clean.lower()
+        inferred: dict[str, str] = {"background": clean}
+        name_patterns = [r"(?:my name is|i am called|i'm called|call me|i am|i'm) ([A-Z][A-Za-z'\-]+(?: [A-Z][A-Za-z'\-]+)?)"]
+        for pattern in name_patterns:
+            match = re.search(pattern, clean, flags=re.IGNORECASE)
+            if match:
+                inferred["name"] = match.group(1).strip(" .,;:")
+                break
+        role_match = re.search(r"(?:a|an|the) ([a-z][a-z '\-]{2,40}?)(?: named| called| with| who| from|,|\.|$)", clean, flags=re.IGNORECASE)
+        if role_match:
+            role = role_match.group(1).strip(" .,;:")
+            if role not in {"name", "world"}:
+                inferred["role"] = role
+        species_match = re.search(r"\b(human|elf|dwarf|halfling|orc|half-orc|gnome|tiefling|dragonborn|android|alien|fae|vampire|werewolf)\b", lowered)
+        if species_match:
+            inferred["species"] = species_match.group(1)
+        appearance_markers = ("look", "appear", "wear", "eyes", "hair", "scar", "tall", "short", "armored", "cloak")
+        if any(marker in lowered for marker in appearance_markers):
+            inferred["appearance"] = clean
+        goal_match = re.search(r"(?:want to|goal is to|seeking|searching for|trying to|hope to) ([^.]+)", clean, flags=re.IGNORECASE)
+        if goal_match:
+            inferred["goals"] = goal_match.group(1).strip(" .,;:")
+        return inferred
+
+    def _looks_like_character_creation_answer(self, text: str) -> bool:
+        clean = str(text or "").strip().lower()
+        if not clean:
+            return False
+        action_starts = ("look", "go ", "move ", "walk ", "run ", "attack", "talk", "say ", "i approach", "i go", "i look", "i ask", "i wait", "i say")
+        if clean in {"look", "start", "begin"} or clean.startswith(action_starts):
+            return False
+        identity_markers = ("my name is", "i am ", "i'm ", "i am called", "call me", "with ", "seeking", "background", "appearance")
+        return any(marker in clean for marker in identity_markers) or len(clean.split()) >= 5
+
+    def _upsert_guided_main_character_sheet(self, text: str) -> CharacterSheet:
+        state = self.session.state
+        inferred = self._infer_character_identity(text)
+        sheet = self._find_main_character_sheet(state)
+        if sheet is None:
+            sheet = CharacterSheet(id="sheet_main", name=inferred.get("name") or state.player.name or "Adventurer", sheet_type="main_character")
+            state.character_sheets.append(sheet)
+        if inferred.get("name"):
+            sheet.name = inferred["name"]
+            state.player.name = inferred["name"]
+        if inferred.get("role"):
+            sheet.role = inferred["role"]
+            state.player.char_class = inferred["role"]
+        notes = []
+        if inferred.get("species"):
+            notes.append(f"Species: {inferred['species']}")
+        if inferred.get("appearance"):
+            sheet.description = inferred["appearance"]
+        if inferred.get("goals"):
+            notes.append(f"Starting goal: {inferred['goals']}")
+        if inferred.get("background"):
+            notes.append(f"Player introduction: {inferred['background']}")
+        sheet.notes = "\n".join(dict.fromkeys([part for part in [sheet.notes, *notes] if part]))
+        return sheet
+
+    def _guided_opening_scene(self, state: CampaignState, sheet: CharacterSheet) -> str:
+        location = state.locations.get(state.current_location_id)
+        location_name = str(state.world_meta.starting_location_name or (location.name if location else "the threshold of adventure")).strip()
+        theme = str(state.world_meta.world_theme or "fantasy").strip()
+        premise = str(state.world_meta.premise or "rumors of trouble are already moving through the air").strip()
+        npc_name = "Mara" if "fantasy" in theme.lower() else "the nearest guide"
+        role = sheet.role or state.player.char_class or "adventurer"
+        return (
+            f"Your story begins at {location_name}, where {premise}. As a {role}, you arrive just as the first urgent sign of trouble appears. "
+            f"{npc_name} waits near a weathered notice board, clutching a sealed message and watching the road as if someone is late. "
+            "The place is alive with possibility, but the moment is already moving. What do you do?"
+        )
+
+    def _handle_character_creation_answer(self, text: str, request_started: float, request_received_at: str) -> dict[str, Any]:
+        clean_text = text.strip()
+        self._append_message("player", clean_text, persist=False)
+        sheet = self._upsert_guided_main_character_sheet(clean_text)
+        self.session.state.startup_state = "ready"
+        opening = self._guided_opening_scene(self.session.state, sheet)
+        self._append_message("narrator", opening, persist=False)
+        self.session.state.recent_memory.append(f"Player introduced main character: {clean_text}")
+        self._flush_history_store()
+        self.save_active_campaign(self.session.active_slot)
+        total_ms = (time.perf_counter() - request_started) * 1000
+        return {
+            "narrative": opening,
+            "system_messages": [],
+            "messages": [{"type": "narrator", "text": opening}],
+            "should_exit": False,
+            "metadata": {"startup_flow": "character_creation_completed", "timing": {"total_request_ms": round(total_ms, 2), "request_received_at": request_received_at}},
+            "state": self.serialize_state(),
+        }
+
     def handle_player_input(self, text: str) -> dict[str, Any]:
         request_started = time.perf_counter()
         request_received_at = datetime.now(timezone.utc).isoformat()
+        if getattr(self.session.state, "startup_state", "ready") == "character_creation":
+            if self._looks_like_character_creation_answer(text):
+                return self._handle_character_creation_answer(text, request_started, request_received_at)
+            self.session.state.startup_state = "ready"
         model_status = self.get_model_status()
         visual_mode = self._normalize_scene_visual_mode(self.session.state.settings.play_style.scene_visual_mode)
         auto_enabled = visual_mode in {"before_narration", "after_narration"}
