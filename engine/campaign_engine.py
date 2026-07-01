@@ -2467,9 +2467,12 @@ class CampaignEngine:
         return " ".join(words[-3:]).strip(" .!?") if words else ""
 
     def _extract_dialogue_content(self, action: str) -> str:
-        match = re.search(r"['\"]([^'\"]+)['\"]", action)
-        if match:
-            return match.group(1).strip()
+        double_match = re.search(r'"([^"]+)"', action)
+        if double_match:
+            return double_match.group(1).strip()
+        single_match = re.search(r"'([^']+)'", action)
+        if single_match:
+            return single_match.group(1).strip()
         normalized = re.sub(r"\s+", " ", action.strip())
         lowered = normalized.lower()
         for prefix in ("say ", "ask ", "tell ", "shout ", "speak "):

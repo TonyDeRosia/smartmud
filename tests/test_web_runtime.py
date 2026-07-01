@@ -5535,6 +5535,45 @@ def test_guided_character_answer_allows_missing_fields(tmp_path: Path, monkeypat
     assert "what do you do" in result["narrative"].lower()
 
 
+
+def test_guided_kokudar_archmage_intro_parses_sheet_inventory_and_followup(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    runtime.create_campaign({"campaign_name": "Guided Start", "world_theme": "classic fantasy", "slot": "slot_guided_kokudar"})
+
+    result = runtime.handle_player_input("name Kokudar, archmage, tall with black hair and blue eyes, starting out with many spells in my arsenal")
+
+    state = result["state"]
+    main = next(sheet for sheet in state["character_sheets"] if sheet["sheet_type"] == "main_character")
+    assert main["name"] == "Kokudar"
+    assert main["role"] == "archmage"
+    assert "tall" in main["description"].lower()
+    assert "black hair" in main["description"].lower()
+    assert "blue eyes" in main["description"].lower()
+    assert "starting out with many spells" not in main["description"].lower()
+    inventory_names = {entry["name"].lower() for entry in state["inventory_state"]["entries"]}
+    assert {"spellbook", "arcane focus", "travel robes", "component pouch"}.issubset(inventory_names)
+    assert not {"torch", "worn_backpack", "field_draught"}.issubset(inventory_names)
+    assert "what kinds of spells is kokudar known for" in result["narrative"].lower()
+    assert any(event["type"] == "ability_suggested" and event["title"] == "Starting Spell List" and event["status"] == "pending" for event in state["campaign_events"])
+    assert state["startup_state"] == "character_creation"
+
+
+def test_guided_sparse_intro_still_starts_with_minimal_supplies(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    runtime.create_campaign({"slot": "slot_guided_sparse_inventory"})
+
+    result = runtime.handle_player_input("A tired traveler with a lantern.")
+
+    assert result["state"]["startup_state"] == "ready"
+    inventory_names = {entry["name"].lower() for entry in result["state"]["inventory_state"]["entries"]}
+    assert {"travel pack", "rations"}.issubset(inventory_names)
+
+
+def test_quoted_i_say_dialogue_extracts_spoken_words(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    assert runtime.engine._extract_dialogue_content('I say "I\'m Kokudar."') == "I'm Kokudar."
+    assert runtime.engine._classify_gameplay_action_subtype('I say "I\'m Kokudar."') == "dialogue"
+
 def test_legacy_campaign_without_startup_state_loads_ready(tmp_path: Path, monkeypatch) -> None:
     runtime = _runtime(tmp_path, monkeypatch)
     created = runtime.create_campaign({"slot": "slot_legacy_startup"})
