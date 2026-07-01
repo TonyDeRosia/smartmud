@@ -5545,3 +5545,17 @@ def test_legacy_campaign_without_startup_state_loads_ready(tmp_path: Path, monke
     runtime.switch_campaign("slot_legacy_startup")
 
     assert runtime.session.state.startup_state == "ready"
+
+
+def test_prompt_inspector_reports_used_intelligence_files(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    pack_source = tmp_path / "inspect_pack.md"
+    pack_source.write_text("inspect pack guidance", encoding="utf-8")
+    entry = runtime.intelligence_library.import_source(pack_source, title="Inspect Pack", category="packs", priority=42)
+    runtime.set_campaign_intelligence_sources({"enabled_source_ids": [entry["id"]]})
+
+    inspector = runtime.get_campaign_prompt_inspector()
+
+    assert any(item["category"] == "core" for item in inspector["core_intelligence_files"])
+    assert [item["id"] for item in inspector["campaign_intelligence_files"]] == [entry["id"]]
+    assert inspector["estimated_guidance_char_count"] > 0

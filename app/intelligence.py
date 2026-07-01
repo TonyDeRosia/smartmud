@@ -153,10 +153,15 @@ class CampaignIntelligenceLibrary:
                 result.append(payload)
         return result
 
-    def build_core_guidance(self, *, max_chars: int = 4000) -> str:
+    def build_guidance(self, *, enabled_source_ids: list[str] | None = None, max_chars: int = 6000) -> tuple[str, list[dict[str, Any]]]:
+        selected_ids = {str(v).strip() for v in (enabled_source_ids or []) if str(v).strip()}
+        selected_allowed = bool(selected_ids)
+        source_items = [item for item in self.read_enabled_sources() if item.get("category") == "core" or (selected_allowed and item.get("id") in selected_ids and item.get("category") in {"packs", "imported"})]
+        source_items.sort(key=lambda item: (0 if item.get("category") == "core" else 1, -int(item.get("priority", 0) or 0), str(item.get("title") or item.get("id") or "").lower(), str(item.get("id") or "")))
         sections = []
         used = 0
-        for item in self.read_enabled_sources(category="core"):
+        used_sources: list[dict[str, Any]] = []
+        for item in source_items:
             text = str(item.get("content", "")).strip()
             if not text:
                 continue
@@ -164,9 +169,17 @@ class CampaignIntelligenceLibrary:
             remaining = max_chars - used
             if remaining <= 0:
                 break
-            sections.append(block[:remaining])
-            used += len(sections[-1])
-        return "\n\n".join(sections).strip()
+            chunk = block[:remaining]
+            sections.append(chunk)
+            used += len(chunk)
+            used_payload = {k: item.get(k) for k in ("id", "title", "category", "filename", "priority")}
+            used_payload["chars"] = len(chunk)
+            used_sources.append(used_payload)
+        return "\n\n".join(sections).strip(), used_sources
+
+    def build_core_guidance(self, *, max_chars: int = 4000) -> str:
+        guidance, _ = self.build_guidance(enabled_source_ids=[], max_chars=max_chars)
+        return guidance
 
     def _load_manifest_entries(self, *, create_if_missing: bool = False) -> list[IntelligenceSource]:
         if not self.manifest_path.exists():

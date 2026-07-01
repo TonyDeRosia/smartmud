@@ -976,3 +976,12 @@ def test_prompt_includes_persistent_condition_summaries() -> None:
 
     assert "frozen, weakened" in prompt
     assert "injured, advancing, pressure high" in prompt
+
+
+def test_existing_campaign_without_intelligence_setting_still_loads() -> None:
+    payload = load_state().to_dict()
+    payload["settings"].pop("enabled_intelligence_source_ids", None)
+
+    loaded = CampaignState.from_dict(payload)
+
+    assert loaded.settings.enabled_intelligence_source_ids == []

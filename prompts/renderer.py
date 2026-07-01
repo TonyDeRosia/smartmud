@@ -107,7 +107,9 @@ class PromptRenderer:
         )
         print("[narrative-quality] strengthened_prompt=true")
         try:
-            campaign_intelligence_guidance = default_intelligence_library().build_core_guidance()
+            campaign_intelligence_guidance, _used_intelligence = default_intelligence_library().build_guidance(
+                enabled_source_ids=state.settings.enabled_intelligence_source_ids
+            )
         except Exception as exc:  # pragma: no cover - defensive prompt fallback
             print(f"[campaign-intelligence] guidance_unavailable={exc}")
             campaign_intelligence_guidance = ""

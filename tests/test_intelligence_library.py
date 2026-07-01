@@ -58,3 +58,45 @@ def test_core_guidance_uses_enabled_core_priority_order(tmp_path: Path) -> None:
 
     assert guidance.find("Memory Rules") < guidance.find("Dialogue Realism")
     assert "Player Agency" not in guidance
+
+
+def test_campaign_guidance_includes_core_by_default_and_excludes_imports(tmp_path: Path) -> None:
+    source = tmp_path / "pack.md"
+    source.write_text("pack-only guidance", encoding="utf-8")
+    library = CampaignIntelligenceLibrary(tmp_path / "intelligence")
+    library.import_source(source, title="Pack", category="packs", priority=5000)
+
+    guidance, used = library.build_guidance(enabled_source_ids=[])
+
+    assert "Player Agency" in guidance
+    assert "pack-only guidance" not in guidance
+    assert {item["category"] for item in used} == {"core"}
+
+
+def test_selected_campaign_guidance_injects_after_core_and_respects_priority(tmp_path: Path) -> None:
+    low = tmp_path / "low.md"
+    high = tmp_path / "high.md"
+    low.write_text("low pack guidance", encoding="utf-8")
+    high.write_text("high import guidance", encoding="utf-8")
+    library = CampaignIntelligenceLibrary(tmp_path / "intelligence")
+    low_entry = library.import_source(low, title="Low Pack", category="packs", priority=10)
+    high_entry = library.import_source(high, title="High Import", category="imported", priority=99)
+
+    guidance, used = library.build_guidance(enabled_source_ids=[low_entry["id"], high_entry["id"]])
+
+    assert guidance.find("Memory Rules") < guidance.find("High Import")
+    assert guidance.find("High Import") < guidance.find("Low Pack")
+    assert [item["id"] for item in used if item["category"] != "core"] == [high_entry["id"], low_entry["id"]]
+
+
+def test_disabled_selected_campaign_source_does_not_inject(tmp_path: Path) -> None:
+    source = tmp_path / "disabled.md"
+    source.write_text("disabled guidance", encoding="utf-8")
+    library = CampaignIntelligenceLibrary(tmp_path / "intelligence")
+    entry = library.import_source(source, title="Disabled", category="imported", priority=50)
+    library.set_enabled(entry["id"], False)
+
+    guidance, used = library.build_guidance(enabled_source_ids=[entry["id"]])
+
+    assert "disabled guidance" not in guidance
+    assert entry["id"] not in [item["id"] for item in used]
