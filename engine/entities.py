@@ -178,6 +178,7 @@ class CampaignSettings:
     display_mode: str = "story"
     campaign_mode: str = "adventure"
     player_suggested_moves_override: bool | None = None
+    enabled_intelligence_source_ids: list[str] = field(default_factory=list)
     content_settings: ContentSettings = field(default_factory=ContentSettings)
     play_style: PlayStyleSettings = field(default_factory=PlayStyleSettings)
 
@@ -504,6 +505,7 @@ class CampaignState:
         settings["campaign_mode"] = raw_campaign_mode if raw_campaign_mode in {"adventure", "creator"} else "adventure"
         raw_override = settings.get("player_suggested_moves_override")
         settings["player_suggested_moves_override"] = None if raw_override is None else bool(raw_override)
+        settings["enabled_intelligence_source_ids"] = [str(v).strip() for v in settings.get("enabled_intelligence_source_ids", []) if str(v).strip()]
         return CampaignSettings(**settings)
 
     @staticmethod

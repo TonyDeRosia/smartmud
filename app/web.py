@@ -4532,6 +4532,7 @@ class WebRuntime:
                 "display_mode": state.settings.display_mode,
                 "campaign_mode": state.settings.campaign_mode,
                 "player_suggested_moves_override": state.settings.player_suggested_moves_override,
+                "enabled_intelligence_source_ids": list(state.settings.enabled_intelligence_source_ids),
                 "effective_suggested_moves_enabled": state.settings.suggested_moves_active(),
                 "content_settings": {
                     "tone": state.settings.content_settings.tone,
@@ -6695,6 +6696,8 @@ class WebRuntime:
         settings.campaign_mode = requested_campaign_mode
         raw_override = payload.get("player_suggested_moves_override", settings.player_suggested_moves_override)
         settings.player_suggested_moves_override = None if raw_override is None else bool(raw_override)
+        if "enabled_intelligence_source_ids" in payload:
+            settings.enabled_intelligence_source_ids = [str(v).strip() for v in payload.get("enabled_intelligence_source_ids", []) if str(v).strip()]
         content = payload.get("content_settings", {})
         settings.content_settings = CampaignSettings.ContentSettings(
             tone=str(content.get("tone", settings.content_settings.tone)),
@@ -6954,6 +6957,30 @@ class WebRuntime:
     def read_enabled_intelligence_sources(self) -> dict[str, Any]:
         return {"sources": self.intelligence_library.read_enabled_sources()}
 
+    def set_campaign_intelligence_sources(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ids = [str(v).strip() for v in payload.get("enabled_source_ids", []) if str(v).strip()]
+        valid = {str(item.get("id", "")) for item in self.intelligence_library.list_sources() if item.get("category") in {"packs", "imported"}}
+        self.session.state.settings.enabled_intelligence_source_ids = [source_id for source_id in ids if source_id in valid]
+        self.save_active_campaign(self.session.active_slot)
+        return self.get_campaign_prompt_inspector()
+
+    def get_campaign_prompt_inspector(self) -> dict[str, Any]:
+        state = self.session.state
+        guidance, used = self.intelligence_library.build_guidance(enabled_source_ids=state.settings.enabled_intelligence_source_ids)
+        core = [item for item in used if item.get("category") == "core"]
+        campaign = [item for item in used if item.get("category") in {"packs", "imported"}]
+        return {
+            "core_intelligence_files": core,
+            "campaign_intelligence_files": campaign,
+            "selected_source_ids": list(state.settings.enabled_intelligence_source_ids),
+            "narrator_rules_count": len(state.structured_state.canon.custom_narrator_rules),
+            "character_sheets_count": len(state.character_sheets),
+            "inventory_item_count": len(state.structured_state.runtime.inventory or state.player.inventory),
+            "ability_count": len(state.structured_state.runtime.abilities) + len(state.structured_state.runtime.spellbook),
+            "memory_summary_present": bool(state.structured_state.recent_turn_memory.running_summary or state.session_summaries),
+            "estimated_guidance_char_count": len(guidance),
+        }
+
     def get_comfy_debug_bundle(self) -> dict[str, Any]:
         adapter_snapshot: dict[str, Any] = {}
         if hasattr(self.image_adapter, "get_debug_snapshot"):
@@ -7035,6 +7062,14 @@ def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
     @app.get("/api/developer/intelligence/enabled")
     def developer_intelligence_enabled() -> dict[str, Any]:
         return runtime.read_enabled_intelligence_sources()
+
+    @app.get("/api/developer/intelligence/prompt-inspector")
+    def developer_intelligence_prompt_inspector() -> dict[str, Any]:
+        return runtime.get_campaign_prompt_inspector()
+
+    @app.post("/api/developer/intelligence/campaign-sources")
+    def developer_intelligence_campaign_sources(payload: dict[str, Any]) -> dict[str, Any]:
+        return runtime.set_campaign_intelligence_sources(payload)
 
     @app.post("/api/developer/intelligence/import")
     def developer_intelligence_import(payload: dict[str, Any]) -> dict[str, Any]:

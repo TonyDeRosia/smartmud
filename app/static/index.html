@@ -457,7 +457,7 @@
 
           <section class="developer-tool-section" id="campaign-intelligence-library">
             <h5>Campaign Intelligence Library</h5>
-            <p class="setup-intro">Developer-only source files that can guide campaign AI behavior. Enabled core files are currently loaded by priority into a small Campaign Intelligence Guidance prompt section.</p>
+            <p class="setup-intro">Developer-only source files that can guide campaign AI behavior. Core files affect all campaigns. Selected pack/imported files affect only this campaign.</p>
             <div id="intelligence-status" class="setup-summary">Loading intelligence sources...</div>
             <div class="button-row">
               <button id="refresh-intelligence-sources" type="button">Refresh Sources</button>
@@ -465,6 +465,8 @@
               <button id="replace-intelligence-source" type="button">Replace Source File</button>
               <button id="rebuild-intelligence-index" type="button">Rebuild Index placeholder</button>
               <button id="test-intelligence-retrieval" type="button">Test Retrieval placeholder</button>
+              <button id="apply-campaign-intelligence-sources" type="button">Apply Campaign Selection</button>
+              <button id="refresh-prompt-inspector" type="button">Refresh Prompt Inspector</button>
             </div>
             <label>Selected source id <input id="intelligence-source-id" type="text" placeholder="source id for replace / enable / priority" /></label>
             <label>Source file path <input id="intelligence-source-path" type="text" placeholder="Path to .txt, .md, or .json file" /></label>
@@ -482,6 +484,8 @@
               <button id="apply-intelligence-priority" type="button">Apply Priority</button>
             </div>
             <div id="intelligence-source-list" class="setup-model-list">No intelligence sources loaded.</div>
+            <h5>Campaign Prompt Inspector</h5>
+            <div id="campaign-prompt-inspector" class="setup-summary">Prompt inspector not loaded.</div>
           </section>
 
           <section class="developer-tool-section advanced-addon-settings">

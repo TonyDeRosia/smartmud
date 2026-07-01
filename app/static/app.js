@@ -229,6 +229,11 @@ const applyIntelligenceEnabledButton = document.getElementById('apply-intelligen
 const applyIntelligencePriorityButton = document.getElementById('apply-intelligence-priority');
 const rebuildIntelligenceIndexButton = document.getElementById('rebuild-intelligence-index');
 const testIntelligenceRetrievalButton = document.getElementById('test-intelligence-retrieval');
+const applyCampaignIntelligenceSourcesButton = document.getElementById('apply-campaign-intelligence-sources');
+const refreshPromptInspectorButton = document.getElementById('refresh-prompt-inspector');
+const campaignPromptInspector = document.getElementById('campaign-prompt-inspector');
+let intelligenceSourcesCache = [];
+let selectedCampaignIntelligenceSourceIds = new Set();
 
 let draftCharacterSheets = [];
 let editingSheetIndex = -1;
@@ -1081,14 +1086,26 @@ function renderIntelligenceSources(sources) {
     intelligenceSourceList.textContent = 'No intelligence sources found.';
     return;
   }
+  intelligenceSourcesCache = sources;
   intelligenceSourceList.innerHTML = sources.map((source) => {
     const enabled = source.enabled ? 'enabled' : 'disabled';
+    const campaignSelectable = ['packs', 'imported'].includes(source.category || '');
+    const checked = selectedCampaignIntelligenceSourceIds.has(source.id || '') ? 'checked' : '';
+    const selector = campaignSelectable ? `<label><input type="checkbox" data-campaign-source-id="${escapeHtml(source.id || '')}" ${checked} /> Use in this campaign</label>` : `<small>Core file: affects all campaigns.</small>`;
     return `<button type="button" class="model-card intelligence-source-card" data-source-id="${escapeHtml(source.id || '')}">
       <strong>${escapeHtml(source.title || source.id || '')}</strong>
       <span>${escapeHtml(source.id || '')} • ${escapeHtml(source.category || '')} • priority ${escapeHtml(String(source.priority ?? 0))} • ${enabled}</span>
       <small>${escapeHtml(source.filename || '')}</small>
+      ${selector}
     </button>`;
   }).join('');
+  intelligenceSourceList.querySelectorAll('[data-campaign-source-id]').forEach((checkbox) => {
+    checkbox.addEventListener('click', (event) => event.stopPropagation());
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedCampaignIntelligenceSourceIds.add(checkbox.dataset.campaignSourceId || '');
+      else selectedCampaignIntelligenceSourceIds.delete(checkbox.dataset.campaignSourceId || '');
+    });
+  });
   intelligenceSourceList.querySelectorAll('[data-source-id]').forEach((button) => {
     button.addEventListener('click', () => {
       const source = sources.find((item) => item.id === button.dataset.sourceId);
@@ -1105,7 +1122,9 @@ async function refreshIntelligenceSources() {
   if (!intelligenceSourceList) return;
   setIntelligenceStatus('Loading intelligence sources...');
   try {
-    const result = await api('/api/developer/intelligence');
+    const [result, inspector] = await Promise.all([api('/api/developer/intelligence'), api('/api/developer/intelligence/prompt-inspector')]);
+    selectedCampaignIntelligenceSourceIds = new Set(inspector.selected_source_ids || []);
+    renderPromptInspector(inspector);
     renderIntelligenceSources(result.sources || []);
     setIntelligenceStatus(`Loaded ${(result.sources || []).length} intelligence source(s).`);
   } catch (error) {
@@ -1122,6 +1141,28 @@ function intelligencePayload() {
     priority: Number.parseInt(intelligenceSourcePriorityInput?.value || '0', 10) || 0,
     enabled: !!intelligenceSourceEnabledInput?.checked,
   };
+}
+
+function renderPromptInspector(data) {
+  if (!campaignPromptInspector || !data) return;
+  const names = (items) => (items || []).map((item) => item.title || item.id).join(', ') || 'none';
+  campaignPromptInspector.innerHTML = `<strong>Core intelligence files used:</strong> ${escapeHtml(names(data.core_intelligence_files))}<br />
+    <strong>Selected campaign intelligence files used:</strong> ${escapeHtml(names(data.campaign_intelligence_files))}<br />
+    Narrator rules: ${escapeHtml(String(data.narrator_rules_count || 0))}; Character sheets: ${escapeHtml(String(data.character_sheets_count || 0))}; Inventory items: ${escapeHtml(String(data.inventory_item_count || 0))}; Abilities: ${escapeHtml(String(data.ability_count || 0))}; Memory summary: ${data.memory_summary_present ? 'present' : 'absent'}; Estimated guidance chars: ${escapeHtml(String(data.estimated_guidance_char_count || 0))}`;
+}
+
+async function refreshPromptInspector() {
+  try { renderPromptInspector(await api('/api/developer/intelligence/prompt-inspector')); } catch (error) { setIntelligenceStatus(error.message, true); }
+}
+
+async function applyCampaignIntelligenceSources() {
+  try {
+    const inspector = await api('/api/developer/intelligence/campaign-sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled_source_ids: Array.from(selectedCampaignIntelligenceSourceIds) }) });
+    selectedCampaignIntelligenceSourceIds = new Set(inspector.selected_source_ids || []);
+    renderPromptInspector(inspector);
+    renderIntelligenceSources(intelligenceSourcesCache);
+    setIntelligenceStatus('Updated campaign intelligence selection.');
+  } catch (error) { setIntelligenceStatus(error.message, true); }
 }
 
 async function postIntelligence(endpoint, payload, successMessage) {
@@ -3254,6 +3295,8 @@ bindClickById('open-setup-modal', openSetupModal);
 bindClickById('close-setup-modal', closeSetupModal);
 
 refreshIntelligenceSourcesButton?.addEventListener('click', refreshIntelligenceSources);
+applyCampaignIntelligenceSourcesButton?.addEventListener('click', applyCampaignIntelligenceSources);
+refreshPromptInspectorButton?.addEventListener('click', refreshPromptInspector);
 addIntelligenceSourceButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/import', intelligencePayload(), 'Imported source file.'));
 replaceIntelligenceSourceButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/replace', intelligencePayload(), 'Replaced source file.'));
 applyIntelligenceEnabledButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/enabled', { id: intelligencePayload().id, enabled: intelligencePayload().enabled }, 'Updated source enabled state.'));
