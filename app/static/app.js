@@ -9,6 +9,7 @@ const imageStatusLine = document.getElementById('image-status-line');
 const sceneImageProgressStrip = document.getElementById('scene-image-progress-strip');
 const sceneImageProgressText = document.getElementById('scene-image-progress-text');
 const statusLine = document.getElementById('status-line');
+const autosaveStatus = document.getElementById('autosave-status');
 const inputModeToggle = document.getElementById('input-mode-toggle');
 const readinessPanel = document.getElementById('dependency-readiness');
 const setupGuidance = document.getElementById('setup-guidance');
@@ -356,8 +357,15 @@ function ingestPersistedCampaignSettings(snapshot, slot, { forceUi = false } = {
 
 function syncVisualModeUi({ manualEnabled }) {
   if (manualImagePanel) {
-    manualImagePanel.style.display = manualEnabled ? 'grid' : 'none';
+    manualImagePanel.style.display = 'none';
+    manualImagePanel.classList.add('hidden');
+    manualImagePanel.setAttribute('aria-hidden', 'true');
   }
+}
+
+function setAutosaveStatus(message) {
+  if (!autosaveStatus) return;
+  autosaveStatus.textContent = message || 'Campaigns autosave automatically.';
 }
 
 function installTypeLabel(installType) {
@@ -2341,10 +2349,9 @@ function renderDependencyReadiness(payload) {
   const textReady = byType.model_provider?.status_level === 'ready' && byType.selected_model?.status_level === 'ready';
   const imageReady = byType.image_provider?.status_level === 'ready';
   summary.innerHTML = `
-    <div><strong>Text AI Setup:</strong> ${textReady ? 'Ready' : 'Needs setup'}</div>
-    <div><strong>Image AI Setup:</strong> ${imageReady ? 'Ready' : 'Needs setup'}</div>
-    <div>Fallback story mode: available</div>
-    <div>Fallback image mode: local placeholder available</div>
+    <div><strong>Story DM:</strong> ${textReady ? 'Ready' : 'Basic DM Mode available'}</div>
+    <div><strong>Image addon:</strong> Optional and hidden from V1 play</div>
+    <div>Basic DM Mode works without local AI setup.</div>
     <div class="readiness-action-row">
       ${primaryActions.map((action) => `<button class="readiness-action-btn primary-action-btn" data-action="${escapeHtml(action.id)}">${escapeHtml(action.label)}</button>`).join('')}
     </div>
@@ -2356,15 +2363,15 @@ function renderDependencyReadiness(payload) {
   readinessPanel.appendChild(summary);
   if (setupSummary) {
     setupSummary.innerHTML = `
-      <div>Text AI: <span class="${textReady ? 'ready-badge' : 'not-ready-badge'}">${textReady ? 'Ready' : 'Not ready'}</span></div>
-      <div>Image AI: <span class="${imageReady ? 'ready-badge' : 'not-ready-badge'}">${imageReady ? 'Ready' : 'Not ready'}</span></div>
-      <div>Use <strong>AI Setup</strong> to install/connect dependencies.</div>
+      <div>Story DM: <span class="${textReady ? 'ready-badge' : 'ready-badge'}">${textReady ? 'Ready' : 'Basic DM Mode'}</span></div>
+      <div>Image addon: optional future setting</div>
+      <div>Use <strong>Settings</strong> for optional advanced connections.</div>
     `;
   }
 
   const sections = [
     { id: 'text', title: 'Text AI Setup', types: ['model_provider', 'selected_model'] },
-    { id: 'image', title: 'Image AI Setup', types: ['image_provider'] },
+    { id: 'image', title: 'Image Addon (Future Optional)', types: ['image_provider'] },
   ];
   for (const sectionDef of sections) {
     const section = document.createElement('div');
@@ -2397,14 +2404,14 @@ function renderDependencyReadiness(payload) {
       : '';
     el.innerHTML = `
       <strong>${escapeHtml(title)}</strong>
-      <div>Provider: <code>${escapeHtml(item.provider)}</code></div>
+      <div>Mode: <code>${escapeHtml(item.provider === 'null' ? 'Basic DM Mode' : item.provider)}</code></div>
       <div class="${badgeClass}">${ready ? 'Ready' : 'Not ready'}</div>
       ${statusCode}
       ${selectedModel}
       <div>${escapeHtml(item.user_message || '')}</div>
       ${startupInfo}
       ${startupStep}
-      <div>Next step: ${escapeHtml(item.provider_type === 'image_provider' ? 'Use Set Up Image AI in Visual Pipeline.' : (item.next_action || 'No action needed.'))}</div>
+      <div>Next step: ${escapeHtml(item.provider_type === 'image_provider' ? 'Images are optional future addon settings.' : (item.next_action || 'No action needed.'))}</div>
       ${fallbackInfo}
       ${startupLog}
       <div class="readiness-action-row">${actionButtons}${copyButton}</div>
@@ -2430,18 +2437,8 @@ function renderDependencyReadiness(payload) {
     setupGuidance.appendChild(li);
   }
   const imageProviderItem = (payload.items || []).find((item) => item.provider_type === 'image_provider');
-  if (!imageProviderItem) {
-    setImageStatus('Image provider status is unavailable. Click Recheck dependencies.', true);
-    return;
-  }
-  if (imageProviderItem.status_level === 'ready') {
-    setImageStatus(imageProviderItem.user_message || 'Image generation service is ready.');
-  } else {
-    setImageStatus(
-      `${imageProviderItem.user_message || 'Image generation service is not ready.'} ${imageProviderItem.next_action || ''}`.trim(),
-      true,
-    );
-  }
+  if (!imageProviderItem) return;
+  setImageStatus('Image addon is disabled in the default V1 player experience.');
 }
 
 async function refreshDependencyReadiness() {
@@ -2465,10 +2462,11 @@ async function sendInput() {
     sendButton.disabled = true;
     if (inputModeToggle) inputModeToggle.disabled = true;
     const localMessageType = currentInputMode === 'ooc' ? 'ooc_player' : 'player';
-    const pendingText = currentInputMode === 'ooc' ? 'Consulting GM brain…' : 'Resolving turn…';
+    const pendingText = currentInputMode === 'ooc' ? 'Consulting DM…' : 'Resolving turn…';
     renderMessage({ type: localMessageType, text, timestamp: new Date().toISOString() });
     renderMessage({ type: 'system', text: pendingText, timestamp: new Date().toISOString() });
     setStatus(currentInputMode === 'ooc' ? 'Processing OOC question...' : 'Processing action...');
+    setAutosaveStatus('Autosave pending…');
     input.value = '';
     console.log(`[turn-timing] frontend_submit_ms=0.00 submitted_at=${new Date().toISOString()}`);
     const turn = await api('/api/campaign/input', {
@@ -2490,14 +2488,16 @@ async function sendInput() {
         waitForSceneVisualUpdate(previousVisual?.updated_at || '').catch(() => {});
       }
       refreshSaves().catch((error) => console.warn('save list refresh failed', error));
+      setAutosaveStatus('Autosaved just now.');
     } else {
       await refreshMessages();
+      setAutosaveStatus('Autosaved just now.');
     }
     const modelStatus = turn.metadata?.model_status;
     if (modelStatus && modelStatus.provider === 'ollama' && !modelStatus.ready) {
-      setStatus(modelStatus.user_message || 'Ollama provider is unavailable.', true);
+      setStatus(modelStatus.user_message || 'Local AI is unavailable. Basic DM Mode remains available.', true);
     } else {
-      setStatus('Turn processed.');
+      setStatus('Turn processed. Autosaved just now.');
     }
   } catch (error) {
     setStatus(error.message, true);
@@ -2574,7 +2574,8 @@ async function saveCampaign() {
     await api('/api/campaign/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot }) });
     selectedSlot = slot;
     await refreshSaves();
-    setStatus(`Saved to ${slot}`);
+    setAutosaveStatus('Autosaved just now.');
+    setStatus(`Autosaved ${slot}.`);
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -2652,7 +2653,7 @@ async function createCampaignFromForm() {
     const playerName = document.getElementById('form-player-name').value.trim() || 'Aria';
     const playerClass = document.getElementById('form-player-class').value.trim() || 'Ranger';
     const worldTheme = document.getElementById('form-world-theme').value.trim() || 'classic fantasy';
-    const sceneVisualMode = normalizeSceneVisualMode(document.getElementById('form-scene-visual-mode')?.value || 'after_narration');
+    const sceneVisualMode = normalizeSceneVisualMode(document.getElementById('form-scene-visual-mode')?.value || 'off');
     const playStyle = {
       allow_freeform_powers: !!document.getElementById('form-allow-freeform-powers')?.checked,
       auto_update_character_sheet_from_actions: !!document.getElementById('form-auto-update-sheet-from-actions')?.checked,
@@ -2689,7 +2690,8 @@ async function createCampaignFromForm() {
     clearSceneImage();
     closeNewCampaignModal();
     await Promise.all([refreshMessages(), refreshState(), refreshSaves(), refreshSceneVisual()]);
-    setStatus('New campaign started.');
+    setAutosaveStatus('Autosaved just now.');
+    setStatus('New campaign started. Autosave is on.');
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -2793,7 +2795,7 @@ async function applySettings() {
     );
     const modelStatus = settings.settings?.model_status;
     if (modelStatus && modelStatus.provider === 'ollama' && !modelStatus.ready) {
-      setStatus(modelStatus.user_message || 'Ollama provider is unavailable.', true);
+      setStatus(modelStatus.user_message || 'Local AI is unavailable. Basic DM Mode remains available.', true);
     } else {
       setStatus('Settings applied.');
     }

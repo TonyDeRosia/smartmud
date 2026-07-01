@@ -168,12 +168,12 @@ class CampaignSettings:
         auto_evolve_npc_personalities: bool = True
         reactive_world_persistence: bool = True
         narration_format_mode: str = "book"
-        scene_visual_mode: str = "after_narration"
+        scene_visual_mode: str = "off"
 
     profile: str = "classic_fantasy"
     mature_content_enabled: bool = False
     narration_tone: str = "heroic"
-    image_generation_enabled: bool = True
+    image_generation_enabled: bool = False
     suggested_moves_enabled: bool = False
     display_mode: str = "story"
     player_suggested_moves_override: bool | None = None

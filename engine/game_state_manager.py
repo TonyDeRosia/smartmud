@@ -134,7 +134,7 @@ class GameStateManager:
         new_payload["settings"]["suggested_moves_enabled"] = bool(suggested_moves_enabled)
         clean_display_mode = str(display_mode or "story").strip().lower()
         new_payload["settings"]["display_mode"] = clean_display_mode if clean_display_mode in {"story", "mud", "rpg"} else "story"
-        new_payload["settings"]["image_generation_enabled"] = True
+        new_payload["settings"]["image_generation_enabled"] = False
         new_payload["settings"]["player_suggested_moves_override"] = None
         new_payload["settings"]["play_style"] = {
             "allow_freeform_powers": True,
@@ -145,11 +145,11 @@ class GameStateManager:
             "auto_evolve_npc_personalities": True,
             "reactive_world_persistence": True,
             "narration_format_mode": "book",
-            "scene_visual_mode": "after_narration",
+            "scene_visual_mode": "off",
         }
         print(
             "[settings-defaults] new_campaign_defaults "
-            "manual=true scene_visual_mode=after_narration suggested_moves=false"
+            "manual=false scene_visual_mode=off suggested_moves=false"
         )
         if not content_settings_enabled:
             new_payload["settings"]["content_settings"] = {

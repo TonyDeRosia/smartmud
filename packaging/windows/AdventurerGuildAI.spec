@@ -35,6 +35,8 @@ def _tree_entries(src: Path, dest: str) -> list[tuple[str, str]]:
     return [(str(path), str(Path(dest) / path.relative_to(src))) for path in src.rglob("*") if path.is_file()]
 
 datas = []
+if (ROOT / "README_FIRST.txt").exists():
+    datas.append((str(ROOT / "README_FIRST.txt"), "."))
 datas.extend(_tree_entries(ROOT / "data", "data"))
 datas.extend(_tree_entries(ROOT / "app" / "static", "app/static"))
 datas.extend(_tree_entries(ROOT / "packaging" / "windows" / "runtime_bundle", "runtime_bundle"))
