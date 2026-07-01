@@ -8,6 +8,7 @@ import re
 from engine.character_sheets import CharacterSheetPromptFormatter
 from engine.entities import CampaignState
 from memory.retrieval import RetrievedMemory
+from app.intelligence import default_intelligence_library
 from prompts.templates import (
     CAMPAIGN_TONE_TEMPLATE,
     CONTENT_SETTINGS_TEMPLATE,
@@ -105,8 +106,19 @@ class PromptRenderer:
             ]
         )
         print("[narrative-quality] strengthened_prompt=true")
+        try:
+            campaign_intelligence_guidance = default_intelligence_library().build_core_guidance()
+        except Exception as exc:  # pragma: no cover - defensive prompt fallback
+            print(f"[campaign-intelligence] guidance_unavailable={exc}")
+            campaign_intelligence_guidance = ""
+        campaign_intelligence_layer = (
+            f"[Campaign Intelligence Guidance]\n{campaign_intelligence_guidance}\n"
+            if campaign_intelligence_guidance
+            else ""
+        )
         return (
-            f"[System Role]\n{SYSTEM_ROLE_TEMPLATE}\n"
+            campaign_intelligence_layer
+            + f"[System Role]\n{SYSTEM_ROLE_TEMPLATE}\n"
             f"[System Tone]\n{SYSTEM_TONE_TEMPLATE}\n"
             f"[Storytelling Quality]\n{STORY_QUALITY_TEMPLATE}\n"
             f"[Player Agency Guardrails]\n{PLAYER_AGENCY_TEMPLATE}\n"

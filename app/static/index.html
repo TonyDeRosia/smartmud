@@ -454,6 +454,36 @@
               <div id="supported-models-list" class="setup-model-list">Loading supported models...</div>
             </div>
           </section>
+
+          <section class="developer-tool-section" id="campaign-intelligence-library">
+            <h5>Campaign Intelligence Library</h5>
+            <p class="setup-intro">Developer-only source files that can guide campaign AI behavior. Enabled core files are currently loaded by priority into a small Campaign Intelligence Guidance prompt section.</p>
+            <div id="intelligence-status" class="setup-summary">Loading intelligence sources...</div>
+            <div class="button-row">
+              <button id="refresh-intelligence-sources" type="button">Refresh Sources</button>
+              <button id="add-intelligence-source" type="button">Add Source File</button>
+              <button id="replace-intelligence-source" type="button">Replace Source File</button>
+              <button id="rebuild-intelligence-index" type="button">Rebuild Index placeholder</button>
+              <button id="test-intelligence-retrieval" type="button">Test Retrieval placeholder</button>
+            </div>
+            <label>Selected source id <input id="intelligence-source-id" type="text" placeholder="source id for replace / enable / priority" /></label>
+            <label>Source file path <input id="intelligence-source-path" type="text" placeholder="Path to .txt, .md, or .json file" /></label>
+            <label>Title <input id="intelligence-source-title" type="text" placeholder="Optional title" /></label>
+            <label>Category
+              <select id="intelligence-source-category">
+                <option value="imported">imported</option>
+                <option value="packs">packs</option>
+              </select>
+            </label>
+            <label>Priority <input id="intelligence-source-priority" type="number" value="0" /></label>
+            <label><input id="intelligence-source-enabled" type="checkbox" checked /> Enable/Disable selected source</label>
+            <div class="button-row">
+              <button id="apply-intelligence-enabled" type="button">Apply Enable/Disable</button>
+              <button id="apply-intelligence-priority" type="button">Apply Priority</button>
+            </div>
+            <div id="intelligence-source-list" class="setup-model-list">No intelligence sources loaded.</div>
+          </section>
+
           <section class="developer-tool-section advanced-addon-settings">
             <h5>ComfyUI / Image Addon Setup</h5>
           <section class="guided-image-setup-card">

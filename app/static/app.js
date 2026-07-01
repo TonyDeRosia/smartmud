@@ -139,6 +139,22 @@ const worldBuildingDesignList = document.getElementById('world-building-design-l
 const worldBuildingReactiveList = document.getElementById('world-building-reactive-list');
 const recalibrateWorldBuildingButton = document.getElementById('recalibrate-world-building');
 
+const intelligenceStatus = document.getElementById('intelligence-status');
+const intelligenceSourceList = document.getElementById('intelligence-source-list');
+const intelligenceSourceIdInput = document.getElementById('intelligence-source-id');
+const intelligenceSourcePathInput = document.getElementById('intelligence-source-path');
+const intelligenceSourceTitleInput = document.getElementById('intelligence-source-title');
+const intelligenceSourceCategoryInput = document.getElementById('intelligence-source-category');
+const intelligenceSourcePriorityInput = document.getElementById('intelligence-source-priority');
+const intelligenceSourceEnabledInput = document.getElementById('intelligence-source-enabled');
+const refreshIntelligenceSourcesButton = document.getElementById('refresh-intelligence-sources');
+const addIntelligenceSourceButton = document.getElementById('add-intelligence-source');
+const replaceIntelligenceSourceButton = document.getElementById('replace-intelligence-source');
+const applyIntelligenceEnabledButton = document.getElementById('apply-intelligence-enabled');
+const applyIntelligencePriorityButton = document.getElementById('apply-intelligence-priority');
+const rebuildIntelligenceIndexButton = document.getElementById('rebuild-intelligence-index');
+const testIntelligenceRetrievalButton = document.getElementById('test-intelligence-retrieval');
+
 let draftCharacterSheets = [];
 let editingSheetIndex = -1;
 let runtimeCharacterSheets = [];
@@ -975,6 +991,72 @@ function openNewCampaignModal() {
   document.getElementById('character-sheets-manager')?.classList.add('hidden');
   document.getElementById('character-sheet-editor')?.classList.add('hidden');
   newCampaignModal.classList.remove('hidden');
+}
+
+
+function setIntelligenceStatus(message, isError = false) {
+  if (!intelligenceStatus) return;
+  intelligenceStatus.textContent = message;
+  intelligenceStatus.classList.toggle('error', !!isError);
+}
+
+function renderIntelligenceSources(sources) {
+  if (!intelligenceSourceList) return;
+  if (!Array.isArray(sources) || !sources.length) {
+    intelligenceSourceList.textContent = 'No intelligence sources found.';
+    return;
+  }
+  intelligenceSourceList.innerHTML = sources.map((source) => {
+    const enabled = source.enabled ? 'enabled' : 'disabled';
+    return `<button type="button" class="model-card intelligence-source-card" data-source-id="${escapeHtml(source.id || '')}">
+      <strong>${escapeHtml(source.title || source.id || '')}</strong>
+      <span>${escapeHtml(source.id || '')} • ${escapeHtml(source.category || '')} • priority ${escapeHtml(String(source.priority ?? 0))} • ${enabled}</span>
+      <small>${escapeHtml(source.filename || '')}</small>
+    </button>`;
+  }).join('');
+  intelligenceSourceList.querySelectorAll('[data-source-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const source = sources.find((item) => item.id === button.dataset.sourceId);
+      if (!source) return;
+      if (intelligenceSourceIdInput) intelligenceSourceIdInput.value = source.id || '';
+      if (intelligenceSourceTitleInput) intelligenceSourceTitleInput.value = source.title || '';
+      if (intelligenceSourcePriorityInput) intelligenceSourcePriorityInput.value = source.priority || 0;
+      if (intelligenceSourceEnabledInput) intelligenceSourceEnabledInput.checked = !!source.enabled;
+    });
+  });
+}
+
+async function refreshIntelligenceSources() {
+  if (!intelligenceSourceList) return;
+  setIntelligenceStatus('Loading intelligence sources...');
+  try {
+    const result = await api('/api/developer/intelligence');
+    renderIntelligenceSources(result.sources || []);
+    setIntelligenceStatus(`Loaded ${(result.sources || []).length} intelligence source(s).`);
+  } catch (error) {
+    setIntelligenceStatus(`Could not load intelligence sources: ${error.message}`, true);
+  }
+}
+
+function intelligencePayload() {
+  return {
+    id: intelligenceSourceIdInput?.value?.trim() || '',
+    source_path: intelligenceSourcePathInput?.value?.trim() || '',
+    title: intelligenceSourceTitleInput?.value?.trim() || '',
+    category: intelligenceSourceCategoryInput?.value || 'imported',
+    priority: Number.parseInt(intelligenceSourcePriorityInput?.value || '0', 10) || 0,
+    enabled: !!intelligenceSourceEnabledInput?.checked,
+  };
+}
+
+async function postIntelligence(endpoint, payload, successMessage) {
+  try {
+    const result = await api(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    renderIntelligenceSources(result.sources || []);
+    setIntelligenceStatus(successMessage);
+  } catch (error) {
+    setIntelligenceStatus(error.message, true);
+  }
 }
 
 function closeNewCampaignModal() {
@@ -3098,6 +3180,16 @@ creatorModeConfirmEnable?.addEventListener('click', async () => {
 
 bindClickById('open-setup-modal', openSetupModal);
 bindClickById('close-setup-modal', closeSetupModal);
+
+refreshIntelligenceSourcesButton?.addEventListener('click', refreshIntelligenceSources);
+addIntelligenceSourceButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/import', intelligencePayload(), 'Imported source file.'));
+replaceIntelligenceSourceButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/replace', intelligencePayload(), 'Replaced source file.'));
+applyIntelligenceEnabledButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/enabled', { id: intelligencePayload().id, enabled: intelligencePayload().enabled }, 'Updated source enabled state.'));
+applyIntelligencePriorityButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/priority', { id: intelligencePayload().id, priority: intelligencePayload().priority }, 'Updated source priority.'));
+rebuildIntelligenceIndexButton?.addEventListener('click', () => setIntelligenceStatus('Rebuild Index placeholder: embeddings/vector index are intentionally not implemented yet.'));
+testIntelligenceRetrievalButton?.addEventListener('click', () => setIntelligenceStatus('Test Retrieval placeholder: priority-based loading is available; semantic retrieval is a future step.'));
+refreshIntelligenceSources();
+
 developerToolsToggleInput?.addEventListener('change', () => setDeveloperToolsVisible(!!developerToolsToggleInput.checked));
 setDeveloperToolsVisible(getDeveloperToolsVisiblePreference());
 bindClickById('setup-text-ai', () => runReadinessAction('setup_text_ai', {}));
