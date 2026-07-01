@@ -20,12 +20,12 @@ class ModelRuntimeConfig:
 class ImageRuntimeConfig:
     provider: str = "local"
     base_url: str = "http://localhost:8188"
-    enabled: bool = True
+    enabled: bool = False
     comfyui_path: str = ""
     comfyui_workflow_path: str = ""
     comfyui_output_dir: str = ""
-    manual_image_generation_enabled: bool = True
-    campaign_auto_visual_timing: str = "after_narration"
+    manual_image_generation_enabled: bool = False
+    campaign_auto_visual_timing: str = "off"
     checkpoint_source: str = "local"
     checkpoint_model_page: str = "https://civitai.com/models/4384/dreamshaper"
     checkpoint_folder: str = ""
@@ -96,13 +96,13 @@ class RuntimeConfigStore:
             image=ImageRuntimeConfig(
                 provider=str(image_payload.get("provider", "local")),
                 base_url=str(image_payload.get("base_url", "http://localhost:8188")),
-                enabled=bool(image_payload.get("enabled", True)),
+                enabled=bool(image_payload.get("enabled", False)),
                 comfyui_path=str(image_payload.get("comfyui_path", "")),
                 comfyui_workflow_path=str(image_payload.get("comfyui_workflow_path", "")),
                 comfyui_output_dir=str(image_payload.get("comfyui_output_dir", "")),
-                manual_image_generation_enabled=bool(image_payload.get("manual_image_generation_enabled", True)),
+                manual_image_generation_enabled=bool(image_payload.get("manual_image_generation_enabled", False)),
                 campaign_auto_visual_timing=self._normalize_campaign_auto_visual_timing(
-                    image_payload.get("campaign_auto_visual_timing", image_payload.get("turn_visuals_mode", "after_narration"))
+                    image_payload.get("campaign_auto_visual_timing", image_payload.get("turn_visuals_mode", "off"))
                 ),
                 checkpoint_source=str(image_payload.get("checkpoint_source", "local")),
                 checkpoint_model_page=str(image_payload.get("checkpoint_model_page", "https://civitai.com/models/4384/dreamshaper")),

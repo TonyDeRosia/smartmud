@@ -4614,7 +4614,7 @@ def test_narrator_rules_persist_after_restart_and_switch_isolated(tmp_path: Path
     assert "Rule A tone" not in capture.last_system_prompt
 
 
-def test_world_building_button_and_modal_markup_present_in_left_controls() -> None:
+def test_world_building_button_and_modal_markup_present_in_settings() -> None:
     index_html = Path("app/static/index.html").read_text(encoding="utf-8")
     app_js = Path("app/static/app.js").read_text(encoding="utf-8")
     narrator_idx = index_html.index('id="open-narrator-rules"')

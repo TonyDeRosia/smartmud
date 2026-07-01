@@ -56,6 +56,7 @@ The spec intentionally does **not** include model checkpoints. `tools/audit_dist
 After `Build_AdventurersGuildAI.bat`, expect:
 
 - `dist/AdventurerGuildAI/AdventurerGuildAI.exe`
+- `dist/AdventurerGuildAI/README_FIRST.txt`
 - `dist/AdventurerGuildAI/app/static/*`
 - `dist/AdventurerGuildAI/data/*`
 - `dist/AdventurerGuildAI/runtime_bundle/README.txt`
@@ -100,6 +101,7 @@ Installer must copy the full `dist/AdventurerGuildAI/*` tree into:
 ### Required files/folders to copy
 
 - `AdventurerGuildAI.exe`
+- `README_FIRST.txt`
 - `app/static/*`
 - `data/*`
 - `runtime_bundle/comfyui/*` (runtime scaffold; actual runtime payload may be populated during release prep)
