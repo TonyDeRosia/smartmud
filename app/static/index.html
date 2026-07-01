@@ -107,28 +107,17 @@
       <div class="modal-card">
         <h3>Forge a New Campaign</h3>
         <div class="modal-grid campaign-create-grid">
-          <label class="full-width">Campaign Name <input id="form-campaign-name" type="text" value="Aria's Classic Fantasy Campaign" /></label>
-          <label>World Name <input id="form-world-name" type="text" value="Untitled World" /></label>
-          <label>World Theme / Genre <input id="form-world-theme" type="text" value="classic fantasy" /></label>
-          <label>Starting Location <input id="form-starting-location" type="text" value="Starting Area" /></label>
+          <label class="full-width">Campaign Name <input id="form-campaign-name" type="text" value="New Adventure" /></label>
+          <label>Genre / Theme <input id="form-world-theme" type="text" value="classic fantasy" /></label>
           <label>Tone / Style <input id="form-tone" type="text" value="heroic" /></label>
-          <label>Player Name <input id="form-player-name" type="text" value="Aria" /></label>
-          <label>Player Class <input id="form-player-class" type="text" value="Ranger" /></label>
-          <label class="full-width">Player Concept (optional) <input id="form-player-concept" type="text" placeholder="Exiled ranger seeking redemption" /></label>
-          <label class="full-width">Premise / World Description (optional) <textarea id="form-premise" rows="3" placeholder="The old gods vanished and the sea is haunted."></textarea></label>
-          <label class="full-width"><input id="form-suggested-moves-enabled" type="checkbox" /> Enable suggested next moves by default</label>
-          <div class="character-sheets-entry">
-            <button id="open-character-sheets" type="button">Character Sheets</button>
-            <span id="character-sheets-count">No sheets attached</span>
-          </div>
-          <label>Sheet Guidance Strength
-            <select id="form-character-sheet-guidance-strength">
-              <option value="light">Light guidance</option>
-              <option value="strong">Strong guidance</option>
-            </select>
-          </label>
-          <section class="campaign-play-style-group full-width">
-            <h4>Campaign Play Style</h4>
+          <label class="full-width">World Premise (optional) <textarea id="form-premise" rows="3" placeholder="The old gods vanished and the sea is haunted."></textarea></label>
+          <input id="form-world-name" type="hidden" value="Untitled World" />
+          <input id="form-starting-location" type="hidden" value="Starting Area" />
+          <input id="form-player-name" type="hidden" value="Adventurer" />
+          <input id="form-player-class" type="hidden" value="Unknown" />
+          <input id="form-player-concept" type="hidden" value="" />
+          <details class="campaign-play-style-group full-width advanced-campaign-rules">
+            <summary>Advanced Campaign Rules</summary>
             <label><input id="form-allow-freeform-powers" type="checkbox" checked /> Allow freeform powers/actions not yet on sheet</label>
             <label><input id="form-auto-update-sheet-from-actions" type="checkbox" checked /> Auto-update character sheet from demonstrated actions</label>
             <label><input id="form-strict-sheet-enforcement" type="checkbox" /> Strictly require sheet-listed powers</label>
@@ -151,7 +140,7 @@
                 <option value="after_narration">After narration</option>
               </select>
             </label>
-          </section>
+          </details>
           <div id="character-sheets-manager" class="character-sheets-manager hidden">
             <h4>Character Sheets Manager</h4>
             <div id="character-sheets-list" class="character-sheets-list">No sheets yet.</div>

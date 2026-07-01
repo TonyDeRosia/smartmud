@@ -128,3 +128,18 @@ def test_creator_mode_confirmation_handler_still_opens_confirmation_modal() -> N
     script = Path("app/static/app.js").read_text(encoding="utf-8")
     assert "openCreatorModeConfirmation();" in script
     assert "creatorModeConfirmModal.classList.remove('hidden');" in script
+
+
+def test_new_campaign_form_is_campaign_focused_by_default() -> None:
+    html = _index_html()
+    modal = html[html.index('id="new-campaign-modal"'):html.index('id="campaign-browser-modal"')]
+    assert 'id="form-campaign-name"' in modal
+    assert 'id="form-world-theme"' in modal
+    assert 'id="form-tone"' in modal
+    assert 'id="form-premise"' in modal
+    assert 'Advanced Campaign Rules' in modal
+    assert 'class="character-sheets-entry"' not in modal
+    assert '<h4>Character Sheets Manager</h4>' in modal
+    assert 'id="character-sheets-manager" class="character-sheets-manager hidden"' in modal
+    assert 'Player Name' not in modal
+    assert 'Player Class' not in modal

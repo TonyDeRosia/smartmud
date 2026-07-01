@@ -352,6 +352,7 @@ class CampaignState:
     world_meta: CampaignWorldMeta = field(default_factory=CampaignWorldMeta)
     character_sheets: list[CharacterSheet] = field(default_factory=list)
     character_sheet_guidance_strength: GuidanceStrength = "light"
+    startup_state: str = "ready"
     structured_state: CampaignStructuredState = field(default_factory=CampaignStructuredState)
 
     def to_dict(self) -> dict[str, Any]:
@@ -457,6 +458,7 @@ class CampaignState:
             world_meta=cls._world_meta_from_payload(payload.get("world_meta"), payload),
             character_sheets=[CharacterSheet.from_payload(entry) for entry in payload.get("character_sheets", []) if isinstance(entry, dict)],
             character_sheet_guidance_strength=cls._sheet_strength_from_payload(payload.get("character_sheet_guidance_strength", "light")),
+            startup_state=str(payload.get("startup_state", "ready") or "ready"),
             structured_state=cls._structured_state_from_payload(payload.get("structured_state"), payload),
         )
 
