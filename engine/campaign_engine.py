@@ -105,8 +105,8 @@ class CampaignEngine:
 
     def _handle_mud_command(self, state: CampaignState, action: str) -> TurnResult | None:
         normalized = action.strip().lower()
-        directions = {"north", "south", "east", "west", "up", "down", "n", "s", "e", "w", "u", "d"}
-        aliases = {"n":"north", "s":"south", "e":"east", "w":"west", "u":"up", "d":"down"}
+        directions = {"north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest", "up", "down", "in", "out", "n", "s", "e", "w", "ne", "nw", "se", "sw", "u", "d"}
+        aliases = {"n":"north", "s":"south", "e":"east", "w":"west", "ne":"northeast", "nw":"northwest", "se":"southeast", "sw":"southwest", "u":"up", "d":"down"}
         direction = ""
         if normalized in directions:
             direction = aliases.get(normalized, normalized)
@@ -130,11 +130,17 @@ class CampaignEngine:
             room_npcs = [npcs_by_id[n] for n in room.get("npcs", []) if n in npcs_by_id]
             room_objects = [{"id": o, "name": o.replace("_", " ").title()} for o in room.get("objects", [])]
             narrative = [f"You travel {direction}."]
-        elif normalized in {"look", "l"} or normalized.startswith(("look ", "examine ", "inventory", "equipment", "spellbook", "abilities", "score", "character", "quests", "journal", "help", "say ", "talk ", "ask ")):
+        elif normalized in {"look", "l"} or normalized.startswith(("look ", "examine ", "inspect ", "inventory", "equipment", "spellbook", "abilities", "score", "character", "quests", "journal", "help", "say ", "talk ", "ask ")):
             narrative = []
             if normalized == "inventory": narrative = ["Inventory: " + ", ".join(i.get("name", "item") for i in state.structured_state.runtime.inventory_state.get("entries", []))]
+            elif normalized == "equipment": narrative = ["Equipment: " + ", ".join(i.get("name", "item") for i in state.structured_state.runtime.inventory_state.get("entries", []) if i.get("equipped")) or "Equipment: nothing equipped."]
+            elif normalized in {"score", "character"}: narrative = [f"Score: level {state.player.level} {player['race']} {player['class']}, HP {player['hp']}/{player['max_hp']}, XP {player['xp']}."]
             elif normalized in {"spellbook", "abilities"}: narrative = ["Abilities: " + ", ".join(a.get("name", "ability") for a in state.structured_state.runtime.abilities)]
-            elif normalized == "help": narrative = ["Commands: look, examine <target>, say <message>, talk <npc>, ask <npc> <topic>, go <direction>, north/south/east/west/up/down, inventory, equipment, spellbook, abilities, score, character, quests, journal, help."]
+            elif normalized in {"quests", "journal"}: narrative = ["Quests: " + ", ".join(q.get("title", q.get("id", "quest")) for q in world.quests[:7])]
+            elif normalized == "help": narrative = ["Commands: look, look <target>, examine/inspect <target>, say <message>, talk <npc>, ask <npc> about <topic>, go <direction>, north/south/east/west/ne/nw/se/sw/up/down/in/out, inventory, equipment, score, character, spellbook, abilities, quests, journal, help."]
+            elif normalized.startswith(("talk ", "ask ", "say ")):
+                self.gm_orchestrator.build_context(action, state, [{"source": k, "text": v} for k, v in world.intelligence.items()])
+                narrative = ["The GM Orchestrator receives the NPC context for this social action."]
         else:
             return None
         text = render_room(room, world.manifest, player, npcs=room_npcs, objects=room_objects, narrative=narrative)

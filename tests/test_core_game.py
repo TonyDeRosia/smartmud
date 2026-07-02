@@ -293,3 +293,56 @@ def test_mud_v2_campaign_creation_and_room_movement(tmp_path, monkeypatch):
     assert moved.metadata["room_id"] == "old_gate_road"
     blocked = engine.run_turn(state, "east")
     assert blocked.metadata["movement"] == "invalid"
+
+
+def test_shattered_realms_v1_world_content_integrity():
+    from engine.world_registry import WorldRegistry, by_id
+    required = {"id","area_id","name","short_description","long_description","terrain","lighting","weather","tags","npcs","objects","exits","ambient_messages","active_hooks"}
+    world = WorldRegistry().load_world("shattered_realms")
+    assert len(world.rooms) >= 25
+    rooms = by_id(world.rooms); npcs = by_id(world.npcs); items = by_id(world.items)
+    allowed_objects = {"old_gate", "fountain", "notice_board"}
+    reverse = {"north":"south","south":"north","east":"west","west":"east","northeast":"southwest","southwest":"northeast","northwest":"southeast","southeast":"northwest","up":"down","down":"up","in":"out","out":"in"}
+    for room in world.rooms:
+        assert required <= set(room)
+        for exit_ in room["exits"]:
+            dest = exit_["destination_room_id"]
+            assert dest in rooms
+            if not exit_.get("one_way"):
+                assert any(e["destination_room_id"] == room["id"] and e["direction"] == reverse[exit_["direction"]] for e in rooms[dest]["exits"])
+        assert all(n in npcs for n in room["npcs"])
+        assert all(o in items or o in allowed_objects for o in room["objects"])
+    abilities = by_id(world.abilities)
+    for cls in world.classes:
+        assert all(a in abilities for a in cls["starting_abilities"])
+        assert all(i in items for i in cls["starting_items"])
+    for quest in world.quests:
+        assert quest["starting_room_id"] in rooms
+        assert quest["starting_npc_id"] in npcs
+    assert {"world_style", "npc_behavior", "room_description_style", "mud_command_style", "dialogue_style"} <= set(world.intelligence)
+
+
+def test_shattered_realms_npc_brain_records_have_required_context():
+    from engine.world_registry import WorldRegistry
+    required = {"personality","speech_style","goals","fears","likes","dislikes","knowledge","relationship_defaults","hostility_threshold","affection_threshold","memory_policy"}
+    important = {"guild_registrar_maren", "training_master_borik", "apprentice_mage_lina", "healer_sella", "suspicious_merchant_varrik", "tavern_keeper_jory", "crown_warden_ilyra", "giant_cellar_rat"}
+    npcs = {n["id"]: n for n in WorldRegistry().load_world("shattered_realms").npcs}
+    assert important <= set(npcs)
+    for npc_id in important:
+        assert required <= set(npcs[npc_id])
+
+
+def test_mud_v2_deterministic_commands_and_diagonal_support(tmp_path, monkeypatch):
+    from app.web import WebRuntime
+    from models.base import NullNarrationAdapter
+    from engine.campaign_engine import CampaignEngine
+    monkeypatch.setenv('ADVENTURERS_GUILD_USER_DATA', str(tmp_path / 'user_data'))
+    runtime = WebRuntime(Path.cwd())
+    runtime.create_campaign({"mode":"mud_v2", "slot":"mud_v2_cmds", "character_name":"Mira", "race_id":"human", "class_id":"mage", "appearance":"blue cloak"})
+    state = runtime.session.state
+    engine = CampaignEngine(NullNarrationAdapter())
+    assert "Inventory:" in engine.run_turn(state, "inventory").narrative
+    assert "Score:" in engine.run_turn(state, "score").narrative
+    assert "Arcane Bolt" in engine.run_turn(state, "spellbook").narrative
+    assert "north/south/east/west" in engine.run_turn(state, "help").narrative
+    assert "GM Orchestrator receives" in engine.run_turn(state, "ask Guild Registrar Maren about the old gate").narrative

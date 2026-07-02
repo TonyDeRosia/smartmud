@@ -1,1 +1,82 @@
-[{"id":"field_draught","name":"field draught","type":"consumable","rarity":"common","description":"A bitter restorative."}]
+[
+  {
+    "id": "minor_healing_potion",
+    "name": "minor healing potion",
+    "type": "consumable",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "minor healing potion for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "minor_mana_potion",
+    "name": "minor mana potion",
+    "type": "consumable",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "minor mana potion for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "ration",
+    "name": "ration",
+    "type": "consumable",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "ration for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "clean_water_flask",
+    "name": "clean water flask",
+    "type": "consumable",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "clean water flask for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "torch",
+    "name": "torch",
+    "type": "consumable",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "torch for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  }
+]

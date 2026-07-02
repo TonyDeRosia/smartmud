@@ -43,6 +43,7 @@ class WorldPackage:
     factions: list[dict[str, Any]]
     npcs: list[dict[str, Any]]
     quests: list[dict[str, Any]]
+    intelligence: dict[str, str]
 
     @property
     def id(self) -> str: return str(self.manifest["id"])
@@ -58,6 +59,9 @@ class WorldPackage:
         raise WorldRegistryError(f"Room not found in {self.id}: {room_id}")
     def campaign_intelligence_source_dir(self) -> Path | None:
         path = self.root / "campaign_intelligence"
+        return path if path.exists() else None
+    def world_intelligence_source_dir(self) -> Path | None:
+        path = self.root / "intelligence"
         return path if path.exists() else None
 
 class WorldRegistry:
@@ -89,10 +93,15 @@ class WorldRegistry:
         items = []
         for name in ("weapons", "armor", "consumables", "tools", "misc"):
             items.extend(_read_json(root / "items" / f"{name}.json", []))
+        intelligence_dir = root / "intelligence"
+        intelligence = {
+            path.stem: path.read_text(encoding="utf-8")
+            for path in sorted(intelligence_dir.glob("*.md"))
+        } if intelligence_dir.exists() else {}
         return WorldPackage(root, manifest, (root / "world_bible.md").read_text(encoding="utf-8") if (root / "world_bible.md").exists() else "", rules,
             _read_json(root / "character/races.json", []), _read_json(root / "character/classes.json", []), _read_json(root / "character/backgrounds.json", []),
             abilities, items, _read_json(root / "map/areas.json", []), _read_json(root / "map/rooms.json", []),
-            _read_json(root / "world/factions.json", []), _read_json(root / "world/npcs.json", []), _read_json(root / "world/quests.json", []))
+            _read_json(root / "world/factions.json", []), _read_json(root / "world/npcs.json", []), _read_json(root / "world/quests.json", []), intelligence)
 
 def by_id(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {str(r.get("id")): r for r in records}

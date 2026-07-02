@@ -1,1 +1,130 @@
-[]
+[
+  {
+    "id": "sealed_courier_satchel",
+    "name": "sealed courier satchel",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "sealed courier satchel for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "old_gate_shard",
+    "name": "old gate shard",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "old gate shard for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "rat_tail",
+    "name": "rat tail",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "rat tail for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "suspicious_ledger",
+    "name": "suspicious ledger",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "suspicious ledger for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "guild_token",
+    "name": "guild token",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "guild token for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "old_gate",
+    "name": "old gate",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "old gate for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "fountain",
+    "name": "fountain",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "fountain for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "notice_board",
+    "name": "notice board",
+    "type": "quest",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "notice board for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  }
+]

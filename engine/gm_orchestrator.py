@@ -62,7 +62,7 @@ class GMOrchestrator:
         inventory_state = getattr(runtime, "inventory_state", {}) if runtime else {}
         abilities = list(getattr(runtime, "abilities", []) or getattr(runtime, "spellbook", []) or []) if runtime else []
         quests = [q if isinstance(q, dict) else getattr(q, "__dict__", {}) for q in getattr(state, "quests", {}).values()] if hasattr(state, "quests") else []
-        npcs = [e for e in scene.get("entities", []) if isinstance(e, dict) and e.get("kind") in {"npc", "creature"}]
+        npcs = list(mud_room_state.get("visible_npcs", [])) or [e for e in scene.get("entities", []) if isinstance(e, dict) and e.get("kind") in {"npc", "creature"}]
         character = getattr(getattr(state, "player", None), "__dict__", {}) if state is not None else {}
         rules = {"stats": self.core_game["stats"], "combat": self.core_game.get("combat", {}), "magic": self.core_game.get("magic", {})}
         known = self._match_known_ability(player_input, abilities)
