@@ -116,17 +116,17 @@
             <label class="full-width">World Premise optional <textarea id="form-premise" rows="3" placeholder="The old gods vanished and the sea is haunted."></textarea></label>
           </section>
           <section class="wizard-step hidden" data-step="1"><h4>Play Style</h4>
-            <label><input name="form-play-style-choice" type="radio" value="Storybook Mode" checked /> Storybook Mode — Text-first, rules-light, AI handles most details.</label>
-            <label><input name="form-play-style-choice" type="radio" value="MUD Mode" /> MUD Mode — More structured room/location style.</label>
-            <label><input name="form-play-style-choice" type="radio" value="Stats Mode" /> Stats Mode — Stat allocation and sheet-focused play.</label>
-            <label><input name="form-play-style-choice" type="radio" value="Sandbox Mode" /> Sandbox Mode — Freeform world simulation.</label>
-            <label><input name="form-play-style-choice" type="radio" value="Hardcore Consequences" /> Hardcore Consequences — Riskier decisions, lasting consequences.</label>
+            <label class="wizard-option-card"><input name="form-play-style-choice" type="radio" value="Storybook Mode" checked /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Storybook Mode</strong><small>Text-first, rules-light, AI handles most details.</small></span></label>
+            <label class="wizard-option-card"><input name="form-play-style-choice" type="radio" value="MUD Mode" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>MUD Mode</strong><small>More structured room/location style.</small></span></label>
+            <label class="wizard-option-card"><input name="form-play-style-choice" type="radio" value="Stats Mode" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Stats Mode</strong><small>Stat allocation and sheet-focused play.</small></span></label>
+            <label class="wizard-option-card"><input name="form-play-style-choice" type="radio" value="Sandbox Mode" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Sandbox Mode</strong><small>Freeform world simulation.</small></span></label>
+            <label class="wizard-option-card"><input name="form-play-style-choice" type="radio" value="Hardcore Consequences" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Hardcore Consequences</strong><small>Riskier decisions, lasting consequences.</small></span></label>
           </section>
           <section class="wizard-step hidden" data-step="2"><h4>Rules Style</h4>
-            <label><input name="form-rules-style-choice" type="radio" value="Freeform Abilities" /> Freeform Abilities</label>
-            <label><input name="form-rules-style-choice" type="radio" value="Hybrid" checked /> Hybrid</label>
-            <label><input name="form-rules-style-choice" type="radio" value="Sheet Strict" /> Sheet Strict</label>
-            <label><input name="form-rules-style-choice" type="radio" value="Story Only" /> Story Only</label>
+            <label class="wizard-option-card"><input name="form-rules-style-choice" type="radio" value="Freeform Abilities" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Freeform Abilities</strong><small>Loose ability use with broad permission.</small></span></label>
+            <label class="wizard-option-card"><input name="form-rules-style-choice" type="radio" value="Hybrid" checked /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Hybrid</strong><small>Balances narrative freedom with sheet awareness.</small></span></label>
+            <label class="wizard-option-card"><input name="form-rules-style-choice" type="radio" value="Sheet Strict" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Sheet Strict</strong><small>Require established sheet abilities for reliable effects.</small></span></label>
+            <label class="wizard-option-card"><input name="form-rules-style-choice" type="radio" value="Story Only" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Story Only</strong><small>Prioritize fiction over mechanics.</small></span></label>
           </section>
           <section class="wizard-step hidden" data-step="3"><h4>Character Identity</h4>
             <label>Character Name <input id="form-player-name" type="text" required /></label>
@@ -140,20 +140,20 @@
             <label class="full-width">Character Description <textarea id="form-player-concept" rows="5" placeholder="Describe your character’s appearance, personality, reputation, starting items, spells, abilities, or anything important. You can be brief or detailed."></textarea></label>
           </section>
           <section class="wizard-step hidden" data-step="5"><h4>Power Level</h4>
-            <label><input name="form-power-level-choice" type="radio" value="Ordinary Beginner" /> Ordinary Beginner</label>
-            <label><input name="form-power-level-choice" type="radio" value="Capable Adventurer" checked /> Capable Adventurer</label>
-            <label><input name="form-power-level-choice" type="radio" value="Experienced Veteran" /> Experienced Veteran</label>
-            <label><input name="form-power-level-choice" type="radio" value="Powerful Hero" /> Powerful Hero</label>
-            <label><input name="form-power-level-choice" type="radio" value="Legendary Figure" /> Legendary Figure</label>
+            <label class="wizard-option-card"><input name="form-power-level-choice" type="radio" value="Ordinary Beginner" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Ordinary Beginner</strong><small>Start vulnerable and grow through play.</small></span></label>
+            <label class="wizard-option-card"><input name="form-power-level-choice" type="radio" value="Capable Adventurer" checked /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Capable Adventurer</strong><small>Competent without overshadowing the world.</small></span></label>
+            <label class="wizard-option-card"><input name="form-power-level-choice" type="radio" value="Experienced Veteran" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Experienced Veteran</strong><small>Begin with reputation and proven skill.</small></span></label>
+            <label class="wizard-option-card"><input name="form-power-level-choice" type="radio" value="Powerful Hero" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Powerful Hero</strong><small>Start with exceptional capability.</small></span></label>
+            <label class="wizard-option-card"><input name="form-power-level-choice" type="radio" value="Legendary Figure" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>Legendary Figure</strong><small>Begin as a figure of mythic importance.</small></span></label>
           </section>
           <section class="wizard-step hidden" data-step="6"><h4>Starting Abilities</h4>
-            <label><input name="form-ability-mode" type="radio" value="suggest" checked /> Let the AI suggest starting abilities from my class and description.</label>
-            <label><input name="form-ability-mode" type="radio" value="manual" /> I will list my starting abilities.</label>
+            <label class="wizard-option-card"><input name="form-ability-mode" type="radio" value="suggest" checked /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>suggest</strong><small>Suggest starting abilities from class and description.</small></span></label>
+            <label class="wizard-option-card"><input name="form-ability-mode" type="radio" value="manual" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>manual</strong><small>I will list my starting abilities.</small></span></label>
             <label class="full-width">Enter abilities, spells, techniques, or powers separated by commas or new lines. <textarea id="form-starting-abilities" rows="4" placeholder="Fireball&#10;Ice Lance&#10;Arcane Shield"></textarea></label>
           </section>
           <section class="wizard-step hidden" data-step="7"><h4>Starting Items</h4>
-            <label><input name="form-item-mode" type="radio" value="suggest" checked /> Let the AI suggest starting items.</label>
-            <label><input name="form-item-mode" type="radio" value="manual" /> I will list starting items.</label>
+            <label class="wizard-option-card"><input name="form-item-mode" type="radio" value="suggest" checked /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>suggest</strong><small>Suggest starting items that fit the setup.</small></span></label>
+            <label class="wizard-option-card"><input name="form-item-mode" type="radio" value="manual" /><span class="option-indicator" aria-hidden="true"></span><span class="option-copy"><strong>manual</strong><small>I will list starting items.</small></span></label>
             <label class="full-width">Starting items, comma/new-line separated. <textarea id="form-starting-items" rows="4" placeholder="old spellbook, frostglass focus"></textarea></label>
           </section>
           <section class="wizard-step hidden" data-step="8"><h4>Review</h4><div id="campaign-wizard-review" class="status-card">Review your campaign setup, then create the campaign.</div></section>

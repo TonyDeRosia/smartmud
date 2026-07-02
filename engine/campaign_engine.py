@@ -16,6 +16,7 @@ from engine.dialogue_service import DialogueService
 from engine.entities import CampaignState, NPC
 from engine.inventory import InventoryService
 from engine.player_output import filter_player_messages, narrative_needs_player_facing_fallback
+from engine.scene_simulation import ensure_scene_v1, resolve_scene_action
 from engine.spellbook import normalize_spellbook_entry
 from app.dm_intent import analyze_dm_intent
 from memory.campaign_memory import CampaignMemory
@@ -151,6 +152,36 @@ class CampaignEngine:
 
         system_messages: list[str] = []
         requested_mode = "play"
+
+        scene_v1 = ensure_scene_v1(state)
+        scene_v1_enabled = bool(state.structured_state.runtime.scene_state.get("scene_v1_enabled", False))
+        legacy_talk_target = normalized.split(" ", 1)[1] if normalized.startswith("talk ") and " " in normalized else ""
+        use_legacy_command = (
+            (normalized.startswith("talk ") and legacy_talk_target in state.npcs)
+            or (normalized.startswith("take ") and not any(word in normalized for word in ("road", "path", "trail", "route")))
+            or (normalized.startswith("move ") and normalized.split(" ", 1)[1] in state.locations)
+        )
+        scene_result = resolve_scene_action(action, scene_v1) if scene_v1_enabled and not use_legacy_command else None
+        if scene_result is not None and scene_result.handled:
+            updated = scene_result.state_updates.get("scene_v1")
+            if isinstance(updated, dict):
+                state.structured_state.runtime.scene_state["scene_v1"] = updated
+                state.structured_state.runtime.scene_state["location_id"] = updated.get("location_id", state.current_location_id)
+                state.structured_state.runtime.scene_state["location_name"] = updated.get("location_name")
+                state.structured_state.runtime.scene_state["scene_summary"] = updated.get("summary", "")
+                state.structured_state.runtime.scene_state["visible_entities"] = [e.get("name", "") for e in updated.get("entities", []) if isinstance(e, dict) and e.get("visible", True)]
+                state.structured_state.runtime.scene_state["recent_consequences"] = (state.structured_state.runtime.scene_state.get("recent_consequences", []) + scene_result.consequences + updated.get("recent_changes", []))[-5:]
+                state.current_location_id = str(updated.get("location_id") or state.current_location_id)
+                if state.current_location_id not in state.locations:
+                    from engine.entities import Location
+                    state.locations[state.current_location_id] = Location(state.current_location_id, str(updated.get("location_name") or state.current_location_id), str(updated.get("summary") or ""))
+            narrative = "\n".join(scene_result.messages).strip()
+            self.memory.record_recent(state, f"Player action: {action}")
+            self.memory.record_recent(state, f"Scene: {narrative}")
+            state.structured_state.runtime.last_narration = narrative
+            self.state_orchestrator.update_runtime_state(state, action=action, system_messages=[], narrative=narrative)
+            self.memory.record_conversation_turn(state, player_input=action, system_messages=[], narrator_response=narrative, requested_mode="scene_v1")
+            return TurnResult(narrative=narrative, system_messages=[], messages=[{"type": "narrator", "text": narrative}], metadata={"requested_mode": "scene_v1", "scene_intent": scene_result.intent, "turn_count": state.turn_count, "quality_fallback_used": False})
 
         if normalized == "look":
             system_messages.append(self.world.get_current_location_summary(state))
@@ -1804,6 +1835,8 @@ class CampaignEngine:
         scene_state.setdefault("environment_consequences", [])
         scene_state.setdefault("consecutive_repetition_count", 0)
         runtime.scene_state = scene_state
+        ensure_scene_v1(state)
+        scene_state = runtime.scene_state
         return scene_state
 
     def _summarize_scene_state_for_prompt(self, scene_state: dict[str, Any]) -> str:
