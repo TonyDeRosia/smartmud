@@ -193,3 +193,16 @@ def test_campaign_intelligence_uses_file_picker_not_source_path_field() -> None:
     assert "Replace failed: select a source first." in script
     assert "intelligence-source-card${selectedClass}" in script
     assert ".intelligence-source-card.selected" in styles
+
+
+def test_journal_button_uses_separate_pending_badge() -> None:
+    html = _index_html()
+    assert '<button id="open-campaign-events" type="button">Journal <span id="campaign-events-pending-count" class="badge hidden">0</span></button>' in html
+    assert 'Journal [' not in html
+
+
+def test_spellbook_label_logic_exists_for_mage_and_non_mage_roles() -> None:
+    script = Path("app/static/app.js").read_text(encoding="utf-8")
+    assert "function updateAbilityToolLabel" in script
+    assert "isSpellcastingRoleText(roleText) ? 'Spellbook' : 'Abilities'" in script
+    assert "mage|wizard|sorcerer|warlock|cleric|druid|necromancer|spellblade" in script

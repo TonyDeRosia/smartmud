@@ -6176,3 +6176,25 @@ def test_intelligence_import_endpoint_without_file_does_not_report_dot_path(tmp_
     assert response.status_code == 400
     assert "Choose a .txt, .md, or .json file." in response.json()["error"]
     assert "Source file not found: ." not in response.text
+
+
+def test_python_multipart_dependency_check_exists() -> None:
+    import app.web as web
+    assert hasattr(web, "ensure_python_multipart_available")
+    try:
+        web.ensure_python_multipart_available()
+    except RuntimeError as exc:
+        assert "python-multipart" in str(exc)
+
+
+def test_remove_from_campaign_clears_selected_source_id(tmp_path: Path, monkeypatch) -> None:
+    runtime = _runtime(tmp_path, monkeypatch)
+    source = tmp_path / "campaign.md"
+    source.write_text("campaign guidance", encoding="utf-8")
+    entry = runtime.intelligence_library.import_source(source, title="Campaign", category="imported")
+    runtime.session.state.settings.enabled_intelligence_source_ids = [entry["id"]]
+
+    inspector = runtime.set_campaign_intelligence_sources({"enabled_source_ids": []})
+
+    assert entry["id"] not in runtime.session.state.settings.enabled_intelligence_source_ids
+    assert entry["id"] not in inspector["selected_source_ids"]

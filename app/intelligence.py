@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,6 +138,33 @@ class CampaignIntelligenceLibrary:
         self._save_manifest_entries(entries)
         self.rebuild_index()
         return updated.to_dict()
+
+
+    def delete_source(self, source_id: str, *, allow_core: bool = False) -> dict[str, Any]:
+        entries = self._load_manifest_entries()
+        idx, entry = self._find_entry(entries, source_id)
+        if entry.category == "core" and not allow_core:
+            raise ValueError("Core intelligence sources cannot be deleted.")
+        path = self._entry_path(entry)
+        removed = entry.to_dict()
+        del entries[idx]
+        self._save_manifest_entries(entries)
+        with suppress(FileNotFoundError):
+            path.unlink()
+        index = self.rebuild_index()
+        return {"source": removed, "index": index}
+
+    def reset_imported_sources(self) -> dict[str, Any]:
+        entries = self._load_manifest_entries()
+        kept = [entry for entry in entries if entry.category == "core"]
+        removed = [entry.to_dict() for entry in entries if entry.category != "core"]
+        for entry in entries:
+            if entry.category != "core":
+                with suppress(FileNotFoundError):
+                    self._entry_path(entry).unlink()
+        self._save_manifest_entries(kept)
+        index = self.rebuild_index()
+        return {"removed_sources": removed, "index": index}
 
     def set_enabled(self, source_id: str, enabled: bool) -> dict[str, Any]:
         entries = self._load_manifest_entries(); idx, entry = self._find_entry(entries, source_id)

@@ -100,3 +100,16 @@ def test_disabled_selected_campaign_source_does_not_inject(tmp_path: Path) -> No
 
     assert "disabled guidance" not in guidance
     assert entry["id"] not in [item["id"] for item in used]
+
+
+def test_delete_source_removes_manifest_entry_and_index_chunks(tmp_path: Path) -> None:
+    library = CampaignIntelligenceLibrary(tmp_path / "intelligence")
+    source = tmp_path / "delete_me.md"
+    source.write_text("delete-only guidance", encoding="utf-8")
+    entry = library.import_source(source, title="Delete Me", category="imported")
+    assert any(chunk["source_id"] == entry["id"] for chunk in library._load_index()["chunks"])
+
+    library.delete_source(entry["id"])
+
+    assert entry["id"] not in [item["id"] for item in library.list_sources()]
+    assert not any(chunk["source_id"] == entry["id"] for chunk in library._load_index()["chunks"])

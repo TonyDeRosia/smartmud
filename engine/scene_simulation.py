@@ -257,6 +257,26 @@ def render_scene_result(result: SceneSimulationResult, scene_v1: dict[str, Any],
         parts.append(_sentence("Hook: " + str(scene.get("active_hooks", [""])[0])))
     return " ".join(parts).strip() + " What do you do?"
 
+def _targeted_entity(lower: str, scene: dict[str, Any]) -> dict[str, Any] | None:
+    stop = {"i", "me", "my", "the", "a", "an", "on", "at", "to", "with", "ground", "toe", "toes"}
+    tokens = [token for token in re.findall(r"[a-z0-9]+", lower) if token not in stop and len(token) >= 3]
+    for ent in _visible_entities(scene):
+        hay = " ".join([str(ent.get("name", "")), " ".join(ent.get("tags", []))]).lower()
+        if hay and any(token in hay for token in tokens):
+            return ent
+    return None
+
+
+def _bump_npc_state(entity: dict[str, Any], *, suspicion: int = 0, discomfort: int = 0, anger: int = 0, memory: str = "") -> None:
+    state = entity.setdefault("state", {}) if isinstance(entity.get("state", {}), dict) else {}
+    entity["state"] = state
+    state["suspicion"] = int(state.get("suspicion", 0) or 0) + suspicion
+    state["discomfort"] = int(state.get("discomfort", 0) or 0) + discomfort
+    state["anger"] = int(state.get("anger", 0) or 0) + anger
+    if memory:
+        entity.setdefault("memory", []).append(memory)
+
+
 def resolve_generic_action(text: str, scene_v1: dict[str, Any], character: Any = None, settings: Any = None) -> SceneSimulationResult:
     scene = normalize_scene_v1(scene_v1)
     raw = _clean(text) or "do something"
@@ -266,28 +286,60 @@ def resolve_generic_action(text: str, scene_v1: dict[str, Any], character: Any =
     npcs = [e for e in _visible_entities(scene) if e.get("kind") == "npc"]
     messenger = next((e for e in npcs if "messenger" in str(e.get("name","")).lower()), None)
     travelers = next((e for e in npcs if "traveler" in str(e.get("name","")).lower()), None)
+    target = _targeted_entity(lower, scene)
+    target_is_npc = bool(target and target.get("kind") == "npc")
+    target_name = str(target.get("name")) if target else ""
+    action_type = "generic"
+    consequences: list[str] = [f"Attempted action: {raw}"]
+
     if "twiddle" in lower:
-        narration = f"{name} waits by {loc}, twiddling {'your' if name == 'You' else 'their'} thumbs while the road noise carries on around {'you' if name == 'You' else 'them'}."
-    elif any(w in lower for w in ("dance", "spin", "jump")):
-        narration = f"{name} breaks into the motion near {loc}, making the quiet roadside attention shift toward {'you' if name == 'You' else name}."
-    elif any(w in lower for w in ("wave", "shout", "whistle")):
-        narration = f"{name} makes the gesture heard across {loc}; a few heads turn to see what will happen next."
-    elif any(w in lower for w in ("lick", "toe", "hands")):
-        narration = f"{name} follows through with the odd self-directed gesture near {loc}."
-    elif any(w in lower for w in ("throw", "dirt")):
-        narration = f"{name} tosses dirt across the ground near {loc}, raising a brief dusty scuff."
-    elif "sit" in lower:
-        narration = f"{name} sits down near {loc}, letting the scene continue around {'you' if name == 'You' else 'them'}."
+        action_type = "idle"
+        narration = f"{name} waits at {loc}, quietly twiddling thumbs while the roadside tension continues without interruption."
+    elif "spit" in lower and target_is_npc:
+        action_type = "hostile_contact"
+        _bump_npc_state(target, suspicion=1, discomfort=2, anger=3, memory=f"The player spat on {target_name}.")
+        anger = int(target.get("state", {}).get("anger", 0) or 0)
+        narration = f"{name} spits on {target_name}. {target_name} recoils, anger flashing across their face."
+        narration += " They call for guards and square up for a confrontation." if anger >= 6 else " They give a sharp warning that the next insult will bring consequences."
+        consequences.append(f"Hostile contact against {target_name}")
+    elif "lick" in lower and target_is_npc:
+        action_type = "unwanted_contact"
+        _bump_npc_state(target, suspicion=1, discomfort=3, anger=2, memory=f"The player licked {target_name} without consent.")
+        anger = int(target.get("state", {}).get("anger", 0) or 0)
+        narration = f"{name} leans in and licks {target_name}. {target_name} jerks back, visibly disgusted by the unwanted contact."
+        narration += " Their voice rises as they demand help and the situation turns confrontational." if anger >= 4 else " They back away and warn you not to touch them again."
+        consequences.append(f"Unwanted contact with {target_name}")
+    elif "spit" in lower:
+        action_type = "rude_minor"
+        narration = f"{name} spits on the ground at {loc}. It is rude enough to earn frowns, but it does not stop the scene."
+        if travelers: _bump_npc_state(travelers, suspicion=1, discomfort=1, memory="The player spat on the ground nearby.")
+    elif "lick" in lower and any(w in lower for w in ("toe", "toes", "myself", "hand", "finger")):
+        action_type = "self_directed_odd"
+        narration = f"{name} bends into an awkward self-directed act, licking their own toes. Nearby onlookers stare, unsure what to make of it."
+        if messenger: _bump_npc_state(messenger, suspicion=1, discomfort=1, memory="The player behaved bizarrely by licking their own toes.")
+    elif any(w in lower for w in ("dance", "strip", "naked")):
+        action_type = "bizarre_social"
+        narration = f"{name} makes a spectacle at {loc}, dancing naked enough to draw every nearby eye and embarrassed whispers."
+        if messenger: _bump_npc_state(messenger, suspicion=1, discomfort=2, memory="The player caused a naked public spectacle.")
+        consequences.append("Public indecency draws social consequences")
+    elif any(w in lower for w in ("insult", "curse", "mock")) or "spit" in lower:
+        action_type = "insulting"
+        narration = f"{name}'s insult cuts through {loc}; the mood cools as people wait to see whether it becomes a fight."
+    elif any(w in lower for w in ("wave", "shout", "whistle", "talk")):
+        action_type = "social"
+        narration = f"{name} makes a clear social overture at {loc}; heads turn, waiting for who answers."
     else:
-        narration = f"{name} attempts it near {loc}, and the moment becomes part of the scene."
-    reactions=[]
-    if travelers: reactions.append("The wary travelers fall quiet and watch more closely")
-    if messenger: reactions.append("the local messenger clutches the sealed notice tighter")
-    if reactions: narration += " " + ", while ".join(reactions) + "."
-    else: narration += " No one nearby stops it yet."
+        narration = f"{name} tries to {raw}. The action lands plainly in the scene without becoming a stock gesture."
+
+    if action_type in {"self_directed_odd", "bizarre_social"} and messenger:
+        discomfort = int(messenger.get("state", {}).get("discomfort", 0) or 0)
+        narration += " The messenger backs away and keeps the sealed notice between you." if discomfort >= 2 else " The messenger stares while travelers begin whispering."
+    elif action_type not in {"idle", "hostile_contact", "unwanted_contact"}:
+        if travelers: narration += " The wary travelers watch more closely."
+        if messenger: narration += " The local messenger clutches the sealed notice tighter."
     narration += " What do you do?"
-    scene["recent_changes"] = (scene.get("recent_changes", []) + [f"Generic action: {raw}"])[-6:]
-    return SceneSimulationResult(intent="generic_action", handled=True, state_updates={"scene_v1": scene}, messages=[narration], changed_entities=scene.get("entities", []), consequences=[f"Attempted action: {raw}"], suggested_next_actions=["look around", "talk to messenger"], debug={"handled_by": "scene_v1_generic"})
+    scene["recent_changes"] = (scene.get("recent_changes", []) + [f"Generic action ({action_type}): {raw}"])[-6:]
+    return SceneSimulationResult(intent="generic_action", handled=True, state_updates={"scene_v1": scene}, messages=[narration], changed_entities=scene.get("entities", []), consequences=consequences, suggested_next_actions=["look around", "talk to messenger"], debug={"handled_by": "scene_v1_generic", "action_type": action_type, "target": target_name})
 
 def resolve_scene_action(text: str, scene_v1: dict[str, Any]) -> SceneSimulationResult:
     scene = normalize_scene_v1(scene_v1)
