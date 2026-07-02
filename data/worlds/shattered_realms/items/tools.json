@@ -1,1 +1,146 @@
-[{"id":"spellbook","name":"spellbook","type":"tool","rarity":"common","description":"A bound book of sanctioned formulae."},{"id":"guild_token","name":"guild token","type":"tool","rarity":"common","description":"Proof of provisional Guild standing."}]
+[
+  {
+    "id": "spellbook",
+    "name": "spellbook",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "spellbook for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "arcane_focus",
+    "name": "arcane focus",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "arcane focus for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "component_pouch",
+    "name": "component pouch",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "component pouch for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "lockpick_set",
+    "name": "lockpick set",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "lockpick set for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "healers_kit",
+    "name": "healer’s kit",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "healer’s kit for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "rope",
+    "name": "rope",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "rope for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "tinderbox",
+    "name": "tinderbox",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "tinderbox for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "guild_charter",
+    "name": "guild charter",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "guild charter for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "empty_vial",
+    "name": "empty vial",
+    "type": "tool",
+    "slot": "none",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "empty vial for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  }
+]

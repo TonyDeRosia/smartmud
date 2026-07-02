@@ -1,1 +1,114 @@
-[]
+[
+  {
+    "id": "travel_robes",
+    "name": "travel robes",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "travel robes for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "reinforced_robes",
+    "name": "reinforced robes",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "reinforced robes for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "leather_armor",
+    "name": "leather armor",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "leather armor for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "chain_shirt",
+    "name": "chain shirt",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "chain shirt for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "padded_vest",
+    "name": "padded vest",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "padded vest for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "wooden_shield",
+    "name": "wooden shield",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "wooden shield for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "iron_buckler",
+    "name": "iron buckler",
+    "type": "armor",
+    "slot": "body",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "iron buckler for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  }
+]

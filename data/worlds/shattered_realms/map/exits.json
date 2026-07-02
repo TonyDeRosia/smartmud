@@ -1,1 +1,252 @@
-[]
+[
+  {
+    "from_room_id": "guildhall_crossing_square",
+    "direction": "north",
+    "to_room_id": "old_gate_road"
+  },
+  {
+    "from_room_id": "guildhall_crossing_square",
+    "direction": "east",
+    "to_room_id": "market_lane"
+  },
+  {
+    "from_room_id": "guildhall_crossing_square",
+    "direction": "west",
+    "to_room_id": "training_yard"
+  },
+  {
+    "from_room_id": "guildhall_crossing_square",
+    "direction": "in",
+    "to_room_id": "guildhall_archway"
+  },
+  {
+    "from_room_id": "guildhall_registrar_office",
+    "direction": "south",
+    "to_room_id": "guildhall_archway"
+  },
+  {
+    "from_room_id": "guildhall_archway",
+    "direction": "out",
+    "to_room_id": "guildhall_crossing_square"
+  },
+  {
+    "from_room_id": "guildhall_archway",
+    "direction": "north",
+    "to_room_id": "guildhall_registrar_office"
+  },
+  {
+    "from_room_id": "training_yard",
+    "direction": "east",
+    "to_room_id": "guildhall_crossing_square"
+  },
+  {
+    "from_room_id": "training_yard",
+    "direction": "north",
+    "to_room_id": "weapon_practice_ring"
+  },
+  {
+    "from_room_id": "training_yard",
+    "direction": "west",
+    "to_room_id": "spell_practice_circle"
+  },
+  {
+    "from_room_id": "training_yard",
+    "direction": "south",
+    "to_room_id": "healer_corner"
+  },
+  {
+    "from_room_id": "weapon_practice_ring",
+    "direction": "south",
+    "to_room_id": "training_yard"
+  },
+  {
+    "from_room_id": "spell_practice_circle",
+    "direction": "east",
+    "to_room_id": "training_yard"
+  },
+  {
+    "from_room_id": "healer_corner",
+    "direction": "north",
+    "to_room_id": "training_yard"
+  },
+  {
+    "from_room_id": "market_lane",
+    "direction": "west",
+    "to_room_id": "guildhall_crossing_square"
+  },
+  {
+    "from_room_id": "market_lane",
+    "direction": "north",
+    "to_room_id": "blacksmith_stall"
+  },
+  {
+    "from_room_id": "market_lane",
+    "direction": "east",
+    "to_room_id": "provisioner_stall"
+  },
+  {
+    "from_room_id": "market_lane",
+    "direction": "south",
+    "to_room_id": "adventurer_notice_board"
+  },
+  {
+    "from_room_id": "market_lane",
+    "direction": "in",
+    "to_room_id": "tavern_common_room"
+  },
+  {
+    "from_room_id": "blacksmith_stall",
+    "direction": "south",
+    "to_room_id": "market_lane"
+  },
+  {
+    "from_room_id": "provisioner_stall",
+    "direction": "west",
+    "to_room_id": "market_lane"
+  },
+  {
+    "from_room_id": "adventurer_notice_board",
+    "direction": "north",
+    "to_room_id": "market_lane"
+  },
+  {
+    "from_room_id": "tavern_common_room",
+    "direction": "out",
+    "to_room_id": "market_lane"
+  },
+  {
+    "from_room_id": "tavern_common_room",
+    "direction": "east",
+    "to_room_id": "tavern_back_room"
+  },
+  {
+    "from_room_id": "tavern_back_room",
+    "direction": "west",
+    "to_room_id": "tavern_common_room"
+  },
+  {
+    "from_room_id": "tavern_back_room",
+    "direction": "down",
+    "to_room_id": "rat_cellar_entry"
+  },
+  {
+    "from_room_id": "old_gate_road",
+    "direction": "south",
+    "to_room_id": "guildhall_crossing_square"
+  },
+  {
+    "from_room_id": "old_gate_road",
+    "direction": "north",
+    "to_room_id": "old_gate_checkpoint"
+  },
+  {
+    "from_room_id": "old_gate_checkpoint",
+    "direction": "south",
+    "to_room_id": "old_gate_road"
+  },
+  {
+    "from_room_id": "old_gate_checkpoint",
+    "direction": "north",
+    "to_room_id": "milestone_bend"
+  },
+  {
+    "from_room_id": "milestone_bend",
+    "direction": "south",
+    "to_room_id": "old_gate_checkpoint"
+  },
+  {
+    "from_room_id": "milestone_bend",
+    "direction": "east",
+    "to_room_id": "east_farmland_path"
+  },
+  {
+    "from_room_id": "east_farmland_path",
+    "direction": "west",
+    "to_room_id": "milestone_bend"
+  },
+  {
+    "from_room_id": "east_farmland_path",
+    "direction": "north",
+    "to_room_id": "farmer_field"
+  },
+  {
+    "from_room_id": "farmer_field",
+    "direction": "south",
+    "to_room_id": "east_farmland_path"
+  },
+  {
+    "from_room_id": "farmer_field",
+    "direction": "east",
+    "to_room_id": "broken_fence"
+  },
+  {
+    "from_room_id": "broken_fence",
+    "direction": "west",
+    "to_room_id": "farmer_field"
+  },
+  {
+    "from_room_id": "broken_fence",
+    "direction": "east",
+    "to_room_id": "emberwood_edge"
+  },
+  {
+    "from_room_id": "emberwood_edge",
+    "direction": "west",
+    "to_room_id": "broken_fence"
+  },
+  {
+    "from_room_id": "emberwood_edge",
+    "direction": "north",
+    "to_room_id": "emberwood_game_trail"
+  },
+  {
+    "from_room_id": "emberwood_game_trail",
+    "direction": "south",
+    "to_room_id": "emberwood_edge"
+  },
+  {
+    "from_room_id": "emberwood_game_trail",
+    "direction": "east",
+    "to_room_id": "abandoned_watchpost"
+  },
+  {
+    "from_room_id": "abandoned_watchpost",
+    "direction": "west",
+    "to_room_id": "emberwood_game_trail"
+  },
+  {
+    "from_room_id": "abandoned_watchpost",
+    "direction": "in",
+    "to_room_id": "watchpost_entry"
+  },
+  {
+    "from_room_id": "watchpost_entry",
+    "direction": "out",
+    "to_room_id": "abandoned_watchpost"
+  },
+  {
+    "from_room_id": "rat_cellar_entry",
+    "direction": "up",
+    "to_room_id": "tavern_back_room"
+  },
+  {
+    "from_room_id": "rat_cellar_entry",
+    "direction": "north",
+    "to_room_id": "rat_cellar_storage"
+  },
+  {
+    "from_room_id": "rat_cellar_storage",
+    "direction": "south",
+    "to_room_id": "rat_cellar_entry"
+  },
+  {
+    "from_room_id": "rat_cellar_storage",
+    "direction": "east",
+    "to_room_id": "rat_cellar_nest"
+  },
+  {
+    "from_room_id": "rat_cellar_nest",
+    "direction": "west",
+    "to_room_id": "rat_cellar_storage"
+  }
+]

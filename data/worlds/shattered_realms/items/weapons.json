@@ -1,1 +1,162 @@
-[{"id":"training_sword","name":"training sword","type":"weapon","rarity":"common","description":"A dulled guild blade."},{"id":"apprentice_staff","name":"apprentice staff","type":"weapon","rarity":"common","description":"A simple focus staff."},{"id":"shortbow","name":"shortbow","type":"weapon","rarity":"common","description":"A road-worn bow."}]
+[
+  {
+    "id": "training_sword",
+    "name": "training sword",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "training sword for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "iron_sword",
+    "name": "iron sword",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "iron sword for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "wooden_staff",
+    "name": "wooden staff",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "wooden staff for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "oak_staff",
+    "name": "oak staff",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "oak staff for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "dagger",
+    "name": "dagger",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "dagger for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "short_bow",
+    "name": "short bow",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "short bow for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "side_blade",
+    "name": "side blade",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "side blade for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "rusty_mace",
+    "name": "rusty mace",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "rusty mace for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "battle_focus",
+    "name": "battle focus",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "battle focus for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "bone_wand",
+    "name": "bone wand",
+    "type": "weapon",
+    "slot": "main_hand",
+    "rarity": "common",
+    "value": 5,
+    "weight": 1,
+    "requirements": {},
+    "stats": {},
+    "effects": {},
+    "description": "bone wand for beginner Smart MUD play.",
+    "tags": [
+      "starter"
+    ]
+  }
+]

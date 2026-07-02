@@ -1,1 +1,749 @@
-[{"id":"guild_registrar","name":"Guild Registrar","kind":"npc","disposition":"friendly","description":"An exacting clerk with kind eyes."},{"id":"training_master","name":"Training Master","kind":"npc","disposition":"neutral","description":"A scarred veteran watching every stance."},{"id":"suspicious_merchant","name":"Suspicious Merchant","kind":"npc","disposition":"neutral","description":"A smiling trader with too many pockets."},{"id":"road_messenger","name":"Road Messenger","kind":"npc","disposition":"friendly","description":"A dusty courier catching breath."},{"id":"tavern_keeper","name":"Tavern Keeper","kind":"npc","disposition":"friendly","description":"A broad-shouldered keeper polishing cups."}]
+[
+  {
+    "id": "guild_registrar_maren",
+    "name": "Guild Registrar Maren",
+    "kind": "npc",
+    "description": "Guild Registrar Maren is a memorable resident of the starter zone.",
+    "faction_id": "adventurers_guild",
+    "default_room_id": "guildhall_registrar_office",
+    "occupation": "Guild",
+    "personality": [
+      "organized",
+      "formal",
+      "patient with recruits",
+      "hates forged guild papers"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Guild Registrar Maren speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "training_master_borik",
+    "name": "Training Master Borik",
+    "kind": "npc",
+    "description": "Training Master Borik is a memorable resident of the starter zone.",
+    "faction_id": "adventurers_guild",
+    "default_room_id": "training_yard",
+    "occupation": "Training",
+    "personality": [
+      "loud",
+      "blunt",
+      "protective",
+      "respects discipline"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Training Master Borik speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "apprentice_mage_lina",
+    "name": "Apprentice Mage Lina",
+    "kind": "npc",
+    "description": "Apprentice Mage Lina is a memorable resident of the starter zone.",
+    "faction_id": "gatebound_scholars",
+    "default_room_id": "spell_practice_circle",
+    "occupation": "Apprentice",
+    "personality": [
+      "curious",
+      "nervous",
+      "talks too fast",
+      "fascinated by unstable magic"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Apprentice Mage Lina speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "healer_sella",
+    "name": "Healer Sella",
+    "kind": "npc",
+    "description": "Healer Sella is a memorable resident of the starter zone.",
+    "faction_id": "common_folk",
+    "default_room_id": "healer_corner",
+    "occupation": "Healer",
+    "personality": [
+      "gentle",
+      "practical",
+      "watchful"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Healer Sella speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "suspicious_merchant_varrik",
+    "name": "Suspicious Merchant Varrik",
+    "kind": "npc",
+    "description": "Suspicious Merchant Varrik is a memorable resident of the starter zone.",
+    "faction_id": "riverwatch_merchants",
+    "default_room_id": "market_lane",
+    "occupation": "Suspicious",
+    "personality": [
+      "smooth",
+      "evasive",
+      "greedy",
+      "dislikes guards"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Suspicious Merchant Varrik speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "tavern_keeper_jory",
+    "name": "Tavern Keeper Jory",
+    "kind": "npc",
+    "description": "Tavern Keeper Jory is a memorable resident of the starter zone.",
+    "faction_id": "common_folk",
+    "default_room_id": "tavern_common_room",
+    "occupation": "Tavern",
+    "personality": [
+      "warm",
+      "gossipy",
+      "remembers everyone’s drink"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Tavern Keeper Jory speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "road_messenger_pell",
+    "name": "Road Messenger Pell",
+    "kind": "npc",
+    "description": "Road Messenger Pell is a memorable resident of the starter zone.",
+    "faction_id": "common_folk",
+    "default_room_id": "milestone_bend",
+    "occupation": "Road",
+    "personality": [
+      "hurried",
+      "dutiful",
+      "anxious"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Road Messenger Pell speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "crown_warden_ilyra",
+    "name": "Crown Warden Ilyra",
+    "kind": "npc",
+    "description": "Crown Warden Ilyra is a memorable resident of the starter zone.",
+    "faction_id": "crown_wardens",
+    "default_room_id": "old_gate_checkpoint",
+    "occupation": "Crown",
+    "personality": [
+      "controlled",
+      "suspicious",
+      "duty-first",
+      "respects honesty"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Crown Warden Ilyra speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "farmer_tomas",
+    "name": "Farmer Tomas",
+    "kind": "npc",
+    "description": "Farmer Tomas is a memorable resident of the starter zone.",
+    "faction_id": "common_folk",
+    "default_room_id": "farmer_field",
+    "occupation": "Farmer",
+    "personality": [
+      "tired",
+      "plainspoken",
+      "protective"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Farmer Tomas speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "blacksmith_harl",
+    "name": "Blacksmith Harl",
+    "kind": "npc",
+    "description": "Blacksmith Harl is a memorable resident of the starter zone.",
+    "faction_id": "common_folk",
+    "default_room_id": "blacksmith_stall",
+    "occupation": "Blacksmith",
+    "personality": [
+      "gruff",
+      "fair",
+      "proud"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Blacksmith Harl speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "rat_catcher_nemm",
+    "name": "Rat-Catcher Nemm",
+    "kind": "creature",
+    "description": "Rat-Catcher Nemm is a memorable resident of the starter zone.",
+    "faction_id": "rat_catchers_compact",
+    "default_room_id": "tavern_common_room",
+    "occupation": "cellar threat",
+    "personality": [
+      "dry humor",
+      "pragmatic",
+      "brave around vermin"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Rat-Catcher Nemm speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "old_gate_watcher",
+    "name": "Old Gate Watcher",
+    "kind": "npc",
+    "description": "Old Gate Watcher is a memorable resident of the starter zone.",
+    "faction_id": "gatebound_scholars",
+    "default_room_id": "old_gate_checkpoint",
+    "occupation": "Old",
+    "personality": [
+      "cryptic",
+      "observant",
+      "weary"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Old Gate Watcher speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "cellar_rats",
+    "name": "Cellar Rats",
+    "kind": "creature",
+    "description": "Cellar Rats is a memorable resident of the starter zone.",
+    "faction_id": "rat_catchers_compact",
+    "default_room_id": "rat_cellar_storage",
+    "occupation": "cellar threat",
+    "personality": [
+      "hungry",
+      "skittish",
+      "aggressive in packs"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Cellar Rats speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  },
+  {
+    "id": "giant_cellar_rat",
+    "name": "Giant Cellar Rat",
+    "kind": "creature",
+    "description": "Giant Cellar Rat is a memorable resident of the starter zone.",
+    "faction_id": "rat_catchers_compact",
+    "default_room_id": "rat_cellar_nest",
+    "occupation": "cellar threat",
+    "personality": [
+      "territorial",
+      "vicious",
+      "cunning"
+    ],
+    "speech_style": "character-specific, concise, MUD-friendly",
+    "goals": [
+      "protect personal interests",
+      "react believably to recruits"
+    ],
+    "fears": [
+      "gate disasters",
+      "being deceived"
+    ],
+    "likes": [
+      "honesty",
+      "competence"
+    ],
+    "dislikes": [
+      "lies",
+      "reckless gate tampering"
+    ],
+    "knowledge": [
+      "local exits",
+      "starter quests",
+      "nearby rumors"
+    ],
+    "relationship_defaults": {
+      "friendly": 0,
+      "wary": 0,
+      "annoyed": 0,
+      "hostile": -50,
+      "afraid": -20,
+      "impressed": 20,
+      "dismissive": -10,
+      "suspicious": -15
+    },
+    "hostility_threshold": -50,
+    "affection_threshold": 30,
+    "memory_policy": "remember direct help, insults, threats, and quest progress",
+    "dialogue_seed": "Giant Cellar Rat speaks from their role and personality, never from invented world facts.",
+    "tags": [
+      "starter"
+    ]
+  }
+]
