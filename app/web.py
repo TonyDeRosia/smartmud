@@ -25,6 +25,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any
 
+def ensure_python_multipart_available() -> None:
+    try:
+        import multipart  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "python-multipart is required for Developer Tools source uploads. "
+            "Install it with `python -m pip install python-multipart` or rerun `python -m pip install -r requirements.txt`."
+        ) from exc
+
+
 try:
     from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
@@ -7482,7 +7492,23 @@ class WebRuntime:
 
     def set_intelligence_enabled(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = self.intelligence_library.set_enabled(str(payload.get("id", "")), bool(payload.get("enabled", True)))
-        return {"source": entry, "sources": self.intelligence_library.list_sources()}
+        if not entry.get("enabled", True) and entry.get("id") in self.session.state.settings.enabled_intelligence_source_ids:
+            self.session.state.settings.enabled_intelligence_source_ids = [sid for sid in self.session.state.settings.enabled_intelligence_source_ids if sid != entry.get("id")]
+            self.save_active_campaign(self.session.active_slot)
+        return {"source": entry, "sources": self.intelligence_library.list_sources(), "inspector": self.get_campaign_prompt_inspector()}
+
+    def delete_intelligence_source(self, payload: dict[str, Any]) -> dict[str, Any]:
+        source_id = str(payload.get("id", "")).strip()
+        result = self.intelligence_library.delete_source(source_id)
+        self.session.state.settings.enabled_intelligence_source_ids = [sid for sid in self.session.state.settings.enabled_intelligence_source_ids if sid != source_id]
+        self.save_active_campaign(self.session.active_slot)
+        return {**result, "sources": self.intelligence_library.list_sources(), "inspector": self.get_campaign_prompt_inspector()}
+
+    def reset_imported_intelligence_sources(self) -> dict[str, Any]:
+        result = self.intelligence_library.reset_imported_sources()
+        self.session.state.settings.enabled_intelligence_source_ids = []
+        self.save_active_campaign(self.session.active_slot)
+        return {**result, "sources": self.intelligence_library.list_sources(), "inspector": self.get_campaign_prompt_inspector()}
 
     def set_intelligence_priority(self, payload: dict[str, Any]) -> dict[str, Any]:
         entry = self.intelligence_library.set_priority(str(payload.get("id", "")), int(payload.get("priority", 0) or 0))
@@ -7503,8 +7529,9 @@ class WebRuntime:
 
     def set_campaign_intelligence_sources(self, payload: dict[str, Any]) -> dict[str, Any]:
         ids = [str(v).strip() for v in payload.get("enabled_source_ids", []) if str(v).strip()]
-        valid = {str(item.get("id", "")) for item in self.intelligence_library.list_sources() if item.get("category") in {"packs", "imported"}}
+        valid = {str(item.get("id", "")) for item in self.intelligence_library.list_sources() if item.get("category") in {"packs", "imported"} and item.get("enabled", True)}
         self.session.state.settings.enabled_intelligence_source_ids = [source_id for source_id in ids if source_id in valid]
+        self.intelligence_library.rebuild_index()
         self.save_active_campaign(self.session.active_slot)
         return self.get_campaign_prompt_inspector()
 
@@ -7584,6 +7611,7 @@ def _resolve_static_root() -> Path:
 def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
     if FastAPI is None:
         raise RuntimeError("FastAPI is not installed")
+    ensure_python_multipart_available()
     app = FastAPI(title="Adventurer Guild AI Web API")
     app.add_middleware(
         CORSMiddleware,
@@ -7703,6 +7731,17 @@ def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
             return runtime.set_intelligence_priority(payload)
         except KeyError as exc:
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(exc)) from exc
+
+    @app.post("/api/developer/intelligence/delete")
+    def developer_intelligence_delete(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return runtime.delete_intelligence_source(payload)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=str(exc)) from exc
+
+    @app.post("/api/developer/intelligence/reset-imported")
+    def developer_intelligence_reset_imported() -> dict[str, Any]:
+        return runtime.reset_imported_intelligence_sources()
 
     @app.get("/api/debug/comfyui-last")
     def debug_comfyui_last() -> dict[str, Any]:

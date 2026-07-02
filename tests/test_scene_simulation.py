@@ -85,3 +85,42 @@ def test_wizard_campaign_scene_v1_handles_basic_ic_commands(tmp_path, monkeypatc
     assert "Local Messenger says" in talk["narrative"]
     move = runtime.handle_player_input("go north")
     assert runtime.session.state.structured_state.runtime.scene_state["scene_v1"]["location_name"] == "North Road"
+
+
+def test_lick_self_vs_lick_messenger_are_specific(tmp_path):
+    scene = initialize_scene_v1_from_campaign(_state(tmp_path))
+    self_result = resolve_scene_action("I lick my toes", scene)
+    npc_result = resolve_scene_action("I lick the messenger", scene)
+
+    self_text = " ".join(self_result.messages).lower()
+    npc_text = " ".join(npc_result.messages).lower()
+    assert "toes" in self_text
+    assert "unwanted contact" not in self_text
+    assert "messenger" in npc_text
+    assert "unwanted contact" in " ".join(npc_result.consequences).lower() or "warn" in npc_text
+    assert self_text != npc_text
+
+
+def test_spit_ground_vs_spit_messenger_are_different(tmp_path):
+    scene = initialize_scene_v1_from_campaign(_state(tmp_path))
+    ground = resolve_scene_action("I spit on the ground", scene)
+    target = resolve_scene_action("I spit on the messenger", scene)
+
+    ground_text = " ".join(ground.messages).lower()
+    target_text = " ".join(target.messages).lower()
+    assert "ground" in ground_text
+    assert "rude" in ground_text
+    assert "warning" in target_text or "guards" in target_text
+    assert "hostile" in " ".join(target.consequences).lower()
+
+
+def test_repeated_hostile_npc_action_escalates_scene_entity_state(tmp_path):
+    scene = initialize_scene_v1_from_campaign(_state(tmp_path))
+    first = resolve_scene_action("I spit on the messenger", scene)
+    scene = first.state_updates["scene_v1"]
+    second = resolve_scene_action("I spit on the messenger", scene)
+    scene = second.state_updates["scene_v1"]
+    messenger = next(e for e in scene["entities"] if e["id"] == "local_messenger")
+
+    assert messenger["state"]["anger"] >= 6
+    assert "confrontation" in " ".join(second.messages).lower() or "guards" in " ".join(second.messages).lower()

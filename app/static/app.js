@@ -236,6 +236,11 @@ const testIntelligenceRetrievalButton = document.getElementById('test-intelligen
 const intelligenceRetrievalQueryInput = document.getElementById('intelligence-retrieval-query');
 const intelligenceRetrievalResults = document.getElementById('intelligence-retrieval-results');
 const applyCampaignIntelligenceSourcesButton = document.getElementById('apply-campaign-intelligence-sources');
+const removeCurrentCampaignIntelligenceSourceButton = document.getElementById('remove-current-campaign-intelligence-source');
+const deleteIntelligenceSourceButton = document.getElementById('delete-intelligence-source');
+const resetImportedIntelligenceSourcesButton = document.getElementById('reset-imported-intelligence-sources');
+const runtimeSpellbookButton = document.getElementById('open-runtime-spellbook');
+const runtimeSpellbookTitle = document.querySelector('#runtime-spellbook-modal h3');
 const refreshPromptInspectorButton = document.getElementById('refresh-prompt-inspector');
 const campaignPromptInspector = document.getElementById('campaign-prompt-inspector');
 let intelligenceSourcesCache = [];
@@ -1349,11 +1354,52 @@ function openReplaceIntelligenceFilePicker() {
 async function postIntelligence(endpoint, payload, successMessage) {
   try {
     const result = await api(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (result.inspector) {
+      selectedCampaignIntelligenceSourceIds = new Set(result.inspector.selected_source_ids || []);
+      renderPromptInspector(result.inspector);
+    } else {
+      await refreshPromptInspector();
+    }
     renderIntelligenceSources(result.sources || []);
     setIntelligenceStatus(successMessage);
   } catch (error) {
     setIntelligenceStatus(error.message, true);
   }
+}
+
+async function removeSelectedSourceFromCurrentCampaign() {
+  const sourceId = intelligencePayload().id;
+  if (!sourceId) { setIntelligenceStatus('Remove failed: select a source first.', true); return; }
+  selectedCampaignIntelligenceSourceIds.delete(sourceId);
+  await applyCampaignIntelligenceSources();
+  setIntelligenceStatus('Removed selected source from current campaign.');
+}
+
+async function deleteSelectedIntelligenceSource() {
+  const sourceId = intelligencePayload().id;
+  if (!sourceId) { setIntelligenceStatus('Delete failed: select a source first.', true); return; }
+  if (!window.confirm(`Delete intelligence source "${sourceId}"? This removes it from disk and all campaign selections.`)) return;
+  try {
+    const result = await api('/api/developer/intelligence/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sourceId }) });
+    selectedIntelligenceSourceId = '';
+    if (intelligenceSourceIdInput) intelligenceSourceIdInput.value = '';
+    selectedCampaignIntelligenceSourceIds = new Set(result.inspector?.selected_source_ids || []);
+    renderPromptInspector(result.inspector);
+    renderIntelligenceSources(result.sources || []);
+    setIntelligenceStatus('Deleted source and rebuilt the index.');
+  } catch (error) { setIntelligenceStatus(`Delete failed: ${error.message}`, true); }
+}
+
+async function resetImportedIntelligenceSources() {
+  if (!window.confirm('Reset imported intelligence sources? This deletes all pack/imported sources and clears campaign selections.')) return;
+  try {
+    const result = await api('/api/developer/intelligence/reset-imported', { method: 'POST' });
+    selectedIntelligenceSourceId = '';
+    selectedCampaignIntelligenceSourceIds = new Set(result.inspector?.selected_source_ids || []);
+    renderPromptInspector(result.inspector);
+    renderIntelligenceSources(result.sources || []);
+    setIntelligenceStatus('Reset imported sources and rebuilt the index.');
+  } catch (error) { setIntelligenceStatus(`Reset failed: ${error.message}`, true); }
 }
 
 function closeNewCampaignModal() {
@@ -2176,6 +2222,19 @@ async function refreshCampaignEvents() {
   renderCampaignEvents();
 }
 
+
+function isSpellcastingRoleText(value) {
+  return /\b(mage|wizard|sorcerer|warlock|cleric|druid|necromancer|spellblade|spellcaster|witch|shaman|priest|oracle|magus|arcanist|enchanter|pyromancer|cryomancer|healer|mystic)\b/i.test(value || '');
+}
+
+function updateAbilityToolLabel(state = {}) {
+  const player = state.player || {};
+  const roleText = [player.class, player.role, player.archetype].filter(Boolean).join(' ');
+  const label = isSpellcastingRoleText(roleText) ? 'Spellbook' : 'Abilities';
+  if (runtimeSpellbookButton) runtimeSpellbookButton.textContent = label;
+  if (runtimeSpellbookTitle) runtimeSpellbookTitle.textContent = label;
+}
+
 function renderSpellbookViewer() {
   if (!runtimeSpellbookList) return;
   const normalizedEntries = runtimeSpellbookEntries.map((entry) => normalizeSpellbookEntry(entry));
@@ -2198,7 +2257,7 @@ function renderSpellbookViewer() {
         </div>` : ''}
       </article>
     `).join('') : '<div class="runtime-sheet-muted">No abilities recorded.</div>';
-  runtimeSpellbookList.innerHTML = `<div class="spellbook-group"><h4>Abilities</h4>${rows}</div>`;
+  runtimeSpellbookList.innerHTML = `<div class="spellbook-group"><h4>${escapeHtml(runtimeSpellbookButton?.textContent || 'Abilities')}</h4>${rows}</div>`;
   runtimeSpellbookList.querySelectorAll('button[data-spellbook-edit]').forEach((button) => {
     button.onclick = () => {
       const entry = runtimeSpellbookEntries.find((candidate) => candidate.id === button.dataset.spellbookEdit);
@@ -2364,6 +2423,7 @@ async function refreshState() {
   const stateAbilities = Array.isArray(state.abilities) ? state.abilities : state.spellbook;
   runtimeSpellbookEntries = Array.isArray(stateAbilities) ? stateAbilities.map(normalizeSpellbookEntry) : [];
   customNarratorRules = Array.isArray(state.custom_narrator_rules) ? state.custom_narrator_rules : [];
+  updateAbilityToolLabel(state);
   renderRuntimeCharacterSheets();
   renderInventoryViewer();
   renderSpellbookViewer();
@@ -3540,6 +3600,9 @@ bindClickById('close-setup-modal', closeSetupModal);
 
 refreshIntelligenceSourcesButton?.addEventListener('click', refreshIntelligenceSources);
 applyCampaignIntelligenceSourcesButton?.addEventListener('click', applyCampaignIntelligenceSources);
+removeCurrentCampaignIntelligenceSourceButton?.addEventListener('click', removeSelectedSourceFromCurrentCampaign);
+deleteIntelligenceSourceButton?.addEventListener('click', deleteSelectedIntelligenceSource);
+resetImportedIntelligenceSourcesButton?.addEventListener('click', resetImportedIntelligenceSources);
 refreshPromptInspectorButton?.addEventListener('click', refreshPromptInspector);
 addIntelligenceSourceButton?.addEventListener('click', openAddIntelligenceFilePicker);
 replaceIntelligenceSourceButton?.addEventListener('click', openReplaceIntelligenceFilePicker);

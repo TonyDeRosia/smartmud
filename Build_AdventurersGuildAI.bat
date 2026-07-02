@@ -40,7 +40,7 @@ if "%PYTHON_CMD%"=="" (
 call :pass "[1/6] Resolve Python" "Using %PYTHON_CMD%"
 
 call :step "[2/6] Install build dependencies"
-call %PYTHON_CMD% -m pip install --upgrade pip pyinstaller -r requirements.txt >>"%LOG_FILE%" 2>&1
+call %PYTHON_CMD% -m pip install --upgrade pip pyinstaller -r requirements.txt python-multipart >>"%LOG_FILE%" 2>&1
 if errorlevel 1 (
     set "FAILED_STEP=[2/6] Install build dependencies"
     set "FAILED_REASON=Dependency installation failed."
