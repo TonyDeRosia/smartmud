@@ -92,7 +92,7 @@
             <button id="open-runtime-character-sheets" type="button">Character Sheets</button>
             <button id="open-runtime-inventory" type="button">Inventory</button>
             <button id="open-runtime-spellbook" type="button">Abilities</button>
-            <button id="open-campaign-events" type="button">Campaign Events <span id="campaign-events-pending-count" class="badge hidden">0</span></button>
+            <button id="open-campaign-events" type="button">Journal <span id="campaign-events-pending-count" class="badge hidden">0</span></button>
           </div>
         </section>
         <section id="manual-image-panel" class="panel-block image-generation-panel hidden v1-addon-panel" aria-hidden="true">
@@ -272,7 +272,7 @@
     <div id="campaign-events-modal" class="modal hidden">
       <div class="modal-card">
         <div class="panel-title-row">
-          <h3>Campaign Events</h3>
+          <h3>Journal</h3>
           <button id="close-campaign-events" type="button">Close</button>
         </div>
         <div id="campaign-events-list" class="runtime-sheet-detail">No campaign events yet.</div>
@@ -519,8 +519,9 @@
               <input id="add-intelligence-source-file" class="hidden" type="file" accept=".txt,.md,.json" />
               <button id="replace-intelligence-source" type="button">Replace Source File</button>
               <input id="replace-intelligence-source-file" class="hidden" type="file" accept=".txt,.md,.json" />
-              <button id="rebuild-intelligence-index" type="button">Rebuild Index placeholder</button>
-              <button id="test-intelligence-retrieval" type="button">Test Retrieval placeholder</button>
+              <button id="rebuild-intelligence-index" type="button">Rebuild Index</button>
+              <input id="intelligence-retrieval-query" type="text" placeholder="Test query: dialogue realism or NPC memory" />
+              <button id="test-intelligence-retrieval" type="button">Test Retrieval</button>
               <button id="apply-campaign-intelligence-sources" type="button">Apply Campaign Selection</button>
               <button id="refresh-prompt-inspector" type="button">Refresh Prompt Inspector</button>
             </div>
@@ -539,6 +540,7 @@
               <button id="apply-intelligence-priority" type="button">Apply Priority</button>
             </div>
             <div id="intelligence-source-list" class="setup-model-list">No intelligence sources loaded.</div>
+            <div id="intelligence-retrieval-results" class="setup-summary">No retrieval test run yet.</div>
             <h5>Campaign Prompt Inspector</h5>
             <div id="campaign-prompt-inspector" class="setup-summary">Prompt inspector not loaded.</div>
           </section>
