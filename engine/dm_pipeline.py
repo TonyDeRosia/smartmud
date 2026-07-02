@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from engine.character_sheets import CharacterSheet
 from engine.dm_reasoning import analyze_player_input
+from engine.scene_simulation import ensure_scene_v1
 
 
 Mode = Literal["ic", "ooc"]
@@ -279,6 +280,8 @@ def _handle_startup(runtime: Any, dm_input: DMInput, understanding: DMUnderstand
         sheet = merge_character_facts(state, facts)
         infer_bootstrap_world_metadata(state, facts)
         state.startup_state = "ready"; state.bootstrap_complete = True; set_bootstrap_missing_fields(state, [])
+        state.structured_state.runtime.scene_state["scene_v1_enabled"] = True
+        ensure_scene_v1(state)
         narrative = _opening_scene(state, sheet)
         return "startup_ability_setup_followup", narrative, created, {"startup_flow": "ability_setup_completed"}
     sheet = merge_character_facts(state, facts)
@@ -295,6 +298,8 @@ def _handle_startup(runtime: Any, dm_input: DMInput, understanding: DMUnderstand
     created = create_ability_proposal_events(state, facts.specific_abilities, "complete character introduction")
     infer_bootstrap_world_metadata(state, facts)
     state.startup_state = "ready"; state.bootstrap_complete = True; set_bootstrap_missing_fields(state, [])
+    state.structured_state.runtime.scene_state["scene_v1_enabled"] = True
+    ensure_scene_v1(state)
     return "startup_character_creation", _opening_scene(state, sheet), created, {"startup_flow": "character_creation_completed"}
 
 
@@ -348,6 +353,9 @@ def process_player_input(runtime: Any, text: str, mode: str) -> DMPipelineResult
     elif startup_before in {"character_creation", "ability_setup_followup", "world_setup_followup"}:
         branch, narrative, created, meta = _handle_startup(runtime, dm_input, understanding, assessment); response_kind = "startup"; blocked_reason = "startup_not_ready" if getattr(state, "startup_state", "ready") != "ready" else ""
         response = _response(runtime, dm_input.raw_text, narrative, branch, response_kind, meta)
+    elif understanding.primary_intent == "ooc_instruction" or any(phrase in dm_input.raw_text.lower() for phrase in ("we are in character", "in character right now", "you are the dm")):
+        branch = "ic_meta_ooc_request"; blocked_reason = "ic_meta_input"; response_kind = "ic_ooc_boundary"
+        response = _response(runtime, dm_input.raw_text, "That sounds out of character. Switch to OOC mode if you want to ask me directly.", branch, response_kind)
     elif understanding.is_reflection or understanding.primary_intent == "information_request" or any(phrase in dm_input.raw_text.lower() for phrase in ("think about", "review my", "check my inventory", "remember what happened", "look over my quests")):
         branch = f"ic_{understanding.primary_intent}_state_answer"; blocked_reason = "non_turn_state_answer"; response_kind = "state_answer"
         response = _response(runtime, dm_input.raw_text, _reflection_answer(state, dm_input.raw_text), branch, response_kind)

@@ -60,6 +60,7 @@ from engine.campaign_engine import CampaignEngine, TurnResult
 from engine.character_sheets import CharacterSheet, CharacterSheetAbilityEntry
 from engine.entities import CampaignSettings, CampaignState
 from engine.game_state_manager import GameStateManager
+from engine.scene_simulation import ensure_scene_v1
 from engine.spellbook import normalize_spellbook_entry
 from images.base import ImageGenerationRequest, ImageGenerationResult, ImageGeneratorAdapter, NullImageAdapter
 from images.comfyui_adapter import ComfyUIAdapter
@@ -5373,6 +5374,7 @@ class WebRuntime:
         scene_state.setdefault("last_player_action", "")
         scene_state.setdefault("last_immediate_result", "")
         runtime.scene_state = scene_state
+        ensure_scene_v1(state)
         print("[scene-state] initialized=true")
         print(f"[scene-state] seeded_location={location_id or location_name or 'unknown'}")
         print(f"[scene-state] seeded_summary={seeded_summary}")
@@ -5672,6 +5674,7 @@ class WebRuntime:
         else:
             state.startup_state = "character_creation"
         self._seed_scene_state(state)
+        state.structured_state.runtime.scene_state["scene_v1_enabled"] = bool(wizard_payload)
         self.session = WebSession(state=state, active_slot=slot)
         self.session.message_history = []
         if wizard_payload:
@@ -5916,20 +5919,21 @@ class WebRuntime:
         if world.lower() == "untitled world":
             world = "the unfolding realm"
         appearance = f", {sheet.description}" if str(sheet.description or "").strip() else ""
-        context = " ".join([theme, premise, role, location_name]).lower()
-        if any(token in context for token in ("pyromancer", "fire", "magic", "arcane")):
-            immediate = "Residual heat ripples over cracked stone, and a sealed courier-scroll smolders without burning in a frightened traveler's hands."
-            landmark = "Smoke coils from a ruined watchtower beyond a lantern-lit road."
-        elif any(token in context for token in ("space", "starship", "sector")):
-            immediate = "Warning lights pulse across the deck while a damaged beacon repeats a partial distress code."
-            landmark = "Beyond the viewport, station traffic scatters from a dark object drifting too close."
-        else:
-            immediate = "A local messenger blocks the path, clutching news that clearly cannot wait."
-            landmark = "Nearby, a distinctive landmark draws every wary glance in the area."
+        scene_v1 = ensure_scene_v1(state)
+        entity_descriptions = " ".join(
+            str(entity.get("description") or entity.get("name"))
+            for entity in scene_v1.get("entities", [])
+            if isinstance(entity, dict) and entity.get("visible", True)
+        )
+        exit_descriptions = " ".join(
+            str(exit_.get("description", ""))
+            for exit_ in scene_v1.get("exits", [])
+            if isinstance(exit_, dict) and not exit_.get("blocked", False)
+        )
         return (
-            f"{name}, a {role}{appearance}, arrives at {location_name} in {world}. "
+            f"{name}, a {role}{appearance}, arrives at {scene_v1.get('location_name', location_name)} in {world}. "
             f"{premise[:1].upper() + premise[1:] if premise else ''} "
-            f"{immediate} {landmark} What do you do?"
+            f"{entity_descriptions} {exit_descriptions} What do you do?"
         )
 
     def _handle_ability_setup_followup(self, text: str, request_started: float, request_received_at: str) -> dict[str, Any]:

@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from engine.spellbook import normalize_abilities_collection, normalize_spellbook_entry
+from engine.scene_simulation import normalize_scene_v1
 
 from engine.character_sheets import CharacterSheet, GuidanceStrength
 
@@ -739,7 +740,14 @@ class CampaignState:
             if premise:
                 summary_parts.append(premise[:160])
             seeded_summary = " ".join(summary_parts)
-        return asdict(
+        scene_v1 = state.get("scene_v1") if isinstance(state.get("scene_v1"), dict) else {}
+        normalized_scene_v1 = normalize_scene_v1({
+            **scene_v1,
+            "location_id": scene_v1.get("location_id", current_location_id) if isinstance(scene_v1, dict) else current_location_id,
+            "location_name": scene_v1.get("location_name", location_name or "Old Gate") if isinstance(scene_v1, dict) else (location_name or "Old Gate"),
+            "summary": scene_v1.get("summary", seeded_summary) if isinstance(scene_v1, dict) else seeded_summary,
+        })
+        legacy_scene_state = asdict(
             CampaignSceneState(
                 location_id=str(state.get("location_id", current_location_id)).strip() or None,
                 location_name=str(state.get("location_name", location_name or "")).strip() or location_name,
@@ -771,3 +779,5 @@ class CampaignState:
                 environment_consequences=[str(v).strip() for v in state.get("environment_consequences", []) if str(v).strip()],
             )
         )
+        legacy_scene_state["scene_v1"] = normalized_scene_v1
+        return legacy_scene_state

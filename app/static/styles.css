@@ -1268,3 +1268,34 @@ body.adventure-mode-enabled .creator-mode-only,
 .creator-mode-only.hidden {
   display: none !important;
 }
+
+.wizard-option-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.45);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.wizard-option-card input { position: absolute; opacity: 0; pointer-events: none; }
+.wizard-option-card .option-indicator {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(203, 213, 225, 0.75);
+  margin-top: 2px;
+  box-shadow: inset 0 0 0 4px rgba(15, 23, 42, 0.9);
+}
+.wizard-option-card .option-copy { display: flex; flex-direction: column; gap: 3px; }
+.wizard-option-card .option-copy small { color: var(--muted); line-height: 1.35; }
+.wizard-option-card:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(56, 189, 248, 0.12);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+}
+.wizard-option-card:has(input:checked) .option-indicator { background: var(--accent); border-color: #e0f2fe; }
+.wizard-option-card:focus-within { outline: 2px solid rgba(56, 189, 248, 0.65); outline-offset: 2px; }

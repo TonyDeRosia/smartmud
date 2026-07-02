@@ -158,3 +158,21 @@ def test_new_campaign_form_is_campaign_focused_by_default() -> None:
     assert 'id="create-campaign-confirm" class="hidden"' in modal
     assert "ComfyUI" not in modal
     assert 'advanced-campaign-rules' in modal
+
+
+def test_wizard_option_groups_render_as_option_cards() -> None:
+    html = _index_html()
+    assert 'class="wizard-option-card"' in html
+    assert html.count('class="wizard-option-card"') >= 18
+    assert '<label><input name="form-play-style-choice"' not in html
+
+
+def test_wizard_selected_options_have_card_styling() -> None:
+    css = Path("app/static/styles.css").read_text(encoding="utf-8")
+    html = _index_html()
+    assert '.wizard-option-card:has(input:checked)' in css
+    assert 'name="form-play-style-choice" type="radio" value="Storybook Mode" checked' in html
+    assert 'name="form-rules-style-choice" type="radio" value="Hybrid" checked' in html
+    assert 'name="form-power-level-choice" type="radio" value="Capable Adventurer" checked' in html
+    assert 'name="form-ability-mode" type="radio" value="suggest" checked' in html
+    assert 'name="form-item-mode" type="radio" value="suggest" checked' in html
