@@ -5680,7 +5680,11 @@ class WebRuntime:
         self.session.message_history = []
         if wizard_payload:
             sheet = self._find_main_character_sheet(state) or CharacterSheet(id="sheet_main", name=state.player.name, sheet_type="main_character", role=state.player.char_class)
-            self._append_message("narrator", self._guided_opening_scene(state, sheet), persist=False)
+            opening = self._guided_opening_scene(state, sheet)
+            pending_abilities = [e for e in state.structured_state.runtime.campaign_events if isinstance(e, dict) and e.get("type") == "ability_suggested" and e.get("status") == "pending"]
+            if pending_abilities:
+                opening += f"\n\nYou have {len(pending_abilities)} starting ability choices waiting in your Journal under Character Growth."
+            self._append_message("narrator", opening, persist=False)
         else:
             self._append_message("narrator", self._character_creation_prompt(state), persist=False)
         self.scene_visual_store.pop(slot, None)
@@ -7487,6 +7491,16 @@ class WebRuntime:
     def read_enabled_intelligence_sources(self) -> dict[str, Any]:
         return {"sources": self.intelligence_library.read_enabled_sources()}
 
+    def rebuild_intelligence_index(self) -> dict[str, Any]:
+        return self.intelligence_library.rebuild_index()
+
+    def test_intelligence_retrieval(self, payload: dict[str, Any]) -> dict[str, Any]:
+        query = str(payload.get("query", "")).strip()
+        selected = payload.get("selected_source_ids", self.session.state.settings.enabled_intelligence_source_ids)
+        if not isinstance(selected, list):
+            selected = []
+        return self.intelligence_library.retrieve(query, [str(v) for v in selected], max_chunks=int(payload.get("max_chunks", 5) or 5))
+
     def set_campaign_intelligence_sources(self, payload: dict[str, Any]) -> dict[str, Any]:
         ids = [str(v).strip() for v in payload.get("enabled_source_ids", []) if str(v).strip()]
         valid = {str(item.get("id", "")) for item in self.intelligence_library.list_sources() if item.get("category") in {"packs", "imported"}}
@@ -7497,18 +7511,40 @@ class WebRuntime:
     def get_campaign_prompt_inspector(self) -> dict[str, Any]:
         state = self.session.state
         guidance, used = self.intelligence_library.build_guidance(enabled_source_ids=state.settings.enabled_intelligence_source_ids)
-        core = [item for item in used if item.get("category") == "core"]
-        campaign = [item for item in used if item.get("category") in {"packs", "imported"}]
+        core_sources = [item for item in self.intelligence_library.list_sources() if item.get("category") == "core"]
+        campaign_sources = [item for item in self.intelligence_library.list_sources() if item.get("category") in {"packs", "imported"} and item.get("id") in state.settings.enabled_intelligence_source_ids]
+        query = " ".join([str(state.player.name), str(state.player.char_class), str(state.world_meta.starting_location_name), str(state.world_meta.premise), str(state.structured_state.recent_turn_memory.running_summary)])
+        retrieved_guidance, trace = self.intelligence_library.build_retrieved_guidance(query, enabled_source_ids=state.settings.enabled_intelligence_source_ids)
+        last_trace = state.structured_state.runtime.scene_state.get("campaign_intelligence_trace") if isinstance(state.structured_state.runtime.scene_state, dict) else None
+        if isinstance(last_trace, dict) and last_trace.get("injected_chunk_count", 0):
+            trace = last_trace
+        injected_ids = set(trace.get("retrieved_source_ids", []))
+        not_injected = []
+        for item in self.intelligence_library.list_sources():
+            if item.get("category") != "core" and item.get("id") not in state.settings.enabled_intelligence_source_ids:
+                reason = "not selected for this campaign"
+            elif not item.get("enabled", True):
+                reason = "disabled"
+            elif item.get("id") not in injected_ids:
+                reason = trace.get("zero_injection_reason") or "not among top retrieved chunks"
+            else:
+                continue
+            not_injected.append({"id": item.get("id"), "title": item.get("title"), "category": item.get("category"), "reason": reason})
         return {
-            "core_intelligence_files": core,
-            "campaign_intelligence_files": campaign,
+            "core_intelligence_files": core_sources,
+            "campaign_intelligence_files": campaign_sources,
             "selected_source_ids": list(state.settings.enabled_intelligence_source_ids),
+            "core_sources_considered": core_sources,
+            "campaign_selected_sources_considered": campaign_sources,
+            "retrieved_chunks_injected": trace.get("injected_snippets", []),
+            "source_files_not_injected": not_injected,
+            **trace,
             "narrator_rules_count": len(state.structured_state.canon.custom_narrator_rules),
             "character_sheets_count": len(state.character_sheets),
             "inventory_item_count": len(state.structured_state.runtime.inventory or state.player.inventory),
             "ability_count": len(state.structured_state.runtime.abilities) + len(state.structured_state.runtime.spellbook),
             "memory_summary_present": bool(state.structured_state.recent_turn_memory.running_summary or state.session_summaries),
-            "estimated_guidance_char_count": len(guidance),
+            "estimated_guidance_char_count": len(retrieved_guidance or guidance),
         }
 
     def get_comfy_debug_bundle(self) -> dict[str, Any]:
@@ -7645,6 +7681,14 @@ def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
             if tmp_path:
                 with suppress(FileNotFoundError):
                     tmp_path.unlink()
+
+    @app.post("/api/developer/intelligence/rebuild-index")
+    def developer_intelligence_rebuild_index() -> dict[str, Any]:
+        return runtime.rebuild_intelligence_index()
+
+    @app.post("/api/developer/intelligence/test-retrieval")
+    def developer_intelligence_test_retrieval(payload: dict[str, Any]) -> dict[str, Any]:
+        return runtime.test_intelligence_retrieval(payload)
 
     @app.post("/api/developer/intelligence/enabled")
     def developer_intelligence_set_enabled(payload: dict[str, Any]) -> dict[str, Any]:

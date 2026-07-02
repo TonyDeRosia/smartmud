@@ -16,7 +16,7 @@ from engine.dialogue_service import DialogueService
 from engine.entities import CampaignState, NPC
 from engine.inventory import InventoryService
 from engine.player_output import filter_player_messages, narrative_needs_player_facing_fallback
-from engine.scene_simulation import ensure_scene_v1, resolve_scene_action
+from engine.scene_simulation import ensure_scene_v1, resolve_scene_action, get_scene_entity_counts
 from engine.spellbook import normalize_spellbook_entry
 from app.dm_intent import analyze_dm_intent
 from memory.campaign_memory import CampaignMemory
@@ -623,22 +623,8 @@ class CampaignEngine:
             "structured_runtime_snapshot": {
                 "inventory_count": len(state.structured_state.runtime.inventory),
                 "spellbook_count": len(state.structured_state.runtime.spellbook),
-                "npc_count": len(
-                    [
-                        npc
-                        for npc in state.structured_state.runtime.npc_relationships.values()
-                        if str(npc.get("location_id", "")) == state.current_location_id
-                    ]
-                )
-                + len(
-                    [
-                        actor
-                        for actor in scene_state.get("scene_actors", [])
-                        if isinstance(actor, dict)
-                        and bool(actor.get("visible", True))
-                        and str(actor.get("location_id", state.current_location_id)) == state.current_location_id
-                    ]
-                ),
+                "npc_count": get_scene_entity_counts(state).get("npc_count", 0),
+                "visible_count": get_scene_entity_counts(state).get("visible_count", 0),
                 "minion_count": len(state.structured_state.runtime.party_state.get("minions", [])),
                 "active_quest_count": len(
                     [quest for quest, status in state.structured_state.runtime.quest_state.items() if status == "active"]
@@ -2304,8 +2290,9 @@ class CampaignEngine:
                 actor["visible"] = False
         visible_actor_names = [str(actor.get("display_name", "")).strip() for actor in scene_actors if bool(actor.get("visible", True))]
         npc_names = [npc.name for npc in state.npcs.values() if npc.location_id == state.current_location_id]
-        scene_state["visible_entities"] = sorted({*npc_names, *visible_actor_names})[-self._scene_state_list_caps["visible_entities"] :]
-        print(f"[scene-actors] visible_count={len([name for name in scene_state['visible_entities'] if name])}")
+        scene_v1_names = [str(e.get("name", "")).strip() for e in ensure_scene_v1(state).get("entities", []) if isinstance(e, dict) and e.get("visible", True)]
+        scene_state["visible_entities"] = sorted({*npc_names, *visible_actor_names, *scene_v1_names})[-self._scene_state_list_caps["visible_entities"] :]
+        print(f"[scene-actors] visible_count={get_scene_entity_counts(state).get('visible_count', 0)}")
         if not is_gameplay:
             return
         scene_state["last_player_action"] = action.strip()
@@ -2321,8 +2308,9 @@ class CampaignEngine:
             for actor in scene_state.get("scene_actors", [])
             if isinstance(actor, dict) and bool(actor.get("visible", True))
         ]
-        scene_state["visible_entities"] = sorted({*npc_names, *visible_actor_names})[-self._scene_state_list_caps["visible_entities"] :]
-        print(f"[scene-actors] visible_count={len([name for name in scene_state['visible_entities'] if name])}")
+        scene_v1_names = [str(e.get("name", "")).strip() for e in ensure_scene_v1(state).get("entities", []) if isinstance(e, dict) and e.get("visible", True)]
+        scene_state["visible_entities"] = sorted({*npc_names, *visible_actor_names, *scene_v1_names})[-self._scene_state_list_caps["visible_entities"] :]
+        print(f"[scene-actors] visible_count={get_scene_entity_counts(state).get('visible_count', 0)}")
         immediate_sources = [narrative] + system_messages[-2:]
         merged = " ".join(source for source in immediate_sources if source.strip())
         extracted = self._extract_consequences_from_narration(merged)

@@ -204,13 +204,90 @@ def _available(scene: dict[str, Any]) -> str:
 
 
 def _look(scene: dict[str, Any]) -> str:
-    ents = _visible_entities(scene)
-    entity_text = " ".join(f"{e.get('name')}: {e.get('description') or e.get('name')}" for e in ents)
-    exits = scene.get("exits", [])
-    exit_text = " ".join(str(x.get("description", "")) for x in exits if not x.get("blocked"))
-    hooks = " ".join(f"Hook: {h}" for h in scene.get("active_hooks", []) if h)
-    return f"You stand at {scene.get('location_name')}. {scene.get('atmosphere')}. {entity_text} {exit_text} {hooks} What do you do?".strip()
+    return render_scene_result(SceneSimulationResult(intent="look", handled=True), scene)
 
+
+
+def get_visible_scene_entities(state: Any) -> list[dict[str, Any]]:
+    scene = ensure_scene_v1(state) if not isinstance(state, dict) else normalize_scene_v1(state)
+    entities = _visible_entities(scene)
+    for ex in scene.get("exits", []):
+        if isinstance(ex, dict) and not ex.get("blocked", False):
+            entities.append({"id": f"exit_{ex.get('direction')}", "name": f"{ex.get('direction')} to {ex.get('destination_name')}", "kind": "exit", "description": ex.get("description", ""), "visible": True, "interactable": True})
+    return entities
+
+def get_visible_npcs(state: Any) -> list[dict[str, Any]]:
+    return [e for e in get_visible_scene_entities(state) if e.get("kind") in {"npc", "creature"}]
+
+def get_visible_objects(state: Any) -> list[dict[str, Any]]:
+    return [e for e in get_visible_scene_entities(state) if e.get("kind") in {"object", "item", "landmark", "hazard", "vehicle", "structure", "exit"}]
+
+def get_scene_entity_counts(state: Any) -> dict[str, int]:
+    ents = get_visible_scene_entities(state)
+    return {"npc_count": len([e for e in ents if e.get("kind") in {"npc", "creature"}]), "visible_count": len(ents), "object_count": len([e for e in ents if e.get("kind") not in {"npc", "creature"}])}
+
+def summarize_scene_for_prompt(state: Any) -> str:
+    scene = ensure_scene_v1(state) if not isinstance(state, dict) else normalize_scene_v1(state)
+    names = ", ".join(e.get("name", "") for e in _visible_entities(scene) if e.get("name"))
+    exits = ", ".join(f"{e.get('direction')} to {e.get('destination_name')}" for e in scene.get("exits", []) if isinstance(e, dict) and not e.get("blocked", False))
+    return f"{scene.get('location_name')}: {scene.get('summary')} Visible: {names or 'none'}. Exits: {exits or 'none'}. Hooks: {', '.join(scene.get('active_hooks', [])) or 'none'}."
+
+def _sentence(text: str) -> str:
+    text = _clean(text)
+    return text if text.endswith(('.', '!', '?')) else text + '.'
+
+def render_scene_result(result: SceneSimulationResult, scene_v1: dict[str, Any], style: str = "storybook") -> str:
+    scene = normalize_scene_v1(scene_v1)
+    loc = scene.get("location_name", "the scene")
+    ents = _visible_entities(scene)
+    landmark = next((e for e in ents if e.get("kind") in {"landmark", "structure"}), None)
+    npcs = [e for e in ents if e.get("kind") == "npc"]
+    objects = [e for e in ents if e.get("kind") in {"object", "item", "hazard"}]
+    parts = [f"You stand before {loc}."]
+    if landmark: parts = [_sentence(str(landmark.get("description") or f"You stand before {loc}"))]
+    for e in npcs[:3] + objects[:2]:
+        desc = str(e.get("description") or e.get("name"))
+        name = str(e.get("name") or "").strip()
+        if name and name not in desc:
+            desc = f"{name}: {desc}"
+        parts.append(_sentence(desc))
+    exits = [_clean(e.get("description")) for e in scene.get("exits", []) if isinstance(e, dict) and not e.get("blocked", False)]
+    if exits: parts.append(_sentence(" ".join(exits)))
+    if scene.get("active_hooks"):
+        parts.append(_sentence("Hook: " + str(scene.get("active_hooks", [""])[0])))
+    return " ".join(parts).strip() + " What do you do?"
+
+def resolve_generic_action(text: str, scene_v1: dict[str, Any], character: Any = None, settings: Any = None) -> SceneSimulationResult:
+    scene = normalize_scene_v1(scene_v1)
+    raw = _clean(text) or "do something"
+    lower = raw.lower()
+    name = _clean(getattr(character, "name", "")) or "You"
+    loc = scene.get("location_name", "nearby")
+    npcs = [e for e in _visible_entities(scene) if e.get("kind") == "npc"]
+    messenger = next((e for e in npcs if "messenger" in str(e.get("name","")).lower()), None)
+    travelers = next((e for e in npcs if "traveler" in str(e.get("name","")).lower()), None)
+    if "twiddle" in lower:
+        narration = f"{name} waits by {loc}, twiddling {'your' if name == 'You' else 'their'} thumbs while the road noise carries on around {'you' if name == 'You' else 'them'}."
+    elif any(w in lower for w in ("dance", "spin", "jump")):
+        narration = f"{name} breaks into the motion near {loc}, making the quiet roadside attention shift toward {'you' if name == 'You' else name}."
+    elif any(w in lower for w in ("wave", "shout", "whistle")):
+        narration = f"{name} makes the gesture heard across {loc}; a few heads turn to see what will happen next."
+    elif any(w in lower for w in ("lick", "toe", "hands")):
+        narration = f"{name} follows through with the odd self-directed gesture near {loc}."
+    elif any(w in lower for w in ("throw", "dirt")):
+        narration = f"{name} tosses dirt across the ground near {loc}, raising a brief dusty scuff."
+    elif "sit" in lower:
+        narration = f"{name} sits down near {loc}, letting the scene continue around {'you' if name == 'You' else 'them'}."
+    else:
+        narration = f"{name} attempts it near {loc}, and the moment becomes part of the scene."
+    reactions=[]
+    if travelers: reactions.append("The wary travelers fall quiet and watch more closely")
+    if messenger: reactions.append("the local messenger clutches the sealed notice tighter")
+    if reactions: narration += " " + ", while ".join(reactions) + "."
+    else: narration += " No one nearby stops it yet."
+    narration += " What do you do?"
+    scene["recent_changes"] = (scene.get("recent_changes", []) + [f"Generic action: {raw}"])[-6:]
+    return SceneSimulationResult(intent="generic_action", handled=True, state_updates={"scene_v1": scene}, messages=[narration], changed_entities=scene.get("entities", []), consequences=[f"Attempted action: {raw}"], suggested_next_actions=["look around", "talk to messenger"], debug={"handled_by": "scene_v1_generic"})
 
 def resolve_scene_action(text: str, scene_v1: dict[str, Any]) -> SceneSimulationResult:
     scene = normalize_scene_v1(scene_v1)
@@ -258,5 +335,5 @@ def resolve_scene_action(text: str, scene_v1: dict[str, Any]) -> SceneSimulation
         scene["recent_changes"] = (scene.get("recent_changes", []) + [change])[-6:]
         messages.append(change + " The scene holds, but the urgency grows.")
     else:
-        return SceneSimulationResult(intent="unknown", handled=False, debug={"reason": "no_basic_scene_intent"})
+        return resolve_generic_action(raw, scene)
     return SceneSimulationResult(intent=intent, handled=True, state_updates={"scene_v1": scene}, messages=messages, changed_entities=scene.get("entities", []), consequences=consequences, suggested_next_actions=["look around", "read notice", "talk to messenger", "go north"], debug={"handled_by": "scene_v1"})

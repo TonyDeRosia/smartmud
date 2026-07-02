@@ -233,6 +233,8 @@ const applyIntelligenceEnabledButton = document.getElementById('apply-intelligen
 const applyIntelligencePriorityButton = document.getElementById('apply-intelligence-priority');
 const rebuildIntelligenceIndexButton = document.getElementById('rebuild-intelligence-index');
 const testIntelligenceRetrievalButton = document.getElementById('test-intelligence-retrieval');
+const intelligenceRetrievalQueryInput = document.getElementById('intelligence-retrieval-query');
+const intelligenceRetrievalResults = document.getElementById('intelligence-retrieval-results');
 const applyCampaignIntelligenceSourcesButton = document.getElementById('apply-campaign-intelligence-sources');
 const refreshPromptInspectorButton = document.getElementById('refresh-prompt-inspector');
 const campaignPromptInspector = document.getElementById('campaign-prompt-inspector');
@@ -1256,9 +1258,29 @@ function intelligencePayload() {
 function renderPromptInspector(data) {
   if (!campaignPromptInspector || !data) return;
   const names = (items) => (items || []).map((item) => item.title || item.id).join(', ') || 'none';
-  campaignPromptInspector.innerHTML = `<strong>Core intelligence files used:</strong> ${escapeHtml(names(data.core_intelligence_files))}<br />
-    <strong>Selected campaign intelligence files used:</strong> ${escapeHtml(names(data.campaign_intelligence_files))}<br />
-    Narrator rules: ${escapeHtml(String(data.narrator_rules_count || 0))}; Character sheets: ${escapeHtml(String(data.character_sheets_count || 0))}; Inventory items: ${escapeHtml(String(data.inventory_item_count || 0))}; Abilities: ${escapeHtml(String(data.ability_count || 0))}; Memory summary: ${data.memory_summary_present ? 'present' : 'absent'}; Estimated guidance chars: ${escapeHtml(String(data.estimated_guidance_char_count || 0))}`;
+  const snippets = (data.retrieved_chunks_injected || data.injected_snippets || []).map((item) => `<li><strong>${escapeHtml(item.title || item.source_id || 'source')}</strong> — ${escapeHtml(item.heading || 'chunk')} (score ${escapeHtml(String(item.score || 0))})<br /><small>${escapeHtml(item.snippet || '')}</small><br /><em>${escapeHtml(item.reason || '')}</em></li>`).join('') || '<li>none</li>';
+  const skipped = (data.source_files_not_injected || []).map((item) => `<li>${escapeHtml(item.title || item.id)}: ${escapeHtml(item.reason || '')}</li>`).join('') || '<li>none</li>';
+  campaignPromptInspector.innerHTML = `<strong>Core sources considered:</strong> ${escapeHtml(names(data.core_sources_considered || data.core_intelligence_files))}<br />
+    <strong>Campaign-selected sources considered:</strong> ${escapeHtml(names(data.campaign_selected_sources_considered || data.campaign_intelligence_files))}<br />
+    <strong>Selected IDs:</strong> ${escapeHtml((data.selected_campaign_source_ids || data.selected_source_ids || []).join(', ') || 'none')}<br />
+    Indexed sources: ${escapeHtml(String(data.indexed_source_count || 0))}; Retrieved source IDs: ${escapeHtml((data.retrieved_source_ids || []).join(', ') || 'none')}; Retrieved chunks: ${escapeHtml(String(data.retrieved_chunk_count || 0))}; Injected chunks: ${escapeHtml(String(data.injected_chunk_count || 0))}; Injected chars: ${escapeHtml(String(data.estimated_injected_chars || data.estimated_guidance_char_count || 0))}; Zero reason: ${escapeHtml(data.zero_injection_reason || '—')}
+    <div><strong>Retrieved chunks actually injected</strong><ul>${snippets}</ul></div>
+    <div><strong>Source files not injected and why</strong><ul>${skipped}</ul></div>`;
+}
+
+async function rebuildIntelligenceIndex() {
+  try { const result = await api('/api/developer/intelligence/rebuild-index', { method: 'POST' }); setIntelligenceStatus(`Rebuilt index: ${result.chunk_count || 0} chunk(s) from ${result.indexed_source_count || 0} source(s).`); await refreshPromptInspector(); }
+  catch (error) { setIntelligenceStatus(error.message, true); }
+}
+
+async function testIntelligenceRetrieval() {
+  if (!intelligenceRetrievalResults) return;
+  const query = intelligenceRetrievalQueryInput?.value?.trim() || '';
+  try {
+    const data = await api('/api/developer/intelligence/test-retrieval', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, selected_source_ids: Array.from(selectedCampaignIntelligenceSourceIds) }) });
+    const rows = (data.results || []).map((item) => `<article class="ability-card"><strong>${escapeHtml(item.title || item.source_id)}</strong> <small>${escapeHtml(item.category || '')} score ${escapeHtml(String(item.score || 0))}</small><div>${escapeHtml(item.heading || '')}</div><p>${escapeHtml(item.snippet || '')}</p><em>${escapeHtml(item.reason || '')}</em></article>`).join('');
+    intelligenceRetrievalResults.innerHTML = rows || `<strong>No results:</strong> ${escapeHtml(data.reason || 'no chunks above threshold')}`;
+  } catch (error) { intelligenceRetrievalResults.textContent = error.message; }
 }
 
 async function refreshPromptInspector() {
@@ -2113,6 +2135,9 @@ function renderCampaignEvents() {
   if (!campaignEventsList) return;
   const events = Array.isArray(campaignEvents) ? [...campaignEvents] : [];
   const pending = events.filter((event) => event.status === 'pending');
+  const growth = pending.filter((event) => event.type === 'ability_suggested');
+  const hooks = pending.filter((event) => event.type !== 'ability_suggested' && /quest|hook/i.test(`${event.type || ''} ${event.title || ''}`));
+  const world = pending.filter((event) => event.type !== 'ability_suggested' && !hooks.includes(event));
   const recent = events.filter((event) => event.status !== 'pending').slice(-10).reverse();
   const pendingCount = pending.length;
   if (campaignEventsPendingCount) {
@@ -2131,7 +2156,9 @@ function renderCampaignEvents() {
       </article>`;
   };
   campaignEventsList.innerHTML = events.length ? `
-    <section class="spellbook-group"><h4>Pending Proposals</h4>${pending.length ? pending.map(renderCard).join('') : '<div class="runtime-sheet-muted">No pending proposals.</div>'}</section>
+    <section class="spellbook-group"><h4>Character Growth</h4><p class="runtime-sheet-muted">${growth.length ? 'Starting abilities ready to learn' : 'No character growth choices pending.'}</p>${growth.length ? growth.map(renderCard).join('') : ''}</section>
+    <section class="spellbook-group"><h4>Quests & Hooks</h4>${hooks.length ? hooks.map(renderCard).join('') : '<div class="runtime-sheet-muted">No quest hooks pending.</div>'}</section>
+    <section class="spellbook-group"><h4>World Events</h4>${world.length ? world.map(renderCard).join('') : '<div class="runtime-sheet-muted">No world events pending.</div>'}</section>
     <section class="spellbook-group"><h4>Recent Events</h4>${recent.length ? recent.map(renderCard).join('') : '<div class="runtime-sheet-muted">No resolved events yet.</div>'}</section>
   ` : '<div class="runtime-sheet-muted">No campaign events yet.</div>';
   campaignEventsList.querySelectorAll('button[data-event-accept]').forEach((button) => {
@@ -3520,8 +3547,8 @@ addIntelligenceSourceFileInput?.addEventListener('change', () => uploadIntellige
 replaceIntelligenceSourceFileInput?.addEventListener('change', () => uploadIntelligenceSource('/api/developer/intelligence/replace', replaceIntelligenceSourceFileInput.files?.[0], intelligencePayload(), 'Replaced source'));
 applyIntelligenceEnabledButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/enabled', { id: intelligencePayload().id, enabled: intelligencePayload().enabled }, 'Updated source enabled state.'));
 applyIntelligencePriorityButton?.addEventListener('click', () => postIntelligence('/api/developer/intelligence/priority', { id: intelligencePayload().id, priority: intelligencePayload().priority }, 'Updated source priority.'));
-rebuildIntelligenceIndexButton?.addEventListener('click', () => setIntelligenceStatus('Rebuild Index placeholder: embeddings/vector index are intentionally not implemented yet.'));
-testIntelligenceRetrievalButton?.addEventListener('click', () => setIntelligenceStatus('Test Retrieval placeholder: priority-based loading is available; semantic retrieval is a future step.'));
+rebuildIntelligenceIndexButton?.addEventListener('click', rebuildIntelligenceIndex);
+testIntelligenceRetrievalButton?.addEventListener('click', testIntelligenceRetrieval);
 refreshIntelligenceSources();
 
 developerToolsToggleInput?.addEventListener('change', () => setDeveloperToolsVisible(!!developerToolsToggleInput.checked));

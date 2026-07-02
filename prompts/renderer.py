@@ -7,6 +7,7 @@ import re
 
 from engine.character_sheets import CharacterSheetPromptFormatter
 from engine.entities import CampaignState
+from engine.scene_simulation import ensure_scene_v1, summarize_scene_for_prompt
 from memory.retrieval import RetrievedMemory
 from app.intelligence import default_intelligence_library
 from prompts.templates import (
@@ -107,14 +108,22 @@ class PromptRenderer:
         )
         print("[narrative-quality] strengthened_prompt=true")
         try:
-            campaign_intelligence_guidance, _used_intelligence = default_intelligence_library().build_guidance(
-                enabled_source_ids=state.settings.enabled_intelligence_source_ids
+            scene_summary = summarize_scene_for_prompt(state)
+            pending_events = " ".join(str(e.get("title") or e.get("description") or "") for e in getattr(state.structured_state.runtime, "campaign_events", []) if isinstance(e, dict) and e.get("status") == "pending")
+            recent_memory = state.structured_state.recent_turn_memory.running_summary or " ".join(state.session_summaries[-2:])
+            retrieval_query = " ".join([requested_mode, scene_summary, pending_events, recent_memory])
+            campaign_intelligence_guidance, intelligence_trace = default_intelligence_library().build_retrieved_guidance(
+                retrieval_query, enabled_source_ids=state.settings.enabled_intelligence_source_ids
             )
+            state.structured_state.runtime.scene_state["campaign_intelligence_trace"] = intelligence_trace
+            if not campaign_intelligence_guidance:
+                campaign_intelligence_guidance, _used_intelligence = default_intelligence_library().build_guidance(enabled_source_ids=[], max_chars=2000)
+                intelligence_trace["fallback_core_guidance"] = bool(campaign_intelligence_guidance)
         except Exception as exc:  # pragma: no cover - defensive prompt fallback
             print(f"[campaign-intelligence] guidance_unavailable={exc}")
             campaign_intelligence_guidance = ""
         campaign_intelligence_layer = (
-            f"[Campaign Intelligence Guidance]\n{campaign_intelligence_guidance}\n"
+            f"[Retrieved Campaign Intelligence]\n{campaign_intelligence_guidance}\n"
             if campaign_intelligence_guidance
             else ""
         )
