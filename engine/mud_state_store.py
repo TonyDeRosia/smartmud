@@ -16,6 +16,10 @@ def utc_now() -> str:
 def mud_state_db_path(campaign_id: str, user_data_dir: Path | None = None, saves_dir: Path | None = None) -> Path:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", campaign_id or "campaign").strip("._") or "campaign"
     base = Path(user_data_dir) if user_data_dir else (Path(saves_dir).parent if saves_dir else Path(".") / "user_data")
+    if safe.startswith("mud_"):
+        parts = safe.split("_", 2)
+        if len(parts) == 3 and parts[1] and parts[2]:
+            return base / "saves" / "mud_v2" / parts[1] / f"{parts[2]}.sqlite"
     return base / "saves" / "mud_v2" / f"{safe}.sqlite"
 
 
@@ -94,6 +98,49 @@ class MUDStateStore:
     def load_room_items(self, room_id: str) -> list[dict[str, Any]]:
         self.initialize();
         with self.connect() as con: return [{**dict(r),"state":self._loads(r["state_json"])} for r in con.execute("SELECT * FROM room_items WHERE room_id=?", (room_id,))]
+
+    def add_command_history(self, character_id: str, command_text: str, room_id: str = "", limit: int = 100) -> None:
+        self.initialize()
+        with self.connect() as con:
+            con.execute(
+                "INSERT INTO command_history(character_id,command_text,room_id,created_at) VALUES(?,?,?,?)",
+                (character_id, command_text, room_id, utc_now()),
+            )
+            if limit > 0:
+                con.execute(
+                    "DELETE FROM command_history WHERE character_id=? AND id NOT IN (SELECT id FROM command_history WHERE character_id=? ORDER BY id DESC LIMIT ?)",
+                    (character_id, character_id, int(limit)),
+                )
+
+    def load_command_history(self, character_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        self.initialize()
+        with self.connect() as con:
+            rows = [dict(r) for r in con.execute("SELECT * FROM command_history WHERE character_id=? ORDER BY id DESC LIMIT ?", (character_id, int(limit)))]
+        return list(reversed(rows))
+
+    def add_scrollback(self, character_id: str, entry_type: str, text: str, html: str = "", room_id: str = "", limit: int = 1000) -> None:
+        self.initialize()
+        with self.connect() as con:
+            con.execute(
+                "INSERT INTO mud_scrollback(character_id,entry_type,text,html,room_id,created_at) VALUES(?,?,?,?,?,?)",
+                (character_id, entry_type, text, html, room_id, utc_now()),
+            )
+            if limit > 0:
+                con.execute(
+                    "DELETE FROM mud_scrollback WHERE character_id=? AND id NOT IN (SELECT id FROM mud_scrollback WHERE character_id=? ORDER BY id DESC LIMIT ?)",
+                    (character_id, character_id, int(limit)),
+                )
+
+    def load_scrollback(self, character_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+        self.initialize()
+        with self.connect() as con:
+            rows = [dict(r) for r in con.execute("SELECT * FROM mud_scrollback WHERE character_id=? ORDER BY id DESC LIMIT ?", (character_id, int(limit)))]
+        return list(reversed(rows))
+
+    def clear_scrollback(self, character_id: str) -> None:
+        self.initialize()
+        with self.connect() as con:
+            con.execute("DELETE FROM mud_scrollback WHERE character_id=?", (character_id,))
     def load_npc_runtime(self,npc_id:str)->dict[str,Any]:
         row=self._one("SELECT * FROM npc_runtime WHERE npc_id=? AND campaign_id=?",(npc_id,self.campaign_id)) or {"npc_id":npc_id,"campaign_id":self.campaign_id,"world_id":self.world_id,"state_json":"{}"}; row["state"]=self._loads(row.get("state_json")); return row
     def save_npc_runtime(self,npc_id:str,state:dict[str,Any])->None:
@@ -229,6 +276,8 @@ CREATE TABLE IF NOT EXISTS characters(character_id TEXT PRIMARY KEY,campaign_id 
 CREATE TABLE IF NOT EXISTS character_stats(character_id TEXT,stat_name TEXT,stat_value INTEGER,PRIMARY KEY(character_id,stat_name));
 CREATE TABLE IF NOT EXISTS character_abilities(character_id TEXT,ability_id TEXT,source TEXT,learned_at TEXT,PRIMARY KEY(character_id,ability_id));
 CREATE TABLE IF NOT EXISTS character_inventory(id INTEGER PRIMARY KEY AUTOINCREMENT,character_id TEXT,item_id TEXT,quantity INTEGER,equipped_slot TEXT,state_json TEXT);
+CREATE TABLE IF NOT EXISTS command_history(id INTEGER PRIMARY KEY AUTOINCREMENT,character_id TEXT,command_text TEXT,room_id TEXT,created_at TEXT);
+CREATE TABLE IF NOT EXISTS mud_scrollback(id INTEGER PRIMARY KEY AUTOINCREMENT,character_id TEXT,entry_type TEXT,text TEXT,html TEXT,room_id TEXT,created_at TEXT);
 CREATE TABLE IF NOT EXISTS rooms_runtime(room_id TEXT PRIMARY KEY,campaign_id TEXT,world_id TEXT,visited_count INTEGER,last_visited_at TEXT,state_json TEXT);
 CREATE TABLE IF NOT EXISTS room_items(id INTEGER PRIMARY KEY AUTOINCREMENT,room_id TEXT,item_id TEXT,quantity INTEGER,state_json TEXT);
 CREATE TABLE IF NOT EXISTS npc_runtime(npc_id TEXT,campaign_id TEXT,world_id TEXT,current_room_id TEXT,mood TEXT,disposition TEXT,state_json TEXT,updated_at TEXT,PRIMARY KEY(npc_id,campaign_id));

@@ -389,6 +389,8 @@
           <label>Terminal height / density <select id="mud-terminal-density"><option value="compact">Compact</option><option value="comfortable" selected>Comfortable</option><option value="tall">Tall</option></select></label>
           <label><input id="mud-command-echo" type="checkbox" checked /> Command echo</label>
           <label><input id="mud-show-timestamps" type="checkbox" /> Show timestamps</label>
+          <label>Command history size <input id="mud-command-history-size" type="number" min="10" max="1000" value="100" /></label>
+          <label>Scrollback size <input id="mud-scrollback-size" type="number" min="50" max="10000" value="1000" /></label>
         </section>
 
         <section id="mud-colors-settings" class="panel-block mud-colors-settings">
@@ -409,18 +411,18 @@
         </section>
 
         <section class="panel-block developer-tool-section hidden">
-          <h4>Campaign</h4>
+          <h4>Legacy Diagnostics</h4>
           <div class="settings-shortcut-row button-row">
             <button id="open-narrator-rules" type="button">Narrator Rules</button>
             <button id="open-world-building" type="button">World Building</button>
           </div>
           <section class="campaign-mode-settings">
-            <h4>Campaign Mode</h4>
-            <p class="setup-intro">Adventure Mode keeps sheets, inventory, and abilities as reference screens while you play. Creator Mode unlocks editing tools for campaign content.</p>
+            <h4>Legacy Content Mode</h4>
+            <p class="setup-intro">Legacy creator diagnostics are hidden from normal Smart MUD players.</p>
             <label><input id="creator-mode-toggle" type="checkbox" /> Enable Creator Mode</label>
           </section>
           <section class="campaign-play-style-group">
-            <h4>Campaign Rules &amp; Behavior</h4>
+            <h4>Legacy Rules &amp; Behavior</h4>
             <label><input id="allow-freeform-powers" type="checkbox" /> Allow freeform powers/actions not yet on sheet</label>
             <label><input id="auto-update-sheet-from-actions" type="checkbox" /> Auto-update character sheet from demonstrated actions</label>
             <label><input id="strict-sheet-enforcement" type="checkbox" /> Strictly require sheet-listed powers</label>
@@ -432,10 +434,10 @@
         </section>
 
         <section class="panel-block developer-tool-section hidden">
-          <h4>Story DM</h4>
-          <p class="setup-intro">Basic DM Mode is ready without extra setup. Optional local AI and image tools can be enabled from Developer Tools.</p>
-          <label>Story DM mode <select id="model-provider"><option value="null">Basic DM Mode</option><option value="ollama">Local AI (optional)</option></select></label>
-          <label>Scene visual mode
+          <h4>AI Runtime</h4>
+          <p class="setup-intro">Basic deterministic runtime is ready without extra setup. Optional local AI tools can be enabled from Developer Tools.</p>
+          <label>AI runtime mode <select id="model-provider"><option value="null">Basic DM Mode</option><option value="ollama">Local AI (optional)</option></select></label>
+          <label>Visual diagnostics
             <select id="scene-visual-mode">
               <option value="off">Off</option>
               <option value="manual">Manual only</option>
@@ -448,7 +450,7 @@
 
         <section class="panel-block">
           <h4>Advanced</h4>
-          <p class="setup-intro">Advanced local AI and image tools are optional. Most adventures do not need them.</p>
+          <p class="setup-intro">Advanced local AI tools are optional. Most players do not need them.</p>
           <label><input id="developer-tools-toggle" type="checkbox" /> Show Developer Tools</label>
           <div class="settings-status-row">
             <span id="campaign-settings-status" class="settings-status saved">Saved</span>
@@ -490,7 +492,7 @@
           <section class="developer-tool-section" id="mud-memory-inspector">
             <h5>MUD Memory Inspector</h5>
             <p class="setup-intro">Developer-only view of persistent MUD V2 runtime state, relationships, memories, events, and conversations.</p>
-            <div class="button-row"><button id="refresh-mud-memory" type="button">Refresh MUD Memory</button><button id="clear-mud-memory" type="button">Clear Campaign Memory</button></div>
+            <div class="button-row"><button id="refresh-mud-memory" type="button">Refresh MUD Memory</button><button id="clear-mud-memory" type="button">Clear Runtime Memory</button></div>
             <pre id="mud-memory-output" class="setup-summary">MUD memory inspector not loaded.</pre>
           </section>
           <section class="developer-tool-section" id="gm-orchestrator-inspector">
@@ -507,8 +509,8 @@
           </section>
 
           <section class="developer-tool-section" id="campaign-intelligence-library">
-            <h5>Campaign Intelligence Library</h5>
-            <p class="setup-intro">Developer-only source files that can guide campaign AI behavior. Core files affect all campaigns. Selected pack/imported files affect only this campaign.</p>
+            <h5>Developer Source Library</h5>
+            <p class="setup-intro">Developer-only source files that can guide AI behavior. Core files affect all worlds. Selected pack/imported files affect only this Smart MUD runtime.</p>
             <div id="intelligence-status" class="setup-summary">Loading intelligence sources...</div>
             <div class="button-row">
               <button id="refresh-intelligence-sources" type="button">Refresh Sources</button>
@@ -519,8 +521,8 @@
               <button id="rebuild-intelligence-index" type="button">Rebuild Index</button>
               <input id="intelligence-retrieval-query" type="text" placeholder="Test query: dialogue realism or NPC memory" />
               <button id="test-intelligence-retrieval" type="button">Test Retrieval</button>
-              <button id="apply-campaign-intelligence-sources" type="button">Apply Campaign Selection</button>
-              <button id="remove-current-campaign-intelligence-source" type="button">Remove from Current Campaign</button>
+              <button id="apply-campaign-intelligence-sources" type="button">Apply Source Selection</button>
+              <button id="remove-current-campaign-intelligence-source" type="button">Remove from Current Runtime</button>
               <button id="delete-intelligence-source" type="button">Delete Source</button>
               <button id="reset-imported-intelligence-sources" type="button">Reset Imported Sources</button>
               <button id="refresh-prompt-inspector" type="button">Refresh Prompt Inspector</button>
@@ -541,7 +543,7 @@
             </div>
             <div id="intelligence-source-list" class="setup-model-list">No intelligence sources loaded.</div>
             <div id="intelligence-retrieval-results" class="setup-summary">No retrieval test run yet.</div>
-            <h5>Campaign Prompt Inspector</h5>
+            <h5>AI Prompt Inspector</h5>
             <div id="campaign-prompt-inspector" class="setup-summary">Prompt inspector not loaded.</div>
           </section>
 

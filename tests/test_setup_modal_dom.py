@@ -174,9 +174,9 @@ def test_smart_mud_settings_are_player_facing_by_default() -> None:
         assert text in default_view
     assert 'class="panel-block developer-tool-section hidden"' in default_view
     assert 'id="developer-tools-panel" class="panel-block hidden"' in modal
-    for player_facing in ["Campaign Mode", "Campaign Rules", "Story DM"]:
+    for player_facing in ["Command history size", "Scrollback size"]:
         assert player_facing in default_view
-    for hidden in ["ComfyUI", "Image Addon", "Campaign Intelligence Library", "GM Orchestrator Inspector", "MUD Memory Inspector"]:
+    for hidden in ["Campaign Mode", "Campaign Rules", "Story DM", "ComfyUI", "Image Addon", "Campaign Intelligence Library", "GM Orchestrator Inspector", "MUD Memory Inspector"]:
         assert hidden not in default_view
 
 
