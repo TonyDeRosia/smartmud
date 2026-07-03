@@ -1,81 +1,176 @@
-"""Python-native Smart MUD display builders.
+"""Smart MUD display rendering engine with semantic color roles."""
 
-These helpers return terminal-oriented MUD text. They intentionally avoid web-card
-markup so the browser, desktop shell, and tests can render the same semantic text.
-"""
 from __future__ import annotations
-from collections import Counter, defaultdict
-from datetime import datetime, timezone
-from typing import Any
 
-EQUIPMENT_SLOTS = ["Light","Head","Face","Neck","Body","About Body","Arms","Wrist","Hands","Finger","Waist","Legs","Feet","Wielded","Offhand","Held","Shield","Back"]
+from typing import Any, Optional
+import html
 
-def _title(v: Any, default: str = "Unknown") -> str:
-    s = str(v or "").replace("_", " ").strip()
-    return s.title() if s else default
 
-def _gold(runtime: Any) -> int:
-    return int(((getattr(runtime, "inventory_state", {}) or {}).get("currency", {}) or {}).get("gold", 0) or 0)
-
-def _entries(runtime: Any) -> list[dict[str, Any]]:
-    return list((getattr(runtime, "inventory_state", {}) or {}).get("entries", []) or [])
-
-def character_context(state: Any, world: Any, room: dict[str, Any]) -> dict[str, Any]:
-    core = getattr(getattr(state, "structured_state", None), "runtime", None).player_core if getattr(getattr(state, "structured_state", None), "runtime", None) else {}
-    core = core or {}; derived = core.get("derived_stats", {}) or {}; stats = core.get("stats", {}) or getattr(state.player, "classic_attributes", {}) or {}
-    runtime = state.structured_state.runtime
-    level = int(getattr(state.player, "level", 1) or 1); xp = int(getattr(state.player, "xp", 0) or 0)
-    return {"id": getattr(state.player, "id", "player_1") or "player_1", "name": getattr(state.player, "name", "Adventurer"), "title": core.get("title") or f"the {getattr(state.player, 'char_class', 'Adventurer')}", "race": _title(core.get("race_id") or core.get("race") or "human"), "class": getattr(state.player, "char_class", "Adventurer"), "level": level, "room": room.get("name", "Unknown Room"), "hp": getattr(state.player, "hp", 0), "max_hp": getattr(state.player, "max_hp", 0), "mana": getattr(state.player, "energy_or_mana", 0), "max_mana": getattr(state.player, "energy_or_mana", 0), "stamina": derived.get("Stamina", 0), "max_stamina": derived.get("Stamina", 0), "xp": xp, "tnl": max(0, level * 1000 - xp), "gold": _gold(runtime), "armor": derived.get("Armor", derived.get("AC", 10)), "hitroll": derived.get("Hitroll", 0), "damroll": derived.get("Damroll", 0), "stats": stats, "entries": _entries(runtime), "abilities": list(getattr(runtime, "abilities", []) or []), "affects": list(getattr(runtime, "active_affects", []) or []), "role": core.get("role") or "player", "description": core.get("description") or getattr(state.player, "description", "") or "No description set.", "last_played": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
-
-def score(ctx: dict[str, Any]) -> str:
-    stats = ctx.get("stats") or {}; affects = ctx.get("affects") or []; abilities = ctx.get("abilities") or []; inv = ctx.get("entries") or []
-    lines = [f"{ctx['name']} {ctx['title']}", f"Race: {ctx['race']}  Class: {ctx['class']}  Level: {ctx['level']}", f"Room: {ctx['room']}", f"HP: {ctx['hp']}/{ctx['max_hp']}  MP: {ctx['mana']}/{ctx['max_mana']}  Stamina: {ctx['stamina']}/{ctx['max_stamina']}", f"XP: {ctx['xp']}  TNL: {ctx['tnl']}  Gold: {ctx['gold']}", f"Armor: {ctx['armor']}  Hitroll: {ctx['hitroll']}  Damroll: {ctx['damroll']}", "Stats: " + (", ".join(f"{k} {v}" for k,v in stats.items()) if stats else "unrecorded"), f"Carry Weight: {sum(int(e.get('weight',0) or 0)*int(e.get('quantity',1) or 1) for e in inv)}  Inventory Count: {sum(int(e.get('quantity',1) or 1) for e in inv)}", "Active Affects: " + (", ".join(str(a.get('name', a)) for a in affects) if affects else "none"), "Known Abilities: " + (", ".join(str(a.get('name', a.get('id','ability')) if isinstance(a,dict) else a) for a in abilities[:8]) if abilities else "none")]
-    return "Score Sheet\n" + "\n".join(lines)
-
-def worth(ctx: dict[str, Any]) -> str:
-    rep = ctx.get("reputation")
-    lines = ["Worth", f"Gold: {ctx['gold']}", f"XP: {ctx['xp']}", f"TNL: {ctx['tnl']}", f"Level: {ctx['level']}"]
-    if rep is not None: lines.append(f"Reputation: {rep}")
+def render_room(room: Any, colors: dict[str, str], character: Any = None) -> str:
+    """Render room description with inline exits using semantic roles."""
+    lines = []
+    
+    # Room area and title
+    if hasattr(room, 'area_id') and room.area_id:
+        lines.append(f'<span role="area_name">{html.escape(room.area_id)}</span>')
+    
+    lines.append(f'<span role="room_name">{html.escape(room.title if hasattr(room, "title") else "Unknown Room")}</span>')
+    
+    # Description
+    desc = room.description if hasattr(room, 'description') else ""
+    if desc:
+        lines.append(f'<span role="room_description">{html.escape(desc)}</span>')
+    
+    # Inline exits (classic MUD style)
+    exits = getattr(room, 'exits', [])
+    if exits:
+        exit_names = []
+        if isinstance(exits, list):
+            for exit_def in exits:
+                if isinstance(exit_def, dict):
+                    direction = exit_def.get('direction', exit_def.get('dir', ''))
+                else:
+                    direction = str(exit_def)
+                if direction:
+                    exit_names.append(direction)
+        
+        if exit_names:
+            exit_str = "[ Exits: " + " ".join(
+                f'<span role="exit">{html.escape(e)}</span>' for e in exit_names
+            ) + " ]"
+            lines.append(exit_str)
+    else:
+        lines.append('<span role="exit">[ Exits: none ]</span>')
+    
+    # NPCs in room (stub)
+    lines.append('<span role="system">(stub: NPC rendering)</span>')
+    
+    print("[mud-render] Room rendered")
     return "\n".join(lines)
 
-def inventory(ctx: dict[str, Any]) -> str:
-    entries = ctx.get("entries") or []
-    if not entries: return "You are carrying nothing."
-    counts = Counter((e.get("name") or e.get("item_id") or e.get("id") or "item") for e in entries for _ in range(int(e.get("quantity",1) or 1)))
-    return "Inventory\n" + "\n".join(f"  {qty:>2} x {name}" for name, qty in sorted(counts.items()))
 
-def equipment(ctx: dict[str, Any]) -> str:
-    byslot = defaultdict(list)
-    for e in ctx.get("entries") or []:
-        slot = e.get("equipped_slot") or (e.get("slot") if e.get("equipped") else "")
-        if slot: byslot[_title(slot)].append(e.get("name") or e.get("item_id") or "something")
-    return "Equipment\n" + "\n".join(f"<{slot}> {', '.join(byslot.get(slot, [])) if byslot.get(slot) else 'Nothing'}" for slot in EQUIPMENT_SLOTS)
+def render_prompt(character: Any, colors: dict[str, str]) -> str:
+    """Render MUD prompt with semantic color roles."""
+    # Minimal classic MUD prompt style
+    prompt = (
+        f'<span role="prompt_marker">&gt;</span> '
+        f'<span role="prompt_hp">{character.name}</span> '
+        f'<span role="score_label">HP:</span> <span role="prompt_hp">{character.hp}/{character.max_hp}</span> '
+    )
+    
+    # Add mana if > 0
+    if character.max_mana > 0:
+        prompt += (
+            f'<span role="score_label">MP:</span> <span role="prompt_mana">{character.mana}/{character.max_mana}</span> '
+        )
+    
+    print("[mud-render] Prompt rendered")
+    return prompt
 
-def finger(ctx: dict[str, Any], target: str = "", viewer_privileged: bool = False) -> str:
-    lines = ["Finger", f"Name: {ctx['name']}", f"Title: {ctx['title']}", f"Race: {ctx['race']}  Class: {ctx['class']}  Level: {ctx['level']}", "Guild/World: Shattered Realms", f"Last Room: {ctx['room']}", f"Last Played: {ctx['last_played']}", f"Description: {ctx['description']}"]
-    if viewer_privileged: lines.append(f"Staff Flag: {ctx.get('role','player')}")
-    return "\n".join(lines)
 
-def abilities(ctx: dict[str, Any], kind: str = "abilities") -> str:
-    known = ctx.get("abilities") or []
-    title = {"spells":"Spells", "skills":"Skills"}.get(kind, "Abilities")
-    if not known: return f"{title}\n  You know no {kind} yet."
-    rows=[]
-    for a in known:
-        if not isinstance(a, dict): a={"name": str(a)}
-        if kind == "spells": rows.append(f"  {a.get('name', a.get('id','spell')):<22} Cost {a.get('cost', a.get('mana_cost','?')):<3} School {a.get('school','general'):<10} Cooldown {a.get('cooldown','none')}")
-        elif kind == "skills": rows.append(f"  {a.get('name', a.get('id','skill')):<24} Rank {a.get('rank', a.get('proficiency','novice'))}")
-        else: rows.append(f"  {a.get('name', a.get('id','ability'))}")
-    return title + "\n" + "\n".join(rows)
+def render_scrollback_line(output: str, role: str = "default", colors: dict[str, str] = None) -> str:
+    """Render a single scrollback line with semantic role."""
+    if colors is None:
+        colors = {}
+    
+    return f'<span role="{html.escape(role)}">{html.escape(output)}</span>'
 
-def affects(ctx: dict[str, Any]) -> str:
-    aff = ctx.get("affects") or []
-    return "Affects\n" + ("\n".join(f"  {a.get('name', a)} - {a.get('duration','unknown duration') if isinstance(a,dict) else 'unknown duration'}" for a in aff) if aff else "  You are affected by nothing unusual.")
 
-def commands(commands_by_cat: dict[str, list[str]]) -> str:
-    return "Commands\n" + "\n".join(f"{cat}: {', '.join(sorted(vals))}" for cat, vals in sorted(commands_by_cat.items()))
+def render_command_echo(command: str, colors: dict[str, str]) -> str:
+    """Render echoed command input."""
+    return f'<span role="command_echo">&gt; {html.escape(command)}</span>'
 
-def help_text(command: Any) -> str:
-    return "Help: " + command.name + "\n" + f"Usage: {command.usage or command.name}\n" + (f"Aliases: {', '.join(command.aliases)}\n" if command.aliases else "") + (command.help or "No additional help.")
 
-def simple(title: str, body: str) -> str: return f"{title}\n{body}"
+def render_system_message(message: str, message_type: str = "system") -> str:
+    """Render system message with appropriate role."""
+    roles = {
+        "system": "system",
+        "error": "error",
+        "warning": "warning",
+        "combat": "combat",
+        "quest": "quest",
+    }
+    role = roles.get(message_type, "system")
+    return f'<span role="{role}">{html.escape(message)}</span>'
+
+
+def render_combat_output(attacker: str, action: str, target: str, damage: int = 0, 
+                        hit: bool = True, colors: dict[str, str] = None) -> str:
+    """Render combat action output."""
+    if colors is None:
+        colors = {}
+    
+    if hit:
+        return (
+            f'<span role="combat">{html.escape(attacker)}</span> '
+            f'<span role="combat">{html.escape(action)}</span> '
+            f'<span role="combat">{html.escape(target)}</span> '
+            f'<span role="damage">for {damage} damage</span>.'
+        )
+    else:
+        return (
+            f'<span role="combat">{html.escape(attacker)}</span> '
+            f'<span role="combat">{html.escape(action)}</span> '
+            f'<span role="warning">but misses</span> '
+            f'<span role="combat">{html.escape(target)}</span>.'
+        )
+
+
+def render_dialogue(speaker: str, text: str, speaker_role: str = "npc") -> str:
+    """Render dialogue with speaker color role."""
+    role_colors = {
+        "npc": "npc",
+        "mob": "mob",
+        "player": "player",
+    }
+    role = role_colors.get(speaker_role, "dialogue")
+    
+    return (
+        f'<span role="{role}">{html.escape(speaker)}</span> '
+        f'<span role="dialogue">says: "{html.escape(text)}"</span>'
+    )
+
+
+def render_inventory_list(character: Any, colors: dict[str, str]) -> str:
+    """Render inventory display."""
+    if not character.inventory:
+        return '<span role="system">You are not carrying anything.</span>'
+    
+    lines = ['<span role="system">You are carrying:</span>']
+    for item in character.inventory:
+        item_name = item.get('name', 'unknown')
+        qty = item.get('quantity', 1)
+        rarity = item.get('rarity', 'common')
+        role = f"item_{rarity}"
+        
+        qty_str = f" x{qty}" if qty > 1 else ""
+        lines.append(f'  <span role="{role}">{html.escape(item_name)}</span>{qty_str}')
+    
+    return '\n'.join(lines)
+
+
+def render_equipment_list(character: Any, colors: dict[str, str]) -> str:
+    """Render equipment display."""
+    if not character.equipment:
+        return '<span role="system">You are not wearing anything.</span>'
+    
+    lines = ['<span role="system">You are wearing:</span>']
+    for slot, item in character.equipment.items():
+        item_name = item.get('name', 'empty') if item else 'empty'
+        lines.append(
+            f'  <span role="equipment_slot">{html.escape(slot)}</span>: '
+            f'<span role="equipment_item">{html.escape(item_name)}</span>'
+        )
+    
+    return '\n'.join(lines)
+
+
+def apply_css_variables(colors: dict[str, str]) -> dict[str, str]:
+    """Convert color roles to CSS variables for frontend application."""
+    css_vars = {}
+    for role, hex_color in colors.items():
+        css_var_name = f"--mud-{role}"
+        css_vars[css_var_name] = hex_color
+    
+    print(f"[mud-render] Generated {len(css_vars)} CSS variables")
+    return css_vars
