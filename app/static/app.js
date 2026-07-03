@@ -1,4 +1,4 @@
-const dialogueFeed = document.getElementById('dialogue-feed');
+const dialogueFeed = document.getElementById('dialogue-feed') || document.getElementById('mud-world-output');
 const campaignMeta = document.getElementById('campaign-meta');
 const campaignDisplayModeIndicator = document.getElementById('campaign-display-mode-indicator');
 const creatorModeBadge = document.getElementById('creator-mode-badge');
