@@ -6329,6 +6329,14 @@ def test_mud_api_world_character_play_flow(tmp_path: Path, monkeypatch) -> None:
     assert "messages" not in look
     assert "play_view" not in look
     assert "{prompt_" not in look["output_html"]
+    assert "> look" in look["output_text"]
+    assert look["command_echo"] is True
+    assert look["command_history"][-1]["command_text"] == "look"
+    no_echo = runtime.mud_input({"text": "score", "command_echo": False})
+    assert no_echo["command_echo"] is False
+    assert "> score" not in no_echo["output_text"]
+    history = runtime.mud_input({"text": "history"})
+    assert "Recent commands:" in history["output_text"]
     moved = runtime.mud_input({"text": "n"})
     assert moved["mode"] == "mud_v2"
     assert moved["output_text"]

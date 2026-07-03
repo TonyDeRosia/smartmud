@@ -4644,19 +4644,26 @@ class WebRuntime:
                 semantic("prompt_marker", ">"),
             ]
         )
-        output = state.structured_state.runtime.last_narration or render_room(
+        initial_output = state.structured_state.runtime.last_narration or render_room(
             room,
             world.manifest,
             {**character, "race": str(character["race"]).title(), "char_class": character["class"]},
         )
         # Older renderers appended a MUD prompt to room output; the normal client owns prompt rendering.
-        output = strip_prompt_block(output)
+        initial_output = strip_prompt_block(initial_output)
+        cid = state.player.id or self.session.active_slot or "player_1"
+        store = self._mud_store(state)
+        scrollback = store.load_scrollback(cid, 1000)
+        if not scrollback:
+            store.add_scrollback(cid, "output", render_semantic_plain(initial_output), render_semantic_html(initial_output, self._effective_mud_colors()), room.get("id", ""), 1000)
+            scrollback = store.load_scrollback(cid, 1000)
+        output = "\n\n".join(str(entry.get("text") or "") for entry in scrollback).strip()
         output_html = render_semantic_html(output, self._effective_mud_colors())
         return {
             "ok": True,
             "mode": "mud_v2",
             "world_id": world.id,
-            "character_id": state.player.id or self.session.active_slot or "player_1",
+            "character_id": cid,
             "room_id": room.get("id"),
             "world_name": world.manifest.get("name", world.id),
             "character_name": state.player.name,
@@ -4664,6 +4671,8 @@ class WebRuntime:
             "output_text": render_semantic_plain(output),
             "semantic_output": output,
             "output_html": output_html,
+            "scrollback": scrollback,
+            "command_history": store.load_command_history(cid, 100),
             "save_status": "Saved.",
             "world": world.manifest,
             "character": character,
@@ -4679,14 +4688,47 @@ class WebRuntime:
         text = str(payload.get("text") or payload.get("command") or "").strip()
         if not text:
             raise ValueError("text is required")
+        state = self.session.state
+        runtime = state.structured_state.runtime
+        cid = state.player.id or self.session.active_slot or "player_1"
+        room_id = runtime.current_room_id or ""
+        store = self._mud_store(state)
+        history_limit = int(payload.get("command_history_size") or 100)
+        scrollback_limit = int(payload.get("scrollback_size") or 1000)
+        command_echo = bool(payload.get("command_echo", True))
+        store.add_command_history(cid, text, room_id, history_limit)
+        if text.lower() == "clear":
+            store.clear_scrollback(cid)
+            play_view = self.mud_play_view()
+            store.clear_scrollback(cid)
+            play_view["output_text"] = ""
+            play_view["semantic_output"] = ""
+            play_view["output"] = ""
+            play_view["output_html"] = ""
+            play_view["scrollback"] = []
+            play_view.update({"ok": True, "mode": "mud_v2", "save_status": "Saved.", "command_echo": command_echo})
+            return play_view
+        if command_echo:
+            store.add_scrollback(cid, "command", f"> {text}", render_semantic_html(f"> {text}", self._effective_mud_colors()), room_id, scrollback_limit)
+        if text.lower() == "history":
+            hist = store.load_command_history(cid, history_limit)
+            out = "Recent commands:\n" + "\n".join(f"{i + 1}. {h['command_text']}" for i, h in enumerate(hist))
+            store.add_scrollback(cid, "output", out, render_semantic_html(out, self._effective_mud_colors()), room_id, scrollback_limit)
+            play_view = self.mud_play_view()
+            play_view.update({"ok": True, "mode": "mud_v2", "save_status": "Saved.", "command_echo": command_echo})
+            return play_view
         # Smart MUD bypasses the legacy campaign/chat input pipeline entirely.
         self.engine.run_turn(self.session.state, text)
+        output = strip_prompt_block(self.session.state.structured_state.runtime.last_narration or "")
+        if output:
+            store.add_scrollback(cid, "output", render_semantic_plain(output), render_semantic_html(output, self._effective_mud_colors()), self.session.state.structured_state.runtime.current_room_id or room_id, scrollback_limit)
         with suppress(Exception):
             self.save_active_campaign(self.session.active_slot)
         play_view = self.mud_play_view()
         play_view["ok"] = True
         play_view["mode"] = "mud_v2"
         play_view["save_status"] = "Saved."
+        play_view["command_echo"] = command_echo
         return play_view
 
     def get_mud_memory_inspector(self) -> dict[str, Any]:
