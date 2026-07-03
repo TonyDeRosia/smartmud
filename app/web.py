@@ -74,7 +74,7 @@ from engine.game_state_manager import GameStateManager
 from engine.scene_simulation import ensure_scene_v1
 from engine.core_game import auto_allocate_stats, by_id, calculate_derived_stats, load_core_game
 from engine.world_registry import WorldRegistry, by_id as world_by_id
-from engine.mud_rendering import PRESETS, render_room
+from engine.mud_rendering import PRESETS, render_room, render_semantic_html, semantic
 from engine.mud_state_store import MUDStateStore
 from engine.spellbook import normalize_spellbook_entry
 from images.base import ImageGenerationRequest, ImageGenerationResult, ImageGeneratorAdapter, NullImageAdapter
@@ -4610,7 +4610,59 @@ class WebRuntime:
             return {"world": None, "character": None, "room": None, "output": "Select a world and character to enter the Smart MUD."}
         world = WorldRegistry().load_world(state.structured_state.runtime.world_id or "shattered_realms")
         room = world.room(state.structured_state.runtime.current_room_id or world.default_starting_room_id)
-        return {"world": world.manifest, "character": {"name": state.player.name, "level": state.player.level, "race": state.structured_state.runtime.player_core.get("race_id", "human"), "class": state.player.char_class}, "room": room, "output": state.structured_state.runtime.last_narration or render_room(room, world.manifest, {"hp": state.player.hp, "max_hp": state.player.max_hp, "mana": state.player.energy_or_mana, "max_mana": state.player.energy_or_mana, "stamina": state.structured_state.runtime.player_core.get("derived_stats", {}).get("Stamina", 0), "max_stamina": state.structured_state.runtime.player_core.get("derived_stats", {}).get("Stamina", 0), "level": state.player.level, "xp": state.player.xp, "gold": state.structured_state.runtime.inventory_state.get("currency", {}).get("gold", 0), "race": state.structured_state.runtime.player_core.get("race_id", "human").title(), "class": state.player.char_class})}
+        derived = state.structured_state.runtime.player_core.get("derived_stats", {})
+        currency = state.structured_state.runtime.inventory_state.get("currency", {})
+        character = {
+            "name": state.player.name,
+            "level": state.player.level,
+            "race": state.structured_state.runtime.player_core.get("race_id", "human"),
+            "class": state.player.char_class,
+            "hp": state.player.hp,
+            "max_hp": state.player.max_hp,
+            "mana": state.player.energy_or_mana,
+            "max_mana": state.player.energy_or_mana,
+            "stamina": derived.get("Stamina", 0),
+            "max_stamina": derived.get("Stamina", 0),
+            "xp": state.player.xp,
+            "gold": currency.get("gold", 0),
+        }
+        prompt_text = (
+            f"[{character['name']} HP:{character['hp']}/{character['max_hp']} "
+            f"MP:{character['mana']}/{character['max_mana']} "
+            f"STM:{character['stamina']}/{character['max_stamina']} "
+            f"LVL:{character['level']} XP:{character['xp']} Gold:{character['gold']}] >"
+        )
+        semantic_prompt = " ".join(
+            [
+                f"[{character['name']}",
+                semantic("prompt_hp", f"HP:{character['hp']}/{character['max_hp']}"),
+                semantic("prompt_mana", f"MP:{character['mana']}/{character['max_mana']}"),
+                semantic("prompt_stamina", f"STM:{character['stamina']}/{character['max_stamina']}"),
+                f"LVL:{character['level']}",
+                semantic("prompt_xp", f"XP:{character['xp']}"),
+                semantic("prompt_gold", f"Gold:{character['gold']}]") ,
+                semantic("prompt_marker", ">"),
+            ]
+        )
+        output = state.structured_state.runtime.last_narration or render_room(
+            room,
+            world.manifest,
+            {**character, "race": str(character["race"]).title(), "char_class": character["class"]},
+        )
+        # Older renderers appended a MUD prompt to room output; the normal client owns prompt rendering.
+        prompt_start = output.find("\n" + "{prompt_hp}")
+        if prompt_start >= 0:
+            output = output[:prompt_start].rstrip()
+        return {
+            "world": world.manifest,
+            "character": character,
+            "room": room,
+            "output": output,
+            "output_html": render_semantic_html(output),
+            "prompt_text": prompt_text,
+            "semantic_prompt": semantic_prompt,
+            "prompt_html": render_semantic_html(semantic_prompt),
+        }
 
     def mud_input(self, payload: dict[str, Any]) -> dict[str, Any]:
         text = str(payload.get("text") or payload.get("command") or "").strip()

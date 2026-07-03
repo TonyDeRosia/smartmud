@@ -6316,4 +6316,9 @@ def test_mud_api_world_character_play_flow(tmp_path: Path, monkeypatch) -> None:
     view = runtime.mud_play_view()
     assert view["room"]["name"] == "Guildhall Crossing Square"
     assert "Guildhall Crossing" in view["output"]
-    assert runtime.mud_input({"text": "look"})["room"]["name"] == "Guildhall Crossing Square"
+    assert "{prompt_hp}" not in view["output"]
+    assert view["prompt_text"].startswith("[Test HP:")
+    assert "prompt_html" in view
+    look = runtime.mud_input({"text": "look"})
+    assert look["room"]["name"] == "Guildhall Crossing Square"
+    assert look["prompt_text"].startswith("[Test HP:")
