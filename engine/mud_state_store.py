@@ -38,9 +38,27 @@ class MUDStateStore:
     def initialize(self) -> None:
         with self.connect() as con:
             con.executescript(SCHEMA_SQL)
+            self._ensure_character_privilege_columns(con)
             con.execute("INSERT OR REPLACE INTO campaign_meta(key,value) VALUES(?,?)", ("campaign_id", self.campaign_id))
             if self.world_id:
                 con.execute("INSERT OR REPLACE INTO campaign_meta(key,value) VALUES(?,?)", ("world_id", self.world_id))
+
+    def _ensure_character_privilege_columns(self, con: sqlite3.Connection) -> None:
+        existing = {r["name"] for r in con.execute("PRAGMA table_info(characters)")}
+        for name, ddl in {"role": "TEXT DEFAULT 'player'", "immortal_level": "INTEGER DEFAULT 0", "builder_enabled": "INTEGER DEFAULT 0"}.items():
+            if name not in existing:
+                con.execute(f"ALTER TABLE characters ADD COLUMN {name} {ddl}")
+
+    def admin_exists(self) -> bool:
+        self.initialize()
+        with self.connect() as con:
+            row = con.execute("SELECT 1 FROM characters WHERE role='admin' LIMIT 1").fetchone()
+            return bool(row)
+
+    def promote_character(self, character_id: str, role: str = "admin", immortal_level: int = 100, builder_enabled: bool = True) -> None:
+        self.initialize()
+        with self.connect() as con:
+            con.execute("UPDATE characters SET role=?, immortal_level=?, builder_enabled=?, updated_at=? WHERE character_id=?", (role, int(immortal_level), 1 if builder_enabled else 0, utc_now(), character_id))
 
     def _json(self, value: Any) -> str: return json.dumps(value if value is not None else {}, ensure_ascii=False)
     def _loads(self, value: Any, default: Any = None) -> Any:
@@ -55,10 +73,10 @@ class MUDStateStore:
     def save_character(self, character: dict[str, Any] | None = None, **kwargs: Any) -> None:
         self.initialize(); data = {**(character or {}), **kwargs}; now = utc_now()
         cid = str(data.get("character_id") or data.get("id") or "player_1")
-        vals = (cid, self.campaign_id, data.get("world_id", self.world_id), data.get("name",""), data.get("race_id", data.get("race","")), data.get("class_id", data.get("class", data.get("char_class",""))), data.get("appearance",""), int(data.get("level",1) or 1), int(data.get("xp",0) or 0), data.get("current_room_id",""), int(data.get("hp_current", data.get("hp",0)) or 0), int(data.get("mana_current", data.get("mana", data.get("energy_or_mana",0))) or 0), int(data.get("stamina_current", data.get("stamina",0)) or 0), int(data.get("gold",0) or 0), data.get("created_at") or now, now)
+        vals = (cid, self.campaign_id, data.get("world_id", self.world_id), data.get("name",""), data.get("race_id", data.get("race","")), data.get("class_id", data.get("class", data.get("char_class",""))), data.get("appearance",""), int(data.get("level",1) or 1), int(data.get("xp",0) or 0), data.get("current_room_id",""), int(data.get("hp_current", data.get("hp",0)) or 0), int(data.get("mana_current", data.get("mana", data.get("energy_or_mana",0))) or 0), int(data.get("stamina_current", data.get("stamina",0)) or 0), int(data.get("gold",0) or 0), data.get("created_at") or now, now, data.get("role", "player"), int(data.get("immortal_level", 0) or 0), 1 if data.get("builder_enabled") else 0)
         with self.connect() as con:
-            con.execute("""INSERT INTO characters(character_id,campaign_id,world_id,name,race_id,class_id,appearance,level,xp,current_room_id,hp_current,mana_current,stamina_current,gold,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(character_id) DO UPDATE SET campaign_id=excluded.campaign_id,world_id=excluded.world_id,name=excluded.name,race_id=excluded.race_id,class_id=excluded.class_id,appearance=excluded.appearance,level=excluded.level,xp=excluded.xp,current_room_id=excluded.current_room_id,hp_current=excluded.hp_current,mana_current=excluded.mana_current,stamina_current=excluded.stamina_current,gold=excluded.gold,updated_at=excluded.updated_at""", vals)
+            con.execute("""INSERT INTO characters(character_id,campaign_id,world_id,name,race_id,class_id,appearance,level,xp,current_room_id,hp_current,mana_current,stamina_current,gold,created_at,updated_at,role,immortal_level,builder_enabled)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(character_id) DO UPDATE SET campaign_id=excluded.campaign_id,world_id=excluded.world_id,name=excluded.name,race_id=excluded.race_id,class_id=excluded.class_id,appearance=excluded.appearance,level=excluded.level,xp=excluded.xp,current_room_id=excluded.current_room_id,hp_current=excluded.hp_current,mana_current=excluded.mana_current,stamina_current=excluded.stamina_current,gold=excluded.gold,updated_at=excluded.updated_at,role=excluded.role,immortal_level=excluded.immortal_level,builder_enabled=excluded.builder_enabled""", vals)
 
     def load_character(self, character_id: str) -> dict[str, Any]: return self._one("SELECT * FROM characters WHERE character_id=?", (character_id,)) or {}
     def save_character_stats(self, character_id: str, stats: dict[str, Any]) -> None:
@@ -272,7 +290,7 @@ class MUDStateStore:
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS campaign_meta(key TEXT PRIMARY KEY,value TEXT);
-CREATE TABLE IF NOT EXISTS characters(character_id TEXT PRIMARY KEY,campaign_id TEXT,world_id TEXT,name TEXT,race_id TEXT,class_id TEXT,appearance TEXT,level INTEGER,xp INTEGER,current_room_id TEXT,hp_current INTEGER,mana_current INTEGER,stamina_current INTEGER,gold INTEGER,created_at TEXT,updated_at TEXT);
+CREATE TABLE IF NOT EXISTS characters(character_id TEXT PRIMARY KEY,campaign_id TEXT,world_id TEXT,name TEXT,race_id TEXT,class_id TEXT,appearance TEXT,level INTEGER,xp INTEGER,current_room_id TEXT,hp_current INTEGER,mana_current INTEGER,stamina_current INTEGER,gold INTEGER,created_at TEXT,updated_at TEXT,role TEXT DEFAULT 'player',immortal_level INTEGER DEFAULT 0,builder_enabled INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS character_stats(character_id TEXT,stat_name TEXT,stat_value INTEGER,PRIMARY KEY(character_id,stat_name));
 CREATE TABLE IF NOT EXISTS character_abilities(character_id TEXT,ability_id TEXT,source TEXT,learned_at TEXT,PRIMARY KEY(character_id,ability_id));
 CREATE TABLE IF NOT EXISTS character_inventory(id INTEGER PRIMARY KEY AUTOINCREMENT,character_id TEXT,item_id TEXT,quantity INTEGER,equipped_slot TEXT,state_json TEXT);

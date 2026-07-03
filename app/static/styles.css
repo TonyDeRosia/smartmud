@@ -1395,7 +1395,8 @@ body.smart-mud-mode .dialogue-panel {
   padding: 0;
   overflow: hidden;
 }
-body.smart-mud-mode #dialogue-feed.mud-world-output {
+body.smart-mud-mode #dialogue-feed.mud-world-output,
+body.smart-mud-mode #mud-world-output.mud-world-output {
   flex: 1 1 auto;
   display: block;
   height: 100%;
@@ -1439,3 +1440,41 @@ body.smart-mud-mode .status-stack { flex: 0 0 auto; text-align: right; margin: 0
 .mud-color-preview { border: 1px solid #31496a; border-radius: 8px; background: #07111f; padding: 10px; margin: 8px 0; font-family: ui-monospace, monospace; }
 .mud-jump-to-bottom { position: fixed; right: 24px; bottom: 86px; z-index: 40; border: 1px solid #7ddc8a; background: #031008; color: #d8ffd8; border-radius: 999px; padding: 6px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
 .mud-jump-to-bottom.hidden { display: none; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+body.smart-mud-mode {
+  height: 100vh;
+  overflow: hidden;
+}
+.smart-mud-shell, body.smart-mud-mode .app-shell {
+  height: 100vh;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.smart-mud-main, body.smart-mud-mode .chat-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.mud-terminal-frame, body.smart-mud-mode .dialogue-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+#mud-world-output {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+#mud-player-prompt,
+.mud-command-row,
+.mud-save-status,
+body.smart-mud-mode .status-stack {
+  flex: 0 0 auto;
+}
