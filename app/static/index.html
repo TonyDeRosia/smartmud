@@ -6,26 +6,26 @@
     <title>Adventurer Guild AI - Web Chat</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
-  <body>
+  <body class="smart-mud-mode">
     <div class="app-shell">
       <aside class="sidebar left-panel">
-        <h2 class="panel-heading">Campaign</h2>
-        <p class="panel-subheading">Choose a campaign and keep playing. Progress autosaves automatically.</p>
-        <button id="open-campaign-browser" type="button">Campaigns</button>
-        <p id="selected-save-label">Selected save: autosave</p>
+        <h2 class="panel-heading">World</h2>
+        <p class="panel-subheading">Choose a world and character. Save State updates automatically.</p>
+        <button id="open-campaign-browser" type="button">Worlds</button>
+        <p id="selected-save-label">World Select</p>
         <div id="selected-campaign-summary" class="selected-campaign-summary status-card">
           <strong>autosave</strong>
           <small>Unknown world · Turn 0</small>
           <small>Display Mode: Story Mode</small>
         </div>
-        <p class="autosave-sidebar-note">Campaigns autosave automatically after each turn.</p>
+        <p class="autosave-sidebar-note">Save State ready.</p>
         <button id="open-setup-modal" class="app-bottom-left-setup-btn btn-primary">Settings</button>
       </aside>
 
       <main class="chat-main">
         <header class="chat-header">
           <div class="chat-header-title">
-            <h1>Adventurer Guild AI</h1>
+            <h1>The Shattered Realms</h1>
             <p id="campaign-meta">Loading campaign...</p>
             <p id="campaign-display-mode-indicator" class="campaign-display-mode-indicator">Display Mode: Story Mode</p>
             <p id="creator-mode-badge" class="creator-mode-badge hidden">Creator Mode</p>
@@ -33,24 +33,24 @@
         </header>
         <section id="scene-context-panel" class="scene-context-panel campaign-status-strip" aria-label="Campaign status">
           <div class="status-pill">
-            <span>Campaign</span>
+            <span>World</span>
             <strong id="status-campaign-name">Loading...</strong>
           </div>
           <div class="status-pill">
-            <span>Location</span>
+            <span>Room</span>
             <strong id="status-world-location">Unknown world</strong>
           </div>
           <div class="status-pill">
-            <span>Turn</span>
+            <span>Character</span>
             <strong id="status-turn-count">0</strong>
           </div>
           <div class="status-pill">
-            <span>Mode</span>
+            <span>Smart MUD</span>
             <strong id="status-display-mode">Story Mode</strong>
           </div>
           <div class="status-pill autosave-pill">
-            <span>Autosave</span>
-            <strong>Autosaved just now</strong>
+            <span>Save State</span>
+            <strong>Ready</strong>
           </div>
         </section>
         <section id="scene-visual-panel" class="scene-visual-panel hidden v1-addon-panel" aria-hidden="true">
@@ -69,14 +69,16 @@
             <div id="scene-image-progress-fill" class="scene-image-progress-fill"></div>
           </div>
         </section>
-        <section id="dialogue-panel" class="play-panel dialogue-panel" aria-label="Campaign story log">
-          <div class="play-panel-header"><h3>Campaign Log</h3></div>
-          <section id="dialogue-feed" class="dialogue-feed"></section>
+        <section id="dialogue-panel" class="play-panel dialogue-panel" aria-label="MUD terminal">
+          <div class="play-panel-header"><h3>World Output</h3></div>
+          <section id="dialogue-feed" class="dialogue-feed mud-world-output"></section>
         </section>
-        <footer class="input-bar compose-bar">
+        <div id="mud-player-prompt" class="mud-player-prompt" aria-live="polite"></div>
+        <footer class="input-bar compose-bar mud-command-row">
           <button id="input-mode-toggle" type="button" aria-label="Toggle input mode">IC</button>
-          <input id="chat-input" type="text" placeholder="What do you do?" />
-          <button id="send-btn" class="btn-primary">Send</button>
+          <span class="mud-command-marker" aria-hidden="true">&gt;</span>
+          <input id="chat-input" type="text" placeholder="look" />
+          <button id="send-btn" class="btn-primary mud-send-button">Send</button>
         </footer>
         <div class="status-stack"><div id="status-line" class="scene-visual-meta">Ready.</div><div id="autosave-status" class="autosave-status">Campaigns autosave automatically.</div></div>
       </main>

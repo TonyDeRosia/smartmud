@@ -44,10 +44,17 @@ def test_comfyui_path_controls_live_only_in_advanced_image_settings() -> None:
     assert 'id="open-checkpoint-page"' not in html
 
 
-def test_play_layout_uses_single_campaign_log_without_npc_sidebar() -> None:
+def test_smart_mud_layout_uses_terminal_prompt_and_compact_command_row() -> None:
     html = _index_html()
+    assert 'class="smart-mud-mode"' in html
     assert 'id="dialogue-panel"' in html
-    assert 'id="dialogue-feed"' in html
+    assert 'id="dialogue-feed" class="dialogue-feed mud-world-output"' in html
+    assert 'id="mud-player-prompt"' in html
+    assert 'class="input-bar compose-bar mud-command-row"' in html
+    assert 'class="btn-primary mud-send-button"' in html
+    assert html.index('id="dialogue-feed"') < html.index('id="mud-player-prompt"') < html.index('id="chat-input"')
+    assert 'Campaign Log' not in html
+    assert 'Adventure Panel' not in html
     assert 'id="npc-panel"' not in html
     assert 'id="npc-panel-list"' not in html
 
@@ -130,7 +137,7 @@ def test_creator_mode_confirmation_handler_still_opens_confirmation_modal() -> N
     assert "openDialog('creator-mode-confirm-modal');" in script
 
 
-def test_new_campaign_form_is_campaign_focused_by_default() -> None:
+def test_new_character_form_is_smart_mud_focused_by_default() -> None:
     html = _index_html()
     modal = html[html.index('id="new-campaign-modal"'):html.index('id="campaign-browser-modal"')]
     assert 'id="form-campaign-name"' in modal
@@ -142,17 +149,16 @@ def test_new_campaign_form_is_campaign_focused_by_default() -> None:
     assert '<h4>Character Sheets Manager</h4>' in modal
     assert 'id="character-sheets-manager" class="character-sheets-manager hidden"' in modal
     for step in [
-        "Campaign Basics",
-        "Play Style",
-        "Rules Style",
-        "Character Identity",
-        "Character Description",
-        "Power Level",
-        "Starting Abilities",
-        "Starting Items",
-        "Review",
+        "Choose World",
+        "Choose Race",
+        "Choose Class",
+        "Enter Character Name",
+        "Describe Appearance",
+        "Review and Enter World",
     ]:
         assert step in modal
+    for legacy_step in ["Campaign Basics", "Play Style", "Rules Style", "Character Identity"]:
+        assert legacy_step not in modal
     assert 'id="form-player-name" type="text" required' in modal
     assert 'id="form-player-class" type="text" required' in modal
     assert 'id="create-campaign-confirm" class="hidden"' in modal

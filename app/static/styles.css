@@ -1311,3 +1311,35 @@ body.adventure-mode-enabled .creator-mode-only,
 .mud-card.disabled { opacity: .58; }
 .mud-choice-card { display: grid; gap: .35rem; cursor: pointer; }
 .mud-terminal-output { min-height: 58vh; white-space: pre-wrap; background: #020604; color: #d8ffd8; border: 1px solid #225c22; border-radius: 12px; padding: 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Smart MUD normal player shell */
+.smart-mud-mode .app-shell { grid-template-columns: minmax(0, 1fr); max-width: 1180px; }
+.smart-mud-mode .left-panel,
+.smart-mud-mode .right-panel,
+.smart-mud-mode #scene-context-panel { display: none; }
+.smart-mud-mode .chat-main { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto auto auto; }
+.smart-mud-mode .chat-header { padding: .85rem 1rem; border-bottom: 1px solid rgba(93, 255, 128, .18); }
+.smart-mud-mode .chat-header h1 { font-size: 1.15rem; }
+.smart-mud-mode #campaign-meta { color: #d8ffd8; }
+.smart-mud-mode #campaign-display-mode-indicator { color: #7ddc8a; }
+.smart-mud-mode #dialogue-panel { min-height: 0; display: flex; flex-direction: column; }
+.smart-mud-mode #dialogue-panel .play-panel-header { padding: .35rem .75rem; }
+.smart-mud-mode #dialogue-panel .play-panel-header h3 { font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; color: #7ddc8a; }
+.smart-mud-mode .mud-world-output { flex: 1; overflow-y: auto; }
+.mud-terminal-output { min-height: 58vh; max-height: calc(100vh - 260px); overflow-y: auto; white-space: pre-wrap; background: #020604; color: #d8ffd8; border: 1px solid #225c22; border-radius: 12px; padding: 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; }
+.mud-player-prompt { margin: .5rem 0 0; padding: .65rem .85rem; min-height: 2.35rem; border: 1px solid #225c22; border-radius: 10px; background: #031008; color: #d8ffd8; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.mud-command-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .5rem; align-items: center; padding: .55rem 0; }
+.mud-command-row #input-mode-toggle { display: none; }
+.mud-command-marker { color: #7ddc8a; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; }
+.mud-command-row #chat-input { width: 100%; min-height: 2.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.mud-send-button { width: auto; min-width: 4.5rem; padding-inline: .85rem; }
+.mud-role.mud-room-name { color: #f2d27c; font-weight: 700; }
+.mud-role.mud-area-name { color: #9be28f; }
+.mud-role.mud-exit { color: #87ceeb; font-weight: 700; }
+.mud-role.mud-dialogue { color: #c9b79c; }
+.mud-role.mud-prompt-hp { color: #ff7777; }
+.mud-role.mud-prompt-mana { color: #7aa2ff; }
+.mud-role.mud-prompt-stamina { color: #ffd166; }
+.mud-role.mud-prompt-xp { color: #d8ffd8; }
+.mud-role.mud-prompt-gold { color: #ffd700; }
+.mud-role.mud-prompt-marker { color: #7ddc8a; font-weight: 700; }
