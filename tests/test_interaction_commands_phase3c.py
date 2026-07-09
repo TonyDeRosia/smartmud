@@ -11,6 +11,8 @@ def make_runtime(tmp_path):
         "interaction_attempted", "interaction_succeeded", "interaction_failed",
         "environment_inspected", "entity_interaction", "object_interaction",
         "container_interaction", "command_alias_resolved",
+        "target_looked", "feature_interaction_attempted", "feature_interaction_succeeded",
+        "feature_interaction_failed", "bulk_get", "bulk_drop", "identify_attempted",
     ]:
         bus.subscribe(name, lambda event, _events=events: _events.append(event.event_name), source=f"test_{name}")
     rt = MudRuntime(Path.cwd(), tmp_path, event_bus=bus)
@@ -34,12 +36,17 @@ def test_unknown_interactions_return_clean_text_and_events(tmp_path):
     assert "object_interaction" in events
 
 
-def test_pickup_aliases_route_to_get_but_pick_lock_does_not(tmp_path):
+def test_room_features_are_inspectable_but_not_pickupable(tmp_path):
     rt, cid, events = make_runtime(tmp_path)
-    assert "pick up Fountain" in out(rt, cid, "pickup fountain")
-    out(rt, cid, "drop fountain")
-    assert "pick up Fountain" in out(rt, cid, "pick up fountain")
-    assert "command_alias_resolved" in events
+    assert "fountain for beginner Smart MUD play" in out(rt, cid, "look fountain")
+    assert "old gate for beginner Smart MUD play" in out(rt, cid, "look gate")
+    assert "fountain for beginner Smart MUD play" in out(rt, cid, "look at fountain")
+    assert "fountain for beginner Smart MUD play" in out(rt, cid, "examine fountain")
+    assert "You cannot take that." in out(rt, cid, "get fountain")
+    assert "You aren't carrying that." in out(rt, cid, "drop fountain")
+    assert "You cannot eat that." in out(rt, cid, "eat fountain")
+    assert "You cannot drink from that." in out(rt, cid, "drink fountain")
+    assert "target_looked" in events
     assert "pick up" not in out(rt, cid, "pick lock")
 
 
@@ -79,3 +86,25 @@ def test_dialogue_aliases_and_container_placeholders(tmp_path):
     assert "nothing unusual" in out(rt, cid, "look in chest").lower()
     assert "cannot put" in out(rt, cid, "put sword chest").lower()
     assert "container_interaction" in events
+
+
+def test_bulk_and_clean_fallback_commands(tmp_path):
+    rt, cid, events = make_runtime(tmp_path)
+    assert "There is nothing here you can take." in out(rt, cid, "get all")
+    assert "You identify" in out(rt, cid, "identify fountain")
+    assert "nothing readable" in out(rt, cid, "read fountain")
+    assert "no obvious way" in out(rt, cid, "use fountain")
+    for verb in ["push", "pull", "touch", "pray", "climb"]:
+        assert "Unknown command" not in out(rt, cid, f"{verb} fountain")
+    assert "identify_attempted" in events
+
+
+def test_drop_all_drops_inventory_not_equipment(tmp_path):
+    rt, cid, events = make_runtime(tmp_path)
+    inv_before = rt.find_inventory_items(cid)
+    eq_before = rt.find_equipped_items(cid)
+    assert inv_before
+    assert "You drop:" in out(rt, cid, "drop all")
+    assert not rt.find_inventory_items(cid)
+    assert len(rt.find_equipped_items(cid)) == len(eq_before)
+    assert "bulk_drop" in events

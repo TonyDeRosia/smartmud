@@ -713,24 +713,49 @@ class MudRuntime:
     def _room_features(self, room: MudRoom) -> list[dict[str, Any]]:
         hay = f"{room.id} {room.title} {room.description}".lower()
         features = []
+        # Room object ids may describe fixed scenery rather than portable items.
+        if self.active_world is not None:
+            try:
+                room_data = self.active_world.room(room.id)
+                for raw_obj in room_data.get("objects", []) or []:
+                    oid = str(raw_obj.get("template_id") or raw_obj.get("id") if isinstance(raw_obj, dict) else raw_obj)
+                    tmpl = dict(self.item_templates.get(oid, {}))
+                    if tmpl and not tmpl.get("portable", True):
+                        features.append({**tmpl, "feature_id": oid, "entity_type": "room_feature"})
+            except Exception:
+                pass
         for name in sorted(self.ROOM_FEATURE_NAMES):
             if name in hay or name in {"gate", "fountain", "chest", "lock"}:
                 features.append({"name": name.title(), "keywords": [name], "feature_id": name, "entity_type": "room_feature"})
         for ex in room.exits:
             direction = str(ex.get("direction") or ex.get("dir") or "").lower() if isinstance(ex, dict) else ""
             if direction:
-                features.append({"name": direction.title(), "keywords": [direction], "feature_id": direction, "entity_type": "exit"})
-        return features
+                features.append({"name": direction.title(), "keywords": [direction], "feature_id": direction, "entity_type": "exit", "long_description": ex.get("description") if isinstance(ex, dict) else ""})
+        # De-duplicate by feature id/name while preserving first useful metadata.
+        seen = set(); unique = []
+        for f in features:
+            key = str(f.get("feature_id") or f.get("name")).lower()
+            if key not in seen:
+                seen.add(key); unique.append(f)
+        return unique
 
     def _resolve_interaction_target(self, char: MudCharacter, query: str) -> dict[str, Any]:
+        features = self._room_features(self._current_room(char))
+        qnorm = " ".join([w for w in re.findall(r"[a-z0-9_']+", query.lower()) if w not in self.ARTICLES])
+        exact_features = [f for f in features if qnorm and (str(f.get("name", "")).lower() == qnorm or qnorm == str(f.get("feature_id", "")).lower().replace("_", " "))]
+        keyword_features = [f for f in features if qnorm and qnorm in [str(k).lower() for k in f.get("keywords", [])]]
+        rich_keyword_features = [f for f in keyword_features if f.get("long_description") or f.get("description") or f.get("short_description")]
+        chosen_features = rich_keyword_features or exact_features
+        if len(chosen_features) == 1:
+            return {"status": "ok", "kind": "feature", "target": chosen_features[0]}
         groups = [
             ("equipped", self.find_equipped_items(char.id)),
             ("inventory", self.find_inventory_items(char.id)),
-            ("room_object", self.get_visible_room_items(char.room_id)),
+            ("room_object", [i for i in self.get_visible_room_items(char.room_id) if (i.get("template") or {}).get("portable", True)]),
+            ("feature", features),
             ("npc", self.find_visible_entities(char.room_id, char).get("npcs", [])),
             ("mob", self.find_visible_entities(char.room_id, char).get("mobs", [])),
-            ("exit", [{"name": str(e.get("direction") or e.get("dir")), "keywords": [str(e.get("direction") or e.get("dir"))], "entity_type": "exit", "exit": e} for e in self._current_room(char).exits if isinstance(e, dict)]),
-            ("feature", self._room_features(self._current_room(char))),
+            ("exit", [{"name": str(e.get("direction") or e.get("dir")), "keywords": [str(e.get("direction") or e.get("dir"))], "entity_type": "exit", "exit": e, "long_description": e.get("description", "")} for e in self._current_room(char).exits if isinstance(e, dict)]),
         ]
         for kind, candidates in groups:
             res = self.resolve_entity_keywords(query, candidates) if kind in {"npc", "mob", "exit", "feature"} else self.resolve_item_keywords(query, candidates)
@@ -741,10 +766,12 @@ class MudRuntime:
     def _handle_interaction_command(self, char: MudCharacter, cmd: str, args: list[str], raw: str):
         from engine.mud_commands import CommandResult
         q = " ".join(args).strip()
-        interaction_cmds = {"look", "examine", "enter", "leave", "drink", "eat", "open", "close", "lock", "unlock", "pick", "search", "listen", "smell", "sit", "stand", "rest", "sleep", "wake", "give", "put"}
+        interaction_cmds = {"look", "examine", "identify", "use", "read", "pray", "touch", "push", "pull", "climb", "enter", "leave", "drink", "eat", "open", "close", "lock", "unlock", "pick", "search", "listen", "smell", "sit", "stand", "rest", "sleep", "wake", "give", "put"}
         if cmd not in interaction_cmds:
             return None
         self._publish_interaction_event("interaction_attempted", char, cmd, raw, {"target_query": q})
+        if cmd == "identify":
+            self._publish_interaction_event("identify_attempted", char, cmd, raw, {"target_query": q})
         if cmd in {"search", "listen", "smell"} and not q:
             messages = {"search": "You see nothing unusual.", "listen": "You do not hear anything unusual.", "smell": "You smell nothing unusual."}
             self._publish_interaction_event("environment_inspected", char, cmd, raw, {"result_summary": messages[cmd]})
@@ -753,7 +780,7 @@ class MudRuntime:
         if not q:
             if cmd in {"look", "examine"}:
                 return None
-            prompts = {"enter": "Enter what?", "drink": "Drink from what?", "eat": "Eat what?", "open": "Open what?", "close": "Close what?", "put": "Put what where?"}
+            prompts = {"enter": "Enter what?", "drink": "Drink from what?", "eat": "Eat what?", "open": "Open what?", "close": "Close what?", "put": "Put what where?", "identify": "Identify what?", "use": "Use what?", "read": "Read what?", "pray": "Pray at what?", "touch": "Touch what?", "push": "Push what?", "pull": "Pull what?", "climb": "Climb what?"}
             return CommandResult(prompts.get(cmd, f"{cmd.title()} what?"), ok=False)
         resolved = self._resolve_interaction_target(char, q)
         if resolved["status"] == "ambiguous":
@@ -763,23 +790,36 @@ class MudRuntime:
         kind = resolved.get("kind", "")
         target = resolved.get("target", {})
         lname = str(target.get("name") or q).lower()
+        is_feature = kind in {"feature", "exit"}
+        if is_feature:
+            self._publish_interaction_event("feature_interaction_attempted", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q)})
         event = "container_interaction" if "chest" in lname or kind == "container" or cmd in {"put"} else "entity_interaction" if kind in {"npc", "mob"} else "object_interaction"
+        interactions = target.get("default_interactions") or {}
         messages = {
+            "identify": f"You identify {target.get('name', q)} but learn nothing unusual.", "use": f"You find no obvious way to use {target.get('name', q)}.", "read": f"There is nothing readable on {target.get('name', q)}.",
+            "pray": "You offer a quiet prayer.", "touch": f"You touch {target.get('name', q)}. Nothing happens.", "push": f"You push {target.get('name', q)}, but it does not move.", "pull": f"You pull {target.get('name', q)}, but it does not move.", "climb": "You cannot climb that.",
             "enter": "You cannot enter that.", "leave": "You cannot leave that.", "drink": "You cannot drink from that.", "eat": "You cannot eat that.",
             "open": f"You cannot open {lname}.", "close": f"You cannot close {lname}.", "lock": "You cannot lock that.", "unlock": "You cannot unlock that.", "pick": "You cannot pick that.",
             "search": "You see nothing unusual.", "listen": "You do not hear anything unusual.", "smell": "You smell nothing unusual.", "put": "You cannot put that there.",
             "sit": "You sit down.", "stand": "You stand up.", "rest": "You rest for a moment.", "sleep": "You cannot sleep here.", "wake": "You are awake.",
         }
         if cmd in {"look", "examine"}:
-            if kind == "feature": msg = f"You see nothing unusual about the {lname}."
+            desc = target.get("long_description") or target.get("description") or target.get("short_description")
+            if desc:
+                msg = f"{target.get('name', q)}\n{desc}"
+            elif kind in {"feature", "exit"}: msg = f"You see nothing unusual about the {lname}."
             else: return None
+            self._publish_interaction_event("target_looked", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg[:120]})
         else:
-            msg = messages.get(cmd, "You see nothing unusual.")
+            msg = str(interactions.get(cmd) or ("You drink from the fountain." if cmd == "drink" and target.get("drinkable") else messages.get(cmd, "You see nothing unusual.")))
         self._publish_interaction_event(event, char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg})
-        self._publish_interaction_event("interaction_succeeded" if not msg.startswith("You cannot") else "interaction_failed", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg})
+        failed = msg.startswith("You cannot") or msg.startswith("There is nothing") or "no obvious way" in msg
+        self._publish_interaction_event("interaction_succeeded" if not failed else "interaction_failed", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg})
+        if is_feature:
+            self._publish_interaction_event("feature_interaction_succeeded" if not failed else "feature_interaction_failed", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg})
         if cmd in {"search", "listen", "smell", "look", "examine"}:
             self._publish_interaction_event("environment_inspected", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg})
-        return CommandResult(msg, ok=not msg.startswith("You cannot"))
+        return CommandResult(msg, ok=not failed)
 
     def _handle_runtime_command(self, char: MudCharacter, command: str):
         parsed = self._parse_interaction_command(command)
@@ -922,6 +962,15 @@ class MudRuntime:
                 "starter": bool(raw.get("starter") or ("starter" in (raw.get("tags") or []))),
                 "starter_quantity": int(raw.get("starter_quantity", 1) or 1),
                 "starter_equipped_slot": raw.get("starter_equipped_slot"),
+                "portable": bool(raw.get("portable", False if str(raw.get("id") or "").lower().replace("_", " ") in self.ROOM_FEATURE_NAMES or str(raw.get("name") or "").lower() in self.ROOM_FEATURE_NAMES or any(part in str(raw.get("id") or "").lower() for part in ["fountain", "gate", "door", "altar", "statue", "campfire", "stairs", "portal"]) else True)),
+                "drinkable": bool(raw.get("drinkable", False)),
+                "enterable": bool(raw.get("enterable", False)),
+                "readable": bool(raw.get("readable", False)),
+                "usable": bool(raw.get("usable", False)),
+                "openable": bool(raw.get("openable", False)),
+                "locked": bool(raw.get("locked", False)),
+                "locked_message": str(raw.get("locked_message") or "It is locked."),
+                "default_interactions": raw.get("default_interactions") or {},
             }
             templates[tid] = MappingProxyType(norm)
         self.item_templates = templates
@@ -997,7 +1046,9 @@ class MudRuntime:
     def pickup_item(self, character_id: str, room_id: str, query: str) -> str:
         res = self.resolve_item_keywords(query, self.get_visible_room_items(room_id))
         if res["status"] != "ok": return self._resolve_message(res, "You don't see that here.")
-        item = res["item"]; self._publish_item_event("before_item_pickup", item, character_id=character_id, room_id=room_id)
+        item = res["item"]
+        if not (item.get("template") or {}).get("portable", True): return "You cannot take that."
+        self._publish_item_event("before_item_pickup", item, character_id=character_id, room_id=room_id)
         moved = self.transfer_item(item["instance_id"], to_owner=("character", character_id)); self._publish_item_event("item_picked_up", moved, character_id=character_id, room_id=room_id); self._publish_item_event("inventory_changed", moved, character_id=character_id); self._publish_item_event("room_inventory_changed", moved, room_id=room_id); self._publish_item_event("after_item_pickup", moved, character_id=character_id, room_id=room_id)
         return f"You pick up {moved['name']}."
 
@@ -1029,9 +1080,15 @@ class MudRuntime:
         q=" ".join(args).strip()
         if cmd in {"inventory"}: return CommandResult(self._render_inventory(char.id))
         if cmd in {"equipment"}: return CommandResult(self._render_equipment(char.id))
-        if cmd in {"get","take"}: return CommandResult(self.pickup_item(char.id, char.room_id, q) if q else "Get what?")
-        if cmd=="drop": return CommandResult(self.drop_item(char.id, q) if q else "Drop what?")
-        if cmd=="wear": return CommandResult(self.equip_item(char.id, q, self._preferred_slot(q,"wear")) if q else "Wear what?")
+        if cmd in {"get","take"}:
+            if q == "all": return CommandResult(self.bulk_get(char))
+            return CommandResult(self.pickup_item(char.id, char.room_id, q) if q else "Get what?")
+        if cmd=="drop":
+            if q == "all": return CommandResult(self.bulk_drop(char))
+            return CommandResult(self.drop_item(char.id, q) if q else "Drop what?")
+        if cmd=="wear":
+            if q == "all": return CommandResult(self.wear_all(char.id))
+            return CommandResult(self.equip_item(char.id, q, self._preferred_slot(q,"wear")) if q else "Wear what?")
         if cmd=="wield": return CommandResult(self.equip_item(char.id, q, self._preferred_slot(q,"wield")) if q else "Wield what?")
         if cmd=="hold": return CommandResult(self.equip_item(char.id, q, self._preferred_slot(q,"hold")) if q else "Hold what?")
         if cmd=="mainhand": return CommandResult(self.equip_item(char.id, q, "main_hand") if q else "Mainhand what?")
@@ -1051,6 +1108,46 @@ class MudRuntime:
         if mode == "wield": return "main_hand"
         if mode == "hold": return "light"
         return None
+
+    def bulk_get(self, char: MudCharacter) -> str:
+        items = [i for i in self.get_visible_room_items(char.room_id) if (i.get("template") or {}).get("portable", True)]
+        self._publish_interaction_event("bulk_get", char, "get", "get all", {"item_count": len(items)})
+        if not items:
+            return "There is nothing here you can take."
+        names = []
+        for item in items:
+            moved = self.transfer_item(item["instance_id"], to_owner=("character", char.id))
+            names.append(moved["name"])
+            self._publish_item_event("item_picked_up", moved, character_id=char.id, room_id=char.room_id)
+        return "You pick up: " + ", ".join(names) + "."
+
+    def bulk_drop(self, char: MudCharacter) -> str:
+        items = list(self.find_inventory_items(char.id))
+        self._publish_interaction_event("bulk_drop", char, "drop", "drop all", {"item_count": len(items)})
+        if not items:
+            return "You are not carrying anything."
+        names = []
+        for item in items:
+            moved = self.transfer_item(item["instance_id"], to_owner=("room", ""), room_id=char.room_id)
+            names.append(moved["name"])
+            self._publish_item_event("item_dropped", moved, character_id=char.id, room_id=char.room_id)
+        return "You drop: " + ", ".join(names) + "."
+
+    def wear_all(self, character_id: str) -> str:
+        equipped = 0
+        messages = []
+        for item in list(self.find_inventory_items(character_id)):
+            if not (item.get("template") or {}).get("wear_slots"):
+                continue
+            before = self.find_equipped_items(character_id)
+            msg = self.equip_item(character_id, item["name"])
+            after = self.find_equipped_items(character_id)
+            messages.append(msg)
+            if len(after) >= len(before):
+                equipped += 1
+        if not messages:
+            return "You have nothing wearable."
+        return " ".join(messages)
 
     def _render_inventory(self, character_id: str) -> str:
         items=self.find_inventory_items(character_id)
