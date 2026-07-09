@@ -65,3 +65,7 @@ Targeted `look`, `l`, and `examine` now resolve a named target and display the t
 Room features are fixed scenery unless explicitly marked `portable: true`. World data may describe features with optional fields such as `keywords`, `short_description`, `long_description`, `portable`, `drinkable`, `enterable`, `readable`, `usable`, `openable`, `locked`, `locked_message`, and `default_interactions`. Nonportable features such as fountains, gates, doors, altars, statues, campfires, stairs, and portals can be inspected and interacted with, but `get <feature>` returns clean MUD text instead of adding scenery to inventory.
 
 `get all` and `take all` only collect portable room items. `drop all` drops carried inventory items only; equipped items must be removed first. Clean fallback handling is provided for `identify`/`id`, `use`, `read`, `pray`, `touch`, `push`, `pull`, `climb`, `enter`, `leave`, `drink`, `eat`, `search`, `listen`, `smell`, `scan`, and `glance`.
+
+## Phase 3D command registry note
+
+Smart MUD now tracks player, placeholder, future builder/admin, future combat, future magic, future economy, and future quest commands through a canonical command registry. The `commands` and `help` commands use registry metadata so classic MUD command coverage is deliberate without adding combat, AI, Builder Mode, shops, quests, spellcasting, or world expansion.

@@ -56,3 +56,7 @@ Living entity operations publish canonical events: `entity_spawned`, `entity_des
 ## Phase 3C Dialogue Entry Points
 
 The interaction layer routes `talk`, `greet`, and `hello` through the existing runtime dialogue package for visible NPCs and mobs. Dialogue remains deterministic and template-backed; Phase 3C does not add AI decision making or combat behavior. Entity interaction attempts publish interaction EventBus events alongside existing entity dialogue events.
+
+## Phase 3D command registry note
+
+Smart MUD now tracks player, placeholder, future builder/admin, future combat, future magic, future economy, and future quest commands through a canonical command registry. The `commands` and `help` commands use registry metadata so classic MUD command coverage is deliberate without adding combat, AI, Builder Mode, shops, quests, spellcasting, or world expansion.
