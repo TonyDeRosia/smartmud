@@ -74,3 +74,7 @@ Phase 2B is intentionally a playability bridge before world expansion: no combat
 ## Phase 2C Event Bus
 
 Smart MUD now includes a canonical deterministic EventBus in `smart_mud/event_bus.py`. `WebRuntime` creates the process runtime bus, passes it into `MudRuntime`, and web/telnet transport adapters use `mud_runtime.event_bus` rather than creating separate buses. Command, movement, render, transport, startup, database, world, and character lifecycle events are published as small structured payloads. The existing plugin registry remains the plugin-facing compatibility API; EventBus exposes the same runtime milestones to future listeners without replacing plugin discovery or hook behavior. See `docs/EVENT_SYSTEM.md` for lifecycle, ordering, strict mode, categories, and after-commit queue details.
+
+## Phase 2D Account and Session Foundation
+
+Smart MUD now includes a local account/session foundation. See `docs/ACCOUNT_AND_SESSION_MODEL.md` for the SQLite account model, shared web/telnet session lifecycle, account-owned character creation/select/entry rules, role hierarchy, permission helper philosophy, orphan character migration behavior, and account/session/character EventBus events.

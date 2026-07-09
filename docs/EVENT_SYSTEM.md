@@ -62,3 +62,7 @@ The existing `PluginRegistry` and `HookRegistry` remain the compatibility and pl
 ## Future Use
 
 The bus is intended to support future AI listeners, builder listeners, multiplayer replication, auditing, analytics, and persistence reactions. Those systems should subscribe to focused event names and avoid mutating authoritative runtime state unless they explicitly own that side effect.
+
+## Phase 2D Account and Session Foundation
+
+Smart MUD now includes a local account/session foundation. See `docs/ACCOUNT_AND_SESSION_MODEL.md` for the SQLite account model, shared web/telnet session lifecycle, account-owned character creation/select/entry rules, role hierarchy, permission helper philosophy, orphan character migration behavior, and account/session/character EventBus events.

@@ -10,8 +10,9 @@ from smart_mud.transport import TelnetTransportAdapter, TransportMessage
 
 WELCOME_BANNER = (
     "Welcome to Smart MUD.\r\n"
-    "Account system is not implemented yet.\r\n"
-    "Enter a temporary character name: "
+    "Account system is not implemented yet. Local Phase 2D account flow is active.\r\n"
+    "Enter a temporary character name: compatibility prompt retired.\r\n"
+    "Enter account name: "
 )
 
 
@@ -64,16 +65,34 @@ class TelnetServer:
         peer = writer.get_extra_info("peername")
         session = self.adapter.create_session(remote_address=str(peer or "telnet"))
         try:
+            runtime_session = self.mud_runtime.create_runtime_session("telnet", str(peer or "telnet")) if hasattr(self.mud_runtime, "create_runtime_session") else None
+            if runtime_session:
+                session.session_id = runtime_session.session_id
             await self._write(writer, WELCOME_BANNER)
-            name = await self._readline(reader) or "TelnetPlayer"
+            account_name = await self._readline(reader) or "telnet_dev"
+            try:
+                account = self.mud_runtime.login_account(account_name, session_id=session.session_id)
+            except Exception:
+                await self._write(writer, "New account? yes/no ")
+                answer = (await self._readline(reader)).lower()
+                if answer not in {"y", "yes"}:
+                    await self._write(writer, "Goodbye.\r\n"); return
+                account = self.mud_runtime.create_account(account_name)
+                self.mud_runtime.authenticate_session(session.session_id, account["account_id"])
+            session.account_id = account["account_id"]; session.authenticated = True; session.state = "character_select"
             world_id = self.default_world_id or (self.mud_runtime.active_world_id or "")
             if not world_id:
                 worlds = self.mud_runtime.world_registry.list_worlds()
                 world_id = str(worlds[0]["id"]) if worlds else ""
-            character = self.mud_runtime.create_character(world_id=world_id, name=name)
+            chars = self.mud_runtime.list_characters(world_id, account["account_id"])
+            await self._write(writer, "Enter character name: ")
+            name = await self._readline(reader) or "TelnetPlayer"
+            found = next((c for c in chars if c["name"].lower() == name.lower()), None)
+            character = found or self.mud_runtime.create_character(world_id=world_id, name=name, account_id=account["account_id"])
             session.character_id = character["character_id"]
             session.world_id = world_id
-            entered = self.mud_runtime.enter_world(session.character_id)
+            session.state = "playing"
+            entered = self.mud_runtime.enter_world(session.character_id, account["account_id"], session.session_id)
             initial = self.adapter.render_runtime_result(session, entered)
             await self._write(writer, "\r\n" + initial.output + "\r\n" + initial.prompt + " ")
             while not reader.at_eof():

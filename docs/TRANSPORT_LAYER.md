@@ -50,3 +50,7 @@ Telnet clients are supported because MUD players expect Mudlet, MUSHclient, TinT
 ## EventBus Integration
 
 Transport adapters share the active `MudRuntime.event_bus`. Session creation publishes `transport_session_created`; inbound input publishes `transport_message_received`; generated responses publish `transport_response_sent`. Payloads include session id, transport type, output format, world/character ids when known, and command text where relevant. The transport layer remains a routing/presentation boundary and does not execute game side effects outside `MudRuntime`.
+
+## Phase 2D Account and Session Foundation
+
+Smart MUD now includes a local account/session foundation. See `docs/ACCOUNT_AND_SESSION_MODEL.md` for the SQLite account model, shared web/telnet session lifecycle, account-owned character creation/select/entry rules, role hierarchy, permission helper philosophy, orphan character migration behavior, and account/session/character EventBus events.
