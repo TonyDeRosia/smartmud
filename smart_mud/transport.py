@@ -29,6 +29,8 @@ class TransportSession:
     world_id: str | None = None
     connected_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_activity_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    authenticated: bool = False
+    state: str = "connected"
     capabilities: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -101,7 +103,7 @@ class RuntimeTransportAdapter:
         session = TransportSession.create(self.transport_type, remote_address, capabilities={"output_format": self.output_format.value}, **kwargs)
         self.sessions[session.session_id] = session
         if self.event_bus:
-            self.event_bus.publish("transport_session_created", {"session_id": session.session_id, "transport_type": session.transport_type, "output_format": self.output_format.value, "character_id": session.character_id or "", "world_id": session.world_id or ""}, source_system="transport", session_id=session.session_id, transport_type=session.transport_type, character_id=session.character_id or "", world_id=session.world_id or "")
+            self.event_bus.publish("session_created", {"session_id": session.session_id, "transport_type": session.transport_type, "output_format": self.output_format.value, "character_id": session.character_id or "", "world_id": session.world_id or ""}, source_system="transport", session_id=session.session_id, transport_type=session.transport_type, character_id=session.character_id or "", world_id=session.world_id or "")
         return session
 
     def handle_message(self, message: TransportMessage) -> TransportResponse:

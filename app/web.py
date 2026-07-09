@@ -82,7 +82,9 @@ class WebRuntime:
                 "suggested_fix=repair the world package manifest or JSON file"
             ) from exc
         self.web_transport = WebTransportAdapter(self.mud_runtime)
-        self.web_session = self.web_transport.create_session(remote_address="web-ui")
+        self.web_session = self.web_transport.create_session(remote_address="web-ui", state="account_login")
+        self.runtime_session = self.mud_runtime.create_runtime_session("web", "web-ui")
+        self.web_session.session_id = self.runtime_session.session_id
         self.telnet_config = TelnetServerConfig(
             enabled=self.config.telnet_enabled,
             host=self.config.telnet_host,
@@ -177,7 +179,33 @@ class WebRuntime:
         return {"ok": True, "world": manifest}
 
     def list_characters(self) -> list[dict[str, Any]]:
-        return self.mud_runtime.list_characters(self.active_world_id)
+        return self.mud_runtime.list_characters(self.active_world_id, self.web_session.account_id or "")
+
+    def account_session(self) -> dict[str, Any]:
+        return {"session_id": self.web_session.session_id, "transport_type": self.web_session.transport_type, "account_id": self.web_session.account_id, "character_id": self.web_session.character_id, "world_id": self.web_session.world_id, "authenticated": bool(self.web_session.authenticated), "state": self.web_session.state, "account_exists": self.mud_runtime.any_account_exists()}
+
+    def create_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+        account = self.mud_runtime.create_account(str(payload.get("username") or payload.get("account_name") or "local_dev"), str(payload.get("password") or ""), str(payload.get("email") or ""), str(payload.get("notes") or ""))
+        self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "character_select"
+        self.mud_runtime.authenticate_session(self.web_session.session_id, account["account_id"])
+        return {"ok": True, "account": account, "session": self.account_session()}
+
+    def login_account(self, payload: dict[str, Any]) -> dict[str, Any]:
+        username = str(payload.get("username") or payload.get("account_name") or "")
+        if not username and not self.mud_runtime.any_account_exists():
+            return self.create_account({"username": "local_dev"})
+        if not username:
+            account = self.mud_runtime.ensure_dev_account()
+        else:
+            account = self.mud_runtime.login_account(username, str(payload.get("password") or ""), self.web_session.session_id)
+        self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "character_select"
+        return {"ok": True, "account": account, "session": self.account_session()}
+
+    def logout_account(self) -> dict[str, Any]:
+        result = self.mud_runtime.logout_account(self.web_session.session_id)
+        self.web_session.account_id = None; self.web_session.character_id = None; self.web_session.authenticated = False; self.web_session.state = "account_login"
+        self.active_character_id = ""
+        return result
 
     def create_character(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.active_world_id:
@@ -190,21 +218,22 @@ class WebRuntime:
             name=str(payload.get("name") or payload.get("player_name") or payload.get("character_name") or "Player"),
             race_id=str(payload.get("race_id") or payload.get("race") or ""),
             class_id=str(payload.get("class_id") or payload.get("class") or payload.get("char_class") or ""),
+            account_id=self.web_session.account_id or "",
         )
         self.active_character_id = character["character_id"]
         self.web_session.character_id = self.active_character_id
         self.web_session.world_id = self.active_world_id
+        self.web_session.state = "playing"
         return {"ok": True, "character": character}
 
     def enter_world(self, character_id: str = "") -> dict[str, Any]:
         cid = character_id or self.active_character_id
         if not cid:
-            created = self.create_character({"name": "Player"})
-            cid = created["character"]["character_id"]
+            raise HTTPException(status_code=400, detail="Select or create a character before entering the world.")
         self.active_character_id = cid
         self.web_session.character_id = cid
         self.web_session.world_id = self.active_world_id
-        return self.mud_runtime.enter_world(cid)
+        return self.mud_runtime.enter_world(cid, self.web_session.account_id or "", self.web_session.session_id)
 
 
     def _room_summary(self, room_id: str) -> dict[str, Any]:
@@ -283,7 +312,7 @@ class WebRuntime:
 
     def handle_input(self, command: str, command_echo: bool = True) -> dict[str, Any]:
         if not self.active_character_id:
-            self.enter_world()
+            raise HTTPException(status_code=400, detail="Select or create a character before sending commands.")
         response = self.web_transport.handle_message(TransportMessage(session=self.web_session, text=command))
         result = response.metadata.get("result", {})
         command_output = str(result.get("output") or "")
@@ -350,6 +379,22 @@ def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
     @app.post("/api/settings/global")
     def set_global_settings(payload: dict[str, Any]) -> dict[str, Any]:
         return {"settings": runtime.set_global_settings(payload)}
+
+    @app.get("/api/mud/account/session")
+    def account_session() -> dict[str, Any]:
+        return runtime.account_session()
+
+    @app.post("/api/mud/account/create")
+    def account_create(payload: dict[str, Any]) -> dict[str, Any]:
+        return runtime.create_account(payload)
+
+    @app.post("/api/mud/account/login")
+    def account_login(payload: dict[str, Any]) -> dict[str, Any]:
+        return runtime.login_account(payload)
+
+    @app.post("/api/mud/account/logout")
+    def account_logout() -> dict[str, Any]:
+        return runtime.logout_account()
 
     @app.get("/api/mud/worlds")
     def worlds() -> dict[str, Any]:
