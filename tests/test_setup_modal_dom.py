@@ -34,3 +34,24 @@ def test_single_scroll_layout_targets_world_output() -> None:
     assert '#mud-world-output' in CSS
     assert 'overflow-y: auto' in CSS
     assert 'overflow: hidden' in CSS
+
+
+def test_frontend_api_calls_are_smart_mud_routes() -> None:
+    expected_routes = [
+        "/api/settings/global",
+        "/api/mud/worlds",
+        "/api/mud/world/select",
+        "/api/mud/characters",
+        "/api/mud/characters/create",
+        "/api/mud/characters/enter",
+        "/api/mud/play-view",
+        "/api/mud/input",
+        "/api/developer/mud-memory",
+        "/api/developer/gm-orchestrator",
+    ]
+    web_py = (ROOT / "app" / "web.py").read_text(encoding="utf-8")
+    for route in expected_routes:
+        assert route in JS
+        assert route in web_py
+    for removed in ["/api/campaign/", "/api/settings/visual-pipeline", "/api/setup/orchestrate-image", "/api/setup/install-image-engine"]:
+        assert removed not in JS

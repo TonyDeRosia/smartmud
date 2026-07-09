@@ -6344,6 +6344,53 @@ def test_mud_api_world_character_play_flow(tmp_path: Path, monkeypatch) -> None:
     assert "You cannot go that way." in invalid["output_text"]
 
 
+
+def test_smart_mud_settings_endpoint_is_available_and_mud_specific(tmp_path, monkeypatch):
+    runtime = _runtime(tmp_path, monkeypatch)
+    app = create_web_app(runtime, runtime.root / "app" / "static")
+
+    assert "/api/settings/global" in {route.path for route in app.routes}
+    settings = runtime.get_global_settings()
+    assert settings["app_name"] == "Smart MUD"
+    assert settings["runtime_mode"] == "smart_mud"
+    assert "mud_colors" in settings
+    assert "mud_color_presets" in settings
+    assert "mud_client" in settings
+    assert "smart_mud_settings" in settings
+    for legacy_key in ["image", "comfyui", "dependency_readiness", "path_config", "campaign", "campaign_settings"]:
+        assert legacy_key not in settings
+
+
+def test_smart_mud_settings_endpoint_saves_client_preferences(tmp_path, monkeypatch):
+    runtime = _runtime(tmp_path, monkeypatch)
+
+    settings = runtime.set_global_settings(
+        {
+            "mud_colors": {"prompt_hp": "#123456", "comfyui_path": "/must/not/leak"},
+            "mud_client": {"command_echo": False, "scrollback_size": 250, "campaign_mode": "legacy"},
+            "image": {"provider": "comfyui"},
+        }
+    )
+
+    assert settings["mud_colors"]["prompt_hp"] == "#123456"
+    assert "comfyui_path" not in settings["mud_colors"]
+    assert settings["mud_client"]["command_echo"] is False
+    assert settings["mud_client"]["scrollback_size"] == 250
+    assert "campaign_mode" not in settings["mud_client"]
+    assert "image" not in settings
+
+
+def test_smart_mud_home_page_and_initial_api_contract_have_no_404s(tmp_path, monkeypatch):
+    runtime = _runtime(tmp_path, monkeypatch)
+    app = create_web_app(runtime, runtime.root / "app" / "static")
+
+    routes = {route.path for route in app.routes}
+    assert "/" in routes
+    startup_endpoints = ["/api/settings/global", "/api/mud/worlds"]
+    for endpoint in startup_endpoints:
+        assert endpoint in routes
+
+
 def test_smart_mud_global_settings_exclude_image_payload(tmp_path, monkeypatch):
     runtime = _runtime(tmp_path, monkeypatch)
     settings = runtime.get_global_settings()
