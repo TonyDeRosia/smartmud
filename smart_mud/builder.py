@@ -64,6 +64,7 @@ class BuilderWorkspace:
             self.publish("builder_permission_denied", actor, self.world_id(actor), "builder", "mode", command="builder")
             return BuilderResult(False, "You do not have permission for that command.")
         setattr(actor, "builder_mode", enabled)
+        setattr(actor, "builder_enabled", enabled)
         self.publish("builder_mode_enabled" if enabled else "builder_mode_disabled", actor, self.world_id(actor), "builder", "mode", command="builder")
         return BuilderResult(True, f"Builder mode is now {'ON' if enabled else 'OFF'}.")
 
