@@ -57,3 +57,11 @@ The interaction layer publishes:
 ## Non-Goals
 
 Phase 3C does not implement combat, damage, spell casting, AI decision making, shops, quests, crafting, nested containers, pathfinding, stealth, lockpicking mechanics, traps, or Builder Mode.
+
+## Phase 3C Hotfix: core non-combat commands
+
+Targeted `look`, `l`, and `examine` now resolve a named target and display the target name plus its long description when one is available. `look at <target>` is normalized to the same targeted lookup. Runtime target resolution checks equipped items, inventory, portable room items, room features, visible NPCs, visible mobs, and exits.
+
+Room features are fixed scenery unless explicitly marked `portable: true`. World data may describe features with optional fields such as `keywords`, `short_description`, `long_description`, `portable`, `drinkable`, `enterable`, `readable`, `usable`, `openable`, `locked`, `locked_message`, and `default_interactions`. Nonportable features such as fountains, gates, doors, altars, statues, campfires, stairs, and portals can be inspected and interacted with, but `get <feature>` returns clean MUD text instead of adding scenery to inventory.
+
+`get all` and `take all` only collect portable room items. `drop all` drops carried inventory items only; equipped items must be removed first. Clean fallback handling is provided for `identify`/`id`, `use`, `read`, `pray`, `touch`, `push`, `pull`, `climb`, `enter`, `leave`, `drink`, `eat`, `search`, `listen`, `smell`, `scan`, and `glance`.

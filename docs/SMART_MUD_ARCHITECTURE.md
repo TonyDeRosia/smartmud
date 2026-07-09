@@ -131,3 +131,7 @@ Room rendering uses the entity visibility API so players, NPCs, mobs, and object
 ## Runtime Interaction Command Layer
 
 All non-combat interaction commands execute through `MudRuntime`: transport input is parsed, aliases and filler words are normalized, targets are resolved with deterministic priority, runtime APIs publish EventBus events, renderers produce semantic HTML or plain/ANSI text, and transports return the response. Web and telnet transports must not implement gameplay command logic. See `docs/INTERACTION_COMMANDS.md`.
+
+## Runtime interaction targets
+
+The runtime owns core non-combat command behavior before any AI narration is considered. Targeted interactions resolve against equipped items, inventory, portable room items, room features, visible NPCs, visible mobs, and exits. Room features are data-driven fixed scenery with optional interaction metadata; they default to nonportable for common scenery such as fountains, gates, doors, altars, statues, campfires, stairs, and portals. Semantic web output and plain-text telnet output continue to flow through the existing render pipeline.

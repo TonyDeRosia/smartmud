@@ -168,3 +168,7 @@ Room rendering uses the entity visibility API so players, NPCs, mobs, and object
 ## Phase 3C - Core Interaction Command Layer
 
 Phase 3C adds runtime-owned non-combat interaction commands, pickup aliases, run/walk helpers, entity dialogue aliases, container-safe placeholders, canonical room features, and EventBus interaction events. Combat, AI decision making, Builder Mode, and expanded Shattered Realms content remain out of scope. See `docs/INTERACTION_COMMANDS.md`.
+
+### Phase 3C Hotfix: core command completion
+
+The interaction layer now includes usable non-combat command fallbacks, targeted look/examine behavior, safe bulk inventory commands, and nonportable room-feature handling. Room features are inspectable without becoming inventory items, and command handling publishes targeted-look, feature-interaction, bulk-get/drop, and identify events for downstream systems.
