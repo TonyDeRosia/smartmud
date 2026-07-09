@@ -865,14 +865,20 @@ class MudRuntime:
             filt = (args[0].lower() if args else "draft")
             rooms = [(rid, r, src) for rid, (r, src) in self.all_runtime_rooms(char).items() if filt == "all" or src == filt]
             title = {"draft":"Draft Rooms", "live":"Live Rooms", "all":"All Rooms"}.get(filt, "Draft Rooms")
-            lines = [title, ""]
-            for i, (rid, _r, _src) in enumerate(sorted(rooms), 1):
-                lines.append(f"{i}. {rid}")
-            lines += ["", "Editing:", self.builder.current_room_id(char), "", "Current location:", char.room_id]
+            edit_id = self.builder.current_room_id(char)
+            lines = [title, "", "ID | Name | Exits | Markers"]
+            for rid, r, _src in sorted(rooms):
+                markers = []
+                if rid == char.room_id: markers.append("current location")
+                if rid == edit_id: markers.append("current edit target")
+                lines.append(f"{rid} | {r.get('name') or r.get('title') or rid} | {len((r.get('exits') or {}))} | {', '.join(markers) or '-'}")
+            lines += ["", "Current location:", char.room_id, "", "Current edit target:", edit_id]
             self.event_bus.publish("builder_room_listed", {"character_id": char.id, "count": len(rooms)}, source_system="builder")
             return CommandResult("\n".join(lines))
         if cmd in {"rfind", "rsearch"}:
             q = " ".join(args).lower()
+            if not q:
+                return CommandResult("Usage: rfind <query>", ok=False)
             out = []
             for rid, (r, src) in self.all_runtime_rooms(char).items():
                 if q and q in json.dumps(r).lower():
@@ -928,7 +934,11 @@ class MudRuntime:
                 lines = list(getattr(char, "builder_desc_editor_lines", []) or []); lines.append(line); setattr(char, "builder_desc_editor_lines", lines)
                 result = CommandResult("")
         else:
-            result = self._handle_runtime_command(char, command)
+            if command.strip() in {".end", ".cancel"}:
+                from engine.mud_commands import CommandResult
+                result = CommandResult("No active editor session.", ok=False)
+            else:
+                result = self._handle_runtime_command(char, command)
         self.state_store.save_character(char, self.active_world_id or "")
         session = self.sessions.get(character_id)
         turn = (session.command_count + 1) if session else 1
@@ -1141,6 +1151,9 @@ class MudRuntime:
             if direction in {"north", "south", "east", "west", "up", "down", "in", "out", "northeast", "northwest", "southeast", "southwest"}:
                 cmd_name = direction
                 args = []
+        if cmd_name in {"del", "delete"} and len(args) >= 2 and args[0].lower() in {"dir", "direction", "exit"}:
+            cmd_name = "unlink"
+            args = [args[1]]
         nav_result = self._builder_nav_command(char, cmd_name, args, command)
         if nav_result is not None:
             result = nav_result

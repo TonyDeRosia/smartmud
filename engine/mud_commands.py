@@ -219,6 +219,10 @@ class MudCommandEngine:
             "dig": self._cmd_dig,
             "link": self._cmd_link,
             "unlink": self._cmd_unlink,
+            "del": self._cmd_delete_alias,
+            "delete": self._cmd_delete_alias,
+            "mlist": self._cmd_builder_list_placeholder,
+            "olist": self._cmd_builder_list_placeholder,
             "exits": self._cmd_builder_nav,
             "x": self._cmd_builder_nav,
             "back": self._cmd_builder_nav,
@@ -245,6 +249,8 @@ class MudCommandEngine:
             return CommandResult(narrative="")
         
         raw_cmd_name = cmd_tokens[0].lower()
+        if raw_cmd_name in {".end", ".cancel"}:
+            return CommandResult(narrative="No active editor session.", ok=False)
         cmd_name = self.resolve_alias(raw_cmd_name)
         if raw_cmd_name in self.command_handlers and not cmd_name:
             cmd_name = raw_cmd_name
@@ -678,6 +684,19 @@ Available commands:
         self.builder.save_drafts(world_id,drafts); self.builder.audit(character,world_id,"unlink","exit",f"{room_id}:{args[0]}",before,None); self.builder.publish("builder_unlink_completed", character, world_id, "exit", f"{room_id}:{args[0]}", command=raw); self.builder.publish("builder_room_graph_updated", character, world_id, "room", room_id, command=raw)
         return CommandResult(f"Unlinked {args[0]}.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)))
 
+
+    def _cmd_delete_alias(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        token = raw.strip().split()[0].lower() if raw.strip() else ""
+        if len(args) >= 2 and args[0].lower() in {"dir", "direction", "exit"}:
+            return self._cmd_unlink(character, [args[1]], raw)
+        return CommandResult(f"Syntax: {token} dir <direction> | {token} exit <direction>", ok=False)
+
+    def _cmd_builder_list_placeholder(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        cmd = raw.strip().split()[0].lower() if raw.strip() else ""
+        if cmd == "mlist":
+            return CommandResult("Mob/entity listing is not implemented yet. Use future entity builder commands.")
+        return CommandResult("Object/item listing is not implemented yet. Use future item builder commands.")
+
     def _cmd_builder(self, character: Any, args: list[str], raw: str) -> CommandResult:
         sub = args[0].lower() if args else "status"
         if raw.strip().split()[0].lower() in {"bstatus", "status"}:
@@ -702,7 +721,10 @@ Available commands:
             res = self.builder.history(character); return CommandResult(narrative=res.message, ok=res.ok)
         if sub == "status":
             return CommandResult(narrative=self._builder_room_status(character, self.builder.current_room_id(character), self.builder.load(self.builder.world_id(character))))
-        return CommandResult(narrative=f"Builder mode is {'ON' if getattr(character, 'builder_mode', False) else 'OFF'}. Use builder on/off, builder validate, builder save, builder snapshot, builder history.")
+        suggestions = {"statys": "status", "stats": "status", "stat": "status"}
+        if sub in suggestions:
+            return CommandResult(narrative=f"Unknown builder command: {sub}.\nDid you mean builder {suggestions[sub]}?", ok=False)
+        return CommandResult(narrative=f"Unknown builder command: {sub}.", ok=False)
 
     def _builder_room_status(self, character: Any, room_id: str, drafts: dict[str, Any]) -> str:
         runtime = getattr(self, "runtime", None)
@@ -772,6 +794,10 @@ Available commands:
         if cmd == "rname":
             if not getattr(character, "edit_room_id", "") and not getattr(character, "last_edited_target", ""):
                 return CommandResult("No room is currently selected. Use rcreate, redit <room_id>, goto <room_id>, or btarget room <room_id>.", ok=False)
+            if args and args[0].lower() == "suggest":
+                val = room_id.replace("_", " ").title()
+                res = self.builder.create_or_update(character, "rooms", room_id, {"name": val}, "rname", "room")
+                return CommandResult(narrative=f"Room {room_id} name changed to {val}.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)), ok=res.ok)
             force = bool(args and args[0] == "--force")
             val = self._builder_value(raw,2) if force else self._builder_value(raw,1)
             if not val.strip(): return CommandResult("Room name cannot be blank.", ok=False)
@@ -791,13 +817,33 @@ Available commands:
                 self.builder.publish("builder_desc_alias_used", character, world_id, "room", room_id, command=raw)
             if not getattr(character, "edit_room_id", "") and not getattr(character, "last_edited_target", ""):
                 return CommandResult("No room is currently selected. Use rcreate, redit <room_id>, goto <room_id>, or btarget room <room_id>.", ok=False)
-            val = self._builder_value(raw,1)
+            if len(args) >= 3 and args[0].lower() == "room":
+                room_id = args[1]
+                setattr(character, "edit_room_id", room_id); setattr(character, "last_edited_target", room_id)
+                val = self._builder_value(raw,3)
+            else:
+                val = self._builder_value(raw,1)
             if not val:
                 setattr(character, "builder_desc_editor_room_id", room_id); setattr(character, "builder_desc_editor_lines", [])
-                return CommandResult("Description editor\n\nEnter description.\n\nFinish with:\n.end\n\nCancel:\n.cancel")
+                return CommandResult("""Description editor
+
+rdesc <description>
+sets the description for the currently selected room.
+
+To edit another room first:
+redit <room_id>
+rdesc <description>
+
+Enter description.
+
+Finish with:
+.end
+
+Cancel:
+.cancel""")
             res = self.builder.create_or_update(character, "rooms", room_id, {"description": val}, cmd, "room")
             name = self.builder.load(world_id).get("rooms",{}).get(room_id,{}).get("name") or "(unnamed)"
-            lines=[f"Description updated for room {room_id}.", f"Room {room_id} description changed.", "Updated room:", "", "ID:", room_id, "", "Name:", name, "", "Dirty:", "yes"]
+            lines=["Description updated for currently selected room:", f"Room: {room_id}", f"Name: {name}", f"Description: {val}", f"Room {room_id} description changed."]
             return CommandResult(narrative="\n".join(lines)+"\n"+self._builder_room_status(character, room_id, self.builder.load(world_id)), ok=res.ok)
         if cmd == "rset" and len(args)>=2:
             return out(self.builder.create_or_update(character, "rooms", room_id, {args[0]: self._builder_value(raw,2)}, "rset", "room"))

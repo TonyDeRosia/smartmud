@@ -167,6 +167,10 @@ class BuilderWorkspace:
             if not isinstance(room.get("plugin_data"), dict): warnings.append(f"room {rid} missing plugin_data dictionary")
             if not room.get("name"): warnings.append(f"room {rid} missing name")
             if self._looks_like_id(room.get("name", "")): warnings.append(f"room {rid} name looks like a room ID")
+            suggested = str(rid).replace("_", " ").title()
+            name_text = str(room.get("name") or "").strip()
+            if name_text and name_text.lower() != suggested.lower() and name_text.lower().replace(" ", "_") in str(rid).lower():
+                warnings.append(f"Room {rid} has a confusing display name: {name_text}. Suggested name: {suggested}.")
             if not room.get("description"): warnings.append(f"room {rid} missing description")
             for d, ex in (room.get("exits") or {}).items():
                 target = ex.get("target_room_id") or ex.get("to") or ex.get("room_id")
