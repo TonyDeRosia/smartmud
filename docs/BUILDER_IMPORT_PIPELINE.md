@@ -46,3 +46,13 @@ look
 - `builder import apply <filename> --replace-drafts` snapshots first, then replaces draft collections.
 
 Future feature-library work can promote room-local scenery features into reusable feature templates. For now, nonportable scenery should remain `portable: false` draft features.
+
+## Phase 4F Hotfix: committed organized starter drafts
+
+Fresh downloads now include the organized Shattered Realms starter Builder drafts under `worlds/shattered_realms/builder/`. The live package files remain unchanged; the committed Builder drafts are the default editable organized starter layer that Builder Mode overlays at runtime.
+
+Use `builder validate` to verify the committed starter draft layer. The starting room `guildhall_crossing_square` is assigned to `starter_guildlands`, zone `guildhall_crossing`, vnum `1000`, and should report `Status: organized` in `rstat`.
+
+`builder migrate starter` remains available to reset or regenerate the starter drafts from the live Shattered Realms package. Regeneration should update the draft JSON files only; do not commit runtime audit, history, snapshot, export, local database, or user-data artifacts.
+
+To exchange the organized starter layer, run `builder export`, then place the exported bundle in the Builder import folder and run `builder import validate <file>` before applying it.

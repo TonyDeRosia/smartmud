@@ -1,11 +1,16 @@
 from pathlib import Path
-from engine.mud_runtime import MudRuntime
 import shutil
+from engine.mud_runtime import MudRuntime
+from smart_mud.builder import BuilderWorkspace
+from smart_mud.world_registry import WorldRegistry
 
 
 def make_runtime(tmp_path: Path, role="builder"):
-    shutil.rmtree(Path.cwd() / "worlds" / "shattered_realms" / "builder", ignore_errors=True)
-    rt = MudRuntime(Path.cwd(), tmp_path / "user_data")
+    worlds_dir = tmp_path / "worlds"
+    shutil.copytree(Path.cwd() / "worlds" / "shattered_realms", worlds_dir / "shattered_realms")
+    rt = MudRuntime(Path.cwd(), tmp_path / "user_data", world_registry=WorldRegistry(worlds_dir))
+    rt.builder = BuilderWorkspace(worlds_dir=worlds_dir, event_bus=rt.event_bus)
+    rt.command_engine.builder = rt.builder
     acct = rt.create_account(f"Phase Four {role.title()}", role=role)
     rt.load_world("shattered_realms")
     cid = rt.create_character(world_id="shattered_realms", name=f"Phase Four {role.title()}", account_id=acct["account_id"])["character_id"]
