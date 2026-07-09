@@ -49,3 +49,11 @@ The manifest is the authority for loading a world. Required fields are: `world_i
 ## Validation
 
 Before loading, Smart MUD refuses invalid packages with descriptive errors. Validation checks required runtime folders, manifest fields, duplicate package IDs, exits to valid rooms, NPC room references, item template references, quest NPC references, trainer class references, spell schools, class abilities, and race records. Builder workspace folders are prepared automatically and are never fatal validation errors.
+
+## Phase 4A Builder Foundation
+
+Smart MUD supports an in-game Builder foundation for authorized `builder`, `admin`, and `owner` roles. Builder commands are registered in the command registry and are hidden from normal players. Draft edits are persisted under `worlds/<world_id>/builder/` rather than being written directly to live world package files.
+
+The Builder workspace uses `audit`, `history`, `snapshots`, `exports`, `imports`, and `templates` folders. Room, exit, feature, item template, entity template, and spawn edits go through Builder services so runtime validation and permission checks remain authoritative. `builder validate` checks draft consistency; `builder save` creates a safe export; `builder reload` reloads drafts where safe; `builder snapshot` captures the current draft state; and `builder history` reads audit records.
+
+Future work may add a richer semantic web Builder UI and AI-assisted Builder tools, but Phase 4A intentionally does not add AI Builder, combat, quests, shops, or spellcasting.
