@@ -55,3 +55,9 @@ builder reload
 ## Future work
 
 Visual Builder UI, AI Builder, promotion to live packages, combat, quests, shops, and spellcasting remain future work.
+
+## Phase 4C Canonical Room Graph Contract
+
+Builder navigation now treats live package rooms plus builder draft rooms as one canonical runtime graph for builders with Builder Mode enabled. Rendering, `look`, movement, `goto`, `dig`, `link`, `unlink`, `map`/`rmap`, and validation must resolve exits from that same graph. If an exit is visible, movement uses that exact exit record or reports why it is blocked, closed, locked, hidden, missing a target, or pointing at a missing room.
+
+Builder edit commands show a persistent `Currently editing:` block with room id, name, source, and dirty state. Room ids are lowercase underscore identifiers; human-readable room names belong in `rname` or the quoted room-name form of `dig`.

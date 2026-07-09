@@ -1,7 +1,7 @@
 """Safe in-game Builder workspace services for Smart MUD."""
 from __future__ import annotations
 
-import json, shutil
+import json, shutil, re
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -98,25 +98,26 @@ class BuilderWorkspace:
         return BuilderResult(True, f"Draft exit {direction} {'created' if create and before is None else 'updated'}.", ex)
 
     def validate(self, actor: Any) -> BuilderResult:
-        world_id = self.world_id(actor); drafts = self.load(world_id); errors=[]
+        world_id = self.world_id(actor); drafts = self.load(world_id); errors=[]; warnings=[]; info=[]
         live_rooms = {str(r.get("id")) for r in _records(self.worlds_dir / world_id, "rooms") if r.get("id")}
         draft_rooms = set(drafts["rooms"].keys()); all_rooms = live_rooms | draft_rooms
         reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in"}
         for rid, room in drafts["rooms"].items():
-            if not str(rid).strip() or any(ch.isspace() for ch in str(rid)): errors.append(f"room {rid} has unclear id")
-            if rid in live_rooms: errors.append(f"room {rid} shadows live room")
-            if not room.get("name"): errors.append(f"room {rid} missing name")
-            if not room.get("description"): errors.append(f"room {rid} missing description")
+            if not str(rid).strip() or any(ch.isspace() for ch in str(rid)) or not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", str(rid)): errors.append(f"room {rid} has unsafe id")
+            if rid in live_rooms: warnings.append(f"room {rid} shadows live room")
+            if not room.get("name"): warnings.append(f"room {rid} missing name")
+            if not room.get("description"): warnings.append(f"room {rid} missing description")
             for d, ex in (room.get("exits") or {}).items():
                 target = ex.get("target_room_id") or ex.get("to") or ex.get("room_id")
                 if not target: errors.append(f"room {rid} exit {d} missing target_room_id")
                 elif str(target) not in all_rooms: errors.append(f"room {rid} exit {d} references missing room {target}")
-                elif str(target) == str(rid): errors.append(f"room {rid} exit {d} is a self-loop")
+                elif str(target) == str(rid): warnings.append(f"room {rid} exit {d} is a self-loop")
                 rev = reverse.get(str(d).lower())
                 if target and rev and str(target) in drafts["rooms"]:
                     rex = (drafts["rooms"].get(str(target), {}).get("exits") or {}).get(rev) or {}
                     rtarget = rex.get("target_room_id") or rex.get("to") or rex.get("room_id")
-                    if rtarget == target: errors.append(f"room {rid} exit {d} reverse {rev} points to itself")
+                    if not rtarget: warnings.append(f"room {rid} exit {d} missing reverse exit {rev}")
+                    elif str(rtarget) != str(rid): errors.append(f"room {rid} exit {d} reverse {rev} points to wrong room {rtarget}")
             for fid, feat in (room.get("features") or {}).items():
                 if not feat.get("name"): errors.append(f"feature {fid} missing name")
         for iid, item in drafts["items"].items():
@@ -131,8 +132,17 @@ class BuilderWorkspace:
             if ent.get("entity_type") and ent.get("entity_type") not in VALID_ENTITY_TYPES: errors.append(f"entity {eid} invalid entity_type {ent.get('entity_type')}")
         for sid, sp in drafts["spawns"].items():
             if sp.get("entity_template_id") not in drafts["entities"]: errors.append(f"spawn {sid} references missing entity template {sp.get('entity_template_id')}")
+        current = str(getattr(actor, "edit_room_id", "") or getattr(actor, "last_edited_target", ""))
+        if current and current not in all_rooms: errors.append(f"builder current target missing: {current}")
+        if current: info.append(f"builder current target: {current}")
+        for msg in errors: self.publish("builder_validation_error", actor, world_id, "validation", msg, command="builder validate")
+        for msg in warnings: self.publish("builder_validation_warning", actor, world_id, "validation", msg, command="builder validate")
         self.publish("builder_validation_run", actor, world_id, "builder", "validate", command="builder validate")
-        return BuilderResult(not errors, "Builder validation passed." if not errors else "Builder validation failed:\n- " + "\n- ".join(errors), {"errors": errors})
+        lines = ["Builder validation passed." if not errors else "Builder validation failed.", "", "Errors"]
+        lines += [f"- {e}" for e in errors] or ["- none"]
+        lines += ["", "Warnings"] + ([f"- {w}" for w in warnings] or ["- none"])
+        lines += ["", "Info"] + ([f"- {i}" for i in info] or ["- none"])
+        return BuilderResult(not errors, "\n".join(lines), {"errors": errors, "warnings": warnings, "info": info})
 
     def export(self, actor: Any) -> BuilderResult:
         world_id=self.world_id(actor); root=self.ensure(world_id); stamp=self.stamp(); out=root/"exports"/f"builder_export_{stamp}.json"

@@ -99,3 +99,36 @@ def test_self_loop_exit_blocked_allowed_with_flag_and_validate_catches(tmp_path)
     assert "Dug north to loop_room." in allowed
     validation = out(rt, cid, "builder validate")
     assert "self-loop" in validation
+
+
+def test_visible_target_room_id_exit_moves_through_canonical_graph(tmp_path):
+    rt, cid = make_runtime(tmp_path)
+    out(rt, cid, "builder on")
+    out(rt, cid, "rcreate test_room")
+    out(rt, cid, "rname Test Room")
+    out(rt, cid, 'dig south test_room_2 "Test Room 2" --one-way')
+    out(rt, cid, "goto last")
+    mapped = out(rt, cid, "map")
+    assert "South:" in mapped and "test_room" in mapped
+    moved = out(rt, cid, "south")
+    assert "You head south." in moved
+    assert "Test Room" in moved
+    assert "You cannot go that way" not in moved
+
+
+def test_rcreate_rejects_spaced_room_ids_and_context_block_is_persistent(tmp_path):
+    rt, cid = make_runtime(tmp_path)
+    out(rt, cid, "builder on")
+    bad = out(rt, cid, "rcreate Test Room Two")
+    assert "Room IDs cannot contain spaces" in bad
+    good = out(rt, cid, "rcreate test_room_two")
+    assert "Currently editing:" in good
+    assert "Room: test_room_two" in good
+
+
+def test_get_fountain_nonportable_regression(tmp_path):
+    rt, cid = make_runtime(tmp_path)
+    result = out(rt, cid, "get fountain")
+    assert result.strip() == "You cannot take that."
+    assert "pick up" not in result.lower()
+    assert "fountain" not in out(rt, cid, "inventory").lower()
