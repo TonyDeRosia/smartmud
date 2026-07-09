@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Callable
 import re
 from engine.mud_displays import semantic
+from engine.command_registry import CommandRegistry
 
 
 @dataclass
@@ -138,6 +139,7 @@ class MudCommandEngine:
         self.state_store = state_store
         self.ai_provider = ai_provider
         self.event_bus = event_bus
+        self.registry = CommandRegistry(event_bus=event_bus)
         self.command_handlers: dict[str, Callable] = {
             # Info commands
             "score": self._cmd_score,
@@ -154,6 +156,40 @@ class MudCommandEngine:
             "look": self._cmd_look,
             "say": self._cmd_say,
             "emote": self._cmd_emote,
+            "study": self._cmd_generic,
+            "train": self._cmd_generic,
+            "practice": self._cmd_generic,
+            "socials": self._cmd_generic,
+            "holler": self._cmd_generic,
+            "shout": self._cmd_generic,
+            "gossip": self._cmd_generic,
+            "whisper": self._cmd_generic,
+            "ask": self._cmd_generic,
+            "reply": self._cmd_generic,
+            "tell": self._cmd_generic,
+            "prompt": self._cmd_generic,
+            "afk": self._cmd_generic,
+            "automap": self._cmd_generic,
+            "autosplit": self._cmd_generic,
+            "autogold": self._cmd_generic,
+            "autoloot": self._cmd_generic,
+            "autoexits": self._cmd_generic,
+            "compact": self._cmd_generic,
+            "brief": self._cmd_generic,
+            "dismount": self._cmd_generic,
+            "mount": self._cmd_generic,
+            "unfollow": self._cmd_generic,
+            "follow": self._cmd_generic,
+            "pour": self._cmd_generic,
+            "fill": self._cmd_generic,
+            "taste": self._cmd_generic,
+            "diagnose": self._cmd_generic,
+            "consider": self._cmd_generic,
+            "levels": self._cmd_generic,
+            "time": self._cmd_generic,
+            "weather": self._cmd_generic,
+            "where": self._cmd_generic,
+            "exits": self._cmd_generic,
             
             # Admin
             "wizhelp": self._cmd_wizhelp,
@@ -169,14 +205,18 @@ class MudCommandEngine:
         
         raw_cmd_name = cmd_tokens[0].lower()
         cmd_name = self.resolve_alias(raw_cmd_name)
+        if not cmd_name:
+            choices = self.registry.resolve(raw_cmd_name)[1].split(":",1)[1].strip()
+            return CommandResult(narrative=f"Which command did you mean? {choices}", ok=False)
         args = cmd_tokens[1:]
         self._publish("command_received", character, command_text, raw_input=command_text, canonical_command=raw_cmd_name, arguments=args, current_room_id=getattr(character, "room_id", ""))
         
         print(f"[mud-command] Routing {raw_cmd_name} as {cmd_name} for {character.name}")
         
         # Check if admin command
-        if cmd_name in DETERMINISTIC_COMMANDS and DETERMINISTIC_COMMANDS[cmd_name].get("admin"):
-            if character.role not in ["admin", "implementor"]:
+        meta = self.registry.commands.get(cmd_name)
+        if meta and (meta.admin_only or meta.builder_only):
+            if character.role not in (["admin", "implementor"] if meta.admin_only else ["builder", "admin", "implementor"]):
                 print(f"[mud-command] Access denied: {character.name} not admin")
                 result = CommandResult(narrative="You do not have permission for that command.")
                 self._publish("command_executed", character, command_text, raw_input=command_text, canonical_command=cmd_name, arguments=args, current_room_id=getattr(character, "room_id", ""), result_summary=result.narrative[:120])
@@ -190,9 +230,10 @@ class MudCommandEngine:
             return result
         
         # Known deterministic command with no specific handler
-        if cmd_name in DETERMINISTIC_COMMANDS:
+        if cmd_name in DETERMINISTIC_COMMANDS or cmd_name in self.registry.commands:
             print(f"[mud-command] Known deterministic placeholder: {cmd_name}")
             result = CommandResult(narrative=self._placeholder_for(cmd_name))
+            self._publish("command_placeholder_used", character, command_text, raw_input=command_text, canonical_command=cmd_name, arguments=args)
             self._publish("command_executed", character, command_text, raw_input=command_text, canonical_command=cmd_name, arguments=args, current_room_id=getattr(character, "room_id", ""), result_summary=result.narrative[:120])
             return result
         
@@ -359,19 +400,50 @@ Available commands:
   """
         else:
             topic = args[0].lower()
-            narrative = f"Help on '{topic}' is not available."
+            resolved = self.resolve_alias(topic) or topic
+            meta = self.registry.commands.get(resolved)
+            self._publish("command_help_requested", character, raw, topic=topic, resolved_command=resolved)
+            if meta:
+                narrative = f"Command: {meta.command}\nAliases: {', '.join(meta.aliases) if meta.aliases else 'none'}\nCategory: {meta.category}\nStatus: {meta.status}\nHelp: {meta.long_help or meta.short_help}"
+            else:
+                narrative = f"Help on '{topic}' is not available."
         
         return CommandResult(narrative=narrative)
 
     def _cmd_commands(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """List available commands."""
-        cmds = list(DETERMINISTIC_COMMANDS.keys())
-        # Filter out admin commands for non-admins
-        if character.role not in ["admin", "implementor"]:
-            cmds = [c for c in cmds if not DETERMINISTIC_COMMANDS[c].get("admin", False)]
-        
-        narrative = f"Available commands ({len(cmds)}):\n  " + " ".join(sorted(cmds))
-        return CommandResult(narrative=narrative)
+        include = bool(args and args[0].lower() in {"all", "planned"})
+        self._publish("command_list_requested", character, raw, mode=(args[0].lower() if args else "normal"))
+        metas = self.registry.available(getattr(character, "role", "player"), include_planned=include)
+        groups = {}
+        for m in metas:
+            if not include and m.status not in {"implemented", "placeholder"}:
+                continue
+            groups.setdefault(m.category, []).append(m.command)
+        labels = {"informational": "Information"}
+        lines = ["Available commands:"]
+        for cat in ["movement","informational","interaction","object","equipment","communication","social","character","toggle","system","builder","admin","combat","magic","economy","quest","group","clan"]:
+            if cat in groups:
+                lines.append(f"{labels.get(cat, cat.title())}:")
+                lines.append("  " + " ".join(groups[cat]))
+        return CommandResult(narrative="\n".join(lines))
+
+
+    def _cmd_generic(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        cmd = self.resolve_alias(raw.strip().split()[0].lower()) or raw.strip().split()[0].lower()
+        toggles = {"brief", "compact", "autoexits", "autoloot", "autogold", "autosplit", "automap", "afk", "norepeat", "notell", "nosummon"}
+        if cmd in toggles:
+            prefs = getattr(character, "preferences", None)
+            if prefs is None:
+                prefs = {}; setattr(character, "preferences", prefs)
+            prefs[cmd] = not bool(prefs.get(cmd, False))
+            future = {"autoloot", "autogold", "autosplit", "automap"}
+            suffix = " (preference stored; future systems will use it)." if cmd in future else "."
+            return CommandResult(narrative=f"{cmd} is now {'ON' if prefs[cmd] else 'OFF'}{suffix}")
+        if cmd == "prompt":
+            return CommandResult(narrative="Smart MUD uses a pinned web prompt separate from scrollback. Configure the web prompt through Smart MUD settings; future telnet prompt customization is planned.")
+        self._publish("command_placeholder_used", character, raw, canonical_command=cmd)
+        return CommandResult(narrative=self._placeholder_for(cmd))
 
     def _cmd_wizhelp(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display admin help."""
@@ -432,17 +504,25 @@ XP: {target.xp}
 
     def _placeholder_for(self, cmd_name: str) -> str:
         placeholders = {
-            "spells": "You know no spells.",
-            "skills": "You know no skills.",
-            "abilities": "You have no abilities.",
-            "affects": "You have no active affects.",
-            "commands": "Type COMMANDS to list available commands.",
+            "spells": "You know no spells.", "skills": "You know no skills.", "abilities": "You have no abilities.", "affects": "You have no active affects.",
+            "commands": "Type COMMANDS to list available commands.", "exits": "Visible exits are shown in the room display.", "where": "You are here.",
+            "weather": "The weather is calm.", "time": "Time passes steadily in Smart MUD.", "levels": "Level progression is tracked, but level tables are not implemented yet.",
+            "consider": "You do not sense anything unusual.", "diagnose": "You do not sense anything unusual.", "taste": "You taste nothing unusual.",
+            "fill": "Liquid containers are not implemented yet.", "pour": "Liquid containers are not implemented yet.", "read": "There is nothing readable here.",
+            "use": "You find no obvious way to use that.", "identify": "You identify it but learn nothing unusual.", "follow": "Following is not implemented yet.",
+            "unfollow": "You are not following anyone.", "mount": "Mounts are not implemented yet.", "dismount": "Mounts are not implemented yet.",
+            "tell": "Private tells are not implemented yet.", "reply": "You have nobody to reply to.", "ask": "Ask whom about what?", "whisper": "Whisper to whom?",
+            "gossip": "Global channels are not implemented yet.", "shout": "You shout, but global shout routing is not implemented yet.", "holler": "Holler is not implemented yet.",
+            "socials": "Social commands are tracked but the socials list is not implemented yet.", "practice": "Practice is not implemented yet.", "train": "Training is not implemented yet.", "study": "Study is not implemented yet.",
         }
+        meta = getattr(self, "registry", None).commands.get(cmd_name) if getattr(self, "registry", None) else None
+        if meta and meta.short_help and meta.status.startswith("future"):
+            return meta.short_help
         return placeholders.get(cmd_name, f"The {cmd_name.upper()} command is not available yet.")
 
     def resolve_alias(self, cmd: str) -> str:
         """Resolve command aliases to canonical command."""
-        for canonical, info in DETERMINISTIC_COMMANDS.items():
-            if cmd == canonical or cmd in info.get("aliases", []):
-                return canonical
-        return cmd
+        resolved, kind = self.registry.resolve(cmd)
+        if kind.startswith("ambiguous"):
+            return ""
+        return resolved

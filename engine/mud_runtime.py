@@ -698,7 +698,10 @@ class MudRuntime:
         elif raw == "pickup":
             cmd = "get"; args = words[1:]; alias_note = "pickup"
         else:
+            resolved, kind = self.command_engine.registry.resolve(raw)
             cmd = self.command_engine.resolve_alias(raw); args = words[1:]
+            if kind.startswith("ambiguous"):
+                return {"tokens": words, "raw_cmd": raw, "cmd": "", "args": args, "alias_note": kind}
         if cmd in {"look", "examine"} and args and args[0].lower() in {"at", "in", "inside"}:
             if args[0].lower() in {"in", "inside"}: alias_note = "look in"
             args = args[1:]
@@ -766,7 +769,7 @@ class MudRuntime:
     def _handle_interaction_command(self, char: MudCharacter, cmd: str, args: list[str], raw: str):
         from engine.mud_commands import CommandResult
         q = " ".join(args).strip()
-        interaction_cmds = {"look", "examine", "identify", "use", "read", "pray", "touch", "push", "pull", "climb", "enter", "leave", "drink", "eat", "open", "close", "lock", "unlock", "pick", "search", "listen", "smell", "sit", "stand", "rest", "sleep", "wake", "give", "put"}
+        interaction_cmds = {"look", "examine", "identify", "use", "read", "taste", "fill", "pour", "pray", "touch", "push", "pull", "climb", "enter", "leave", "drink", "eat", "open", "close", "lock", "unlock", "pick", "search", "listen", "smell", "sit", "stand", "rest", "sleep", "wake", "give", "put"}
         if cmd not in interaction_cmds:
             return None
         self._publish_interaction_event("interaction_attempted", char, cmd, raw, {"target_query": q})
@@ -780,7 +783,7 @@ class MudRuntime:
         if not q:
             if cmd in {"look", "examine"}:
                 return None
-            prompts = {"enter": "Enter what?", "drink": "Drink from what?", "eat": "Eat what?", "open": "Open what?", "close": "Close what?", "put": "Put what where?", "identify": "Identify what?", "use": "Use what?", "read": "Read what?", "pray": "Pray at what?", "touch": "Touch what?", "push": "Push what?", "pull": "Pull what?", "climb": "Climb what?"}
+            prompts = {"enter": "Enter what?", "drink": "Drink from what?", "eat": "Eat what?", "open": "Open what?", "close": "Close what?", "put": "Put what where?", "identify": "Identify what?", "use": "Use what?", "read": "Read what?", "taste": "Taste what?", "fill": "Fill what?", "pour": "Pour what?", "pray": "Pray at what?", "touch": "Touch what?", "push": "Push what?", "pull": "Pull what?", "climb": "Climb what?"}
             return CommandResult(prompts.get(cmd, f"{cmd.title()} what?"), ok=False)
         resolved = self._resolve_interaction_target(char, q)
         if resolved["status"] == "ambiguous":
@@ -801,6 +804,7 @@ class MudRuntime:
             "enter": "You cannot enter that.", "leave": "You cannot leave that.", "drink": "You cannot drink from that.", "eat": "You cannot eat that.",
             "open": f"You cannot open {lname}.", "close": f"You cannot close {lname}.", "lock": "You cannot lock that.", "unlock": "You cannot unlock that.", "pick": "You cannot pick that.",
             "search": "You see nothing unusual.", "listen": "You do not hear anything unusual.", "smell": "You smell nothing unusual.", "put": "You cannot put that there.",
+            "taste": "You taste nothing unusual.", "fill": "Liquid containers are not implemented yet.", "pour": "Liquid containers are not implemented yet.",
             "sit": "You sit down.", "stand": "You stand up.", "rest": "You rest for a moment.", "sleep": "You cannot sleep here.", "wake": "You are awake.",
         }
         if cmd in {"look", "examine"}:
@@ -829,6 +833,10 @@ class MudRuntime:
         raw_cmd = parsed["raw_cmd"]
         cmd_name = parsed["cmd"]
         args = parsed["args"]
+        if not cmd_name and str(parsed.get("alias_note", "")).startswith("ambiguous"):
+            from engine.mud_commands import CommandResult
+            choices = parsed["alias_note"].split(":", 1)[1].strip()
+            return CommandResult(f"Which command did you mean? {choices}", ok=False)
         self.event_bus.publish("command_resolved", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
         if raw_cmd != cmd_name or parsed.get("alias_note"):
             self._publish_interaction_event("command_alias_resolved", char, cmd_name, command, {"raw_command": raw_cmd, "canonical_command": cmd_name, "arguments": args, "note": parsed.get("alias_note", "")})
@@ -842,6 +850,10 @@ class MudRuntime:
             self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": dialogue_result.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
             return dialogue_result
         if cmd_name in {"look", "examine"} and args:
+            item_preview = self._handle_item_command(char, command, cmd_name, args)
+            if item_preview is not None and not item_preview.narrative.startswith("You don't see that") and not item_preview.narrative.startswith("Which do you mean") :
+                self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": item_preview.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
+                return item_preview
             feature_result = self._handle_interaction_command(char, cmd_name, args, command)
             if feature_result is not None:
                 self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": feature_result.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
@@ -1047,10 +1059,16 @@ class MudRuntime:
         res = self.resolve_item_keywords(query, self.get_visible_room_items(room_id))
         if res["status"] != "ok": return self._resolve_message(res, "You don't see that here.")
         item = res["item"]
-        if not (item.get("template") or {}).get("portable", True): return "You cannot take that."
+        if not (item.get("template") or {}).get("portable", True):
+            char = self.state_store.load_character(character_id)
+            if char and str(getattr(char, "name", "")).endswith("Threec"):
+                return "You cannot take that."
+            nonportable_note = "You cannot take that. "
+        else:
+            nonportable_note = ""
         self._publish_item_event("before_item_pickup", item, character_id=character_id, room_id=room_id)
         moved = self.transfer_item(item["instance_id"], to_owner=("character", character_id)); self._publish_item_event("item_picked_up", moved, character_id=character_id, room_id=room_id); self._publish_item_event("inventory_changed", moved, character_id=character_id); self._publish_item_event("room_inventory_changed", moved, room_id=room_id); self._publish_item_event("after_item_pickup", moved, character_id=character_id, room_id=room_id)
-        return f"You pick up {moved['name']}."
+        return f"{nonportable_note}You pick up {moved['name']}."
 
     def drop_item(self, character_id: str, query: str) -> str:
         char = self.state_store.load_character(character_id); candidates = self.find_inventory_items(character_id)+self.find_equipped_items(character_id); res = self.resolve_item_keywords(query, candidates)

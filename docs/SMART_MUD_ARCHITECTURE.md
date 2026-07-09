@@ -135,3 +135,7 @@ All non-combat interaction commands execute through `MudRuntime`: transport inpu
 ## Runtime interaction targets
 
 The runtime owns core non-combat command behavior before any AI narration is considered. Targeted interactions resolve against equipped items, inventory, portable room items, room features, visible NPCs, visible mobs, and exits. Room features are data-driven fixed scenery with optional interaction metadata; they default to nonportable for common scenery such as fountains, gates, doors, altars, statues, campfires, stairs, and portals. Semantic web output and plain-text telnet output continue to flow through the existing render pipeline.
+
+## Phase 3D command registry note
+
+Smart MUD now tracks player, placeholder, future builder/admin, future combat, future magic, future economy, and future quest commands through a canonical command registry. The `commands` and `help` commands use registry metadata so classic MUD command coverage is deliberate without adding combat, AI, Builder Mode, shops, quests, spellcasting, or world expansion.

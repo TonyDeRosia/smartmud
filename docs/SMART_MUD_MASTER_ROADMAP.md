@@ -172,3 +172,7 @@ Phase 3C adds runtime-owned non-combat interaction commands, pickup aliases, run
 ### Phase 3C Hotfix: core command completion
 
 The interaction layer now includes usable non-combat command fallbacks, targeted look/examine behavior, safe bulk inventory commands, and nonportable room-feature handling. Room features are inspectable without becoming inventory items, and command handling publishes targeted-look, feature-interaction, bulk-get/drop, and identify events for downstream systems.
+
+## Phase 3D command registry note
+
+Smart MUD now tracks player, placeholder, future builder/admin, future combat, future magic, future economy, and future quest commands through a canonical command registry. The `commands` and `help` commands use registry metadata so classic MUD command coverage is deliberate without adding combat, AI, Builder Mode, shops, quests, spellcasting, or world expansion.
