@@ -33,10 +33,11 @@ class BuilderWorkspace:
 
 
     STARTER_AREA = {
-        "id": "starter_guildlands", "name": "Starter Guildlands", "description": "Migrated Shattered Realms starter area.",
+        "id": "starter_guildlands", "name": "Starter Guildlands", "description": "The organized starter region for Shattered Realms, covering the guildhall crossing, civic halls, training spaces, market, tavern, roads, farms, forest edge, watchpost, and rat cellar used by new characters.",
         "vnum_start": 1000, "vnum_end": 1999, "room_vnum_start": 1000, "room_vnum_end": 1299,
         "object_vnum_start": 1300, "object_vnum_end": 1499, "mob_vnum_start": 1500, "mob_vnum_end": 1699,
         "spawn_vnum_start": 1700, "spawn_vnum_end": 1799,
+        "flags": [], "tags": ["starter"], "plugin_data": {},
     }
     STARTER_ZONES = [
         ("guildhall_crossing", "Guildhall Crossing", 1000, 1029), ("registrar_hall", "Registrar Hall", 1030, 1049),
@@ -68,7 +69,7 @@ class BuilderWorkspace:
         for zid,name,start,end in self.STARTER_ZONES:
             zone_starts[zid]=start
             if zid not in zones: zc += 1
-            zones[zid] = {**zones.get(zid, {}), 'id':zid, 'name':name, 'description':f'{name} starter zone.', 'world_id':world_id, 'area_id':'starter_guildlands', 'vnum_start':start, 'vnum_end':end, 'room_ids': zones.get(zid,{}).get('room_ids', [])}
+            zones[zid] = {**zones.get(zid, {}), 'id':zid, 'name':name, 'description':f'{name} starter zone.', 'world_id':world_id, 'area_id':'starter_guildlands', 'vnum_start':start, 'vnum_end':end, 'room_ids': zones.get(zid,{}).get('room_ids', []), 'flags':[], 'tags':['starter'], 'plugin_data':{}}
         counters = {zid:start for zid,_,start,_ in self.STARTER_ZONES}
         live_rooms = _records(self.worlds_dir/world_id, 'rooms')
         for lr in live_rooms:
@@ -358,6 +359,9 @@ class BuilderWorkspace:
             else:
                 area = areas[aid]
                 if int(zone.get("vnum_start") or 0) < int(area.get("vnum_start") or 0) or int(zone.get("vnum_end") or 0) > int(area.get("vnum_end") or 0): errors.append(f"zone {zid} range outside area {aid} range")
+            for room_id in zone.get("room_ids") or []:
+                if str(room_id) not in drafts.get("rooms", {}):
+                    errors.append(f"zone {zid} room_ids references missing room {room_id}")
         by_area = {}
         for zid, z in zones.items(): by_area.setdefault(z.get("area_id"), []).append((zid,z))
         for aid, zs in by_area.items():
