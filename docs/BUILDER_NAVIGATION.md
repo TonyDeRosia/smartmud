@@ -1,0 +1,57 @@
+# Builder Navigation and Runtime Overlay
+
+Phase 4B makes draft rooms visible through the runtime room graph for builder/admin/owner characters while Builder Mode is enabled. The lookup order is: BuilderWorkspace draft rooms first, then live world package rooms. Normal players continue to resolve only live world package rooms.
+
+## Builder context
+
+Builder context is tracked on the runtime character/session data: current room, last room, last created room, current area, current zone, and whether Builder Mode is enabled. Room creation, `goto`, `dig`, `link`, and `unlink` update this context through the runtime and BuilderWorkspace.
+
+## Room navigation
+
+`goto <room_id>` resolves exact room ids first. `goto <room name>` searches visible runtime room names. `goto here` shows the current draft/live source. `goto last` returns to the previous room when tracked. `goto home` returns to the live world start room. Successful `goto` persists the character location and renders the destination room through the canonical room renderer.
+
+`rooms`/`rlist` lists live and draft rooms visible to the builder with id, name, area, zone, source, and exit count. `rfind`/`rsearch` search ids, names, descriptions, features, tags, area ids, and zone ids because they search merged room records.
+
+## Map building
+
+`dig <direction> <new_room_id> [room name] [--one-way]` creates a draft destination room when needed, links the current room to it, creates the reverse exit unless `--one-way` is present, moves the builder into the new room, and renders it.
+
+`link <direction> <target_room_id>` creates a draft exit from the current room. `link both <direction> <target_room_id>` also creates the reverse exit. `unlink <direction>` removes the current draft exit.
+
+`map`/`rmap` shows the current room and the eight basic adjacent directions: north, south, east, west, up, down, in, and out.
+
+## Save, reload, and limits
+
+`builder save` exports drafts under the builder workspace and does not promote or mutate live world package files. Promotion to live package is not implemented yet. `builder reload` refreshes use of saved drafts from BuilderWorkspace for the runtime overlay.
+
+## Validation
+
+`builder validate` reports draft graph issues such as missing names, broken exits, missing feature names, invalid item/entity fields, and invalid plugin JSON. Validation output is intended to be actionable before a future promotion workflow.
+
+## Manual workflow
+
+```text
+builder on
+rcreate test_room
+rname Test Room
+rdesc This is a test.
+builder validate
+builder snapshot
+builder save
+goto test_room
+look
+
+dig north north_road North Road
+look
+
+goto test_room
+link north north_road
+map
+builder reload
+```
+
+`look` after `goto test_room` must render `Test Room`, not the starter room.
+
+## Future work
+
+Visual Builder UI, AI Builder, promotion to live packages, combat, quests, shops, and spellcasting remain future work.

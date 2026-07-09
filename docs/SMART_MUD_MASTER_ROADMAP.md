@@ -199,3 +199,7 @@ python tools/bootstrap_owner.py --character Kraevok --role owner
 ```
 
 Normal players remain denied Builder access; `builder`, `admin`, and `owner` can use `builder on`; no account or character is silently promoted. AI Builder, combat, and UI redesign remain out of scope.
+
+## Phase 4B Builder runtime navigation note
+
+Builder-created draft rooms now participate in a runtime world graph overlay for builder/admin/owner users with Builder Mode enabled. Runtime lookup merges live world package rooms with BuilderWorkspace drafts, with drafts overriding live rooms for builders only. `goto`, `look`, `rooms`/`rlist`, `rfind`/`rsearch`, `dig`, `link`, `unlink`, and `map`/`rmap` use this merged lookup and the canonical room renderer. Normal players do not see builder-only metadata or draft-only rooms. Draft saves export BuilderWorkspace content; promotion to live packages is not implemented yet. See `docs/BUILDER_NAVIGATION.md`.

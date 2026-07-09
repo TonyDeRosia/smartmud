@@ -194,6 +194,25 @@ class MudCommandEngine:
             "time": self._cmd_generic,
             "weather": self._cmd_generic,
             "where": self._cmd_generic,
+            "home": self._cmd_goto,
+            "rooms": self._cmd_builder_nav,
+            "rlist": self._cmd_builder_nav,
+            "rfind": self._cmd_builder_nav,
+            "rsearch": self._cmd_builder_nav,
+            "rwhere": self._cmd_builder_nav,
+            "map": self._cmd_builder_nav,
+            "rmap": self._cmd_builder_nav,
+            "areas": self._cmd_builder_nav,
+            "alist": self._cmd_builder_nav,
+            "astat": self._cmd_builder_nav,
+            "aset": self._cmd_builder_nav,
+            "zones": self._cmd_builder_nav,
+            "zlist": self._cmd_builder_nav,
+            "zstat": self._cmd_builder_nav,
+            "zset": self._cmd_builder_nav,
+            "dig": self._cmd_dig,
+            "link": self._cmd_link,
+            "unlink": self._cmd_unlink,
             "exits": self._cmd_generic,
 
             # Builder foundation
@@ -204,8 +223,9 @@ class MudCommandEngine:
             "goto": self._cmd_goto,
             "stat": self._cmd_stat,
         }
-        for _name in "redit rstat rcreate rset rdesc rname rexits rfeature rdelete exedit excreate exset exdelete fedit fcreate fset fdesc fdelete oedit ocreate oset odesc odelete ostat medit mcreate mset mdesc mdelete mstat spawnedit spawncreate spawnset spawndelete spawnstat zstat astat wstat".split():
-            self.command_handlers[_name] = self._cmd_builder_edit
+        for _name in " rstat rcreate rset rdesc rname rexits rfeature rdelete exedit excreate exset exdelete fedit fcreate fset fdesc fdelete oedit ocreate oset odesc odelete ostat medit mcreate mset mdesc mdelete mstat spawnedit spawncreate spawnset spawndelete spawnstat zstat astat wstat".split():
+            if _name:
+                self.command_handlers[_name] = self._cmd_builder_edit
 
     def handle_command(self, character: Any, command_text: str) -> CommandResult:
         """Route command to deterministic handler or AI."""
@@ -506,6 +526,61 @@ Available commands:
         parts = text.split(maxsplit=count)
         return parts[count] if len(parts) > count else ""
 
+    def _cmd_builder_nav(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        runtime = getattr(self, "runtime", None)
+        cmd = raw.strip().split()[0].lower()
+        if runtime and hasattr(runtime, "_builder_nav_command"):
+            res = runtime._builder_nav_command(character, cmd, args, raw)
+            if res is not None:
+                return res
+        if cmd in {"areas", "alist", "astat", "aset", "zones", "zlist", "zstat", "zset"}:
+            if cmd in {"aset", "zset"} and len(args) >= 2 and args[0] == "current":
+                setattr(character, "current_area_id" if cmd == "aset" else "current_zone_id", args[1])
+                self.builder.publish("builder_area_context_changed" if cmd == "aset" else "builder_zone_context_changed", character, self.builder.world_id(character), "context", args[1], command=raw)
+                return CommandResult(f"Current {'area' if cmd == 'aset' else 'zone'} set to {args[1]}.")
+            return CommandResult(f"{cmd}: context only. Current area={getattr(character,'current_area_id','')} zone={getattr(character,'current_zone_id','')}.")
+        return CommandResult(f"{cmd} requires the MudRuntime builder overlay.", ok=False)
+
+    def _reverse_dir(self, direction: str) -> str:
+        return {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in"}.get(direction, "")
+
+    def _cmd_dig(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if len(args) < 2: return CommandResult("Syntax: dig <direction> <new_room_id> [room name] [--one-way]", ok=False)
+        direction, rid = args[0].lower(), args[1]
+        one_way = "--one-way" in args
+        name = " ".join(a for a in args[2:] if a != "--one-way") or rid.replace("_", " ").title()
+        world_id = self.builder.world_id(character); old = self.builder.current_room_id(character)
+        self.builder.create_or_update(character, "rooms", rid, {"name": name, "description": "", "area_id": getattr(character,"current_area_id", getattr(character,"area_id", "")), "zone_id": getattr(character,"current_zone_id", getattr(character,"zone_id", "")), "world_id": world_id, "exits": {}, "features": {}}, "dig", "room")
+        self.builder.set_exit(character, direction, {"target_room_id": rid}, True)
+        if not one_way and self._reverse_dir(direction):
+            setattr(character, "room_id", rid)
+            self.builder.set_exit(character, self._reverse_dir(direction), {"target_room_id": old}, True)
+        setattr(character, "last_room_id", old); setattr(character, "room_id", rid); setattr(character, "last_created_room_id", rid)
+        self.builder.publish("builder_room_dug", character, world_id, "room", rid, command=raw)
+        runtime = getattr(self, "runtime", None)
+        if runtime: runtime.state_store.save_character(character, world_id)
+        return CommandResult(f"Dug {direction} to {rid}.", state_updates={"render_room": True})
+
+    def _cmd_link(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        both = bool(args and args[0].lower()=="both")
+        if both: args=args[1:]
+        if len(args)<2: return CommandResult("Syntax: link [both] <direction> <target_room_id>", ok=False)
+        direction,target=args[0].lower(),args[1]
+        runtime=getattr(self,"runtime",None)
+        if runtime and runtime.runtime_room_data(character,target)[0] is None: return CommandResult(f"Room not found: {target}", ok=False)
+        old=self.builder.current_room_id(character); res=self.builder.set_exit(character,direction,{"target_room_id":target},True)
+        if both and self._reverse_dir(direction):
+            setattr(character,"room_id",target); self.builder.set_exit(character,self._reverse_dir(direction),{"target_room_id":old},True); setattr(character,"room_id",old)
+        self.builder.publish("builder_exit_linked", character, self.builder.world_id(character), "room", target, command=raw)
+        return CommandResult(f"Linked {direction} to {target}.", ok=res.ok)
+
+    def _cmd_unlink(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if not args: return CommandResult("Syntax: unlink <direction>", ok=False)
+        world_id=self.builder.world_id(character); room_id=self.builder.current_room_id(character); drafts=self.builder.load(world_id)
+        before=drafts.get("rooms",{}).setdefault(room_id,{"id":room_id}).setdefault("exits",{}).pop(args[0].lower(),None)
+        self.builder.save_drafts(world_id,drafts); self.builder.audit(character,world_id,"unlink","exit",f"{room_id}:{args[0]}",before,None); self.builder.publish("builder_exit_unlinked", character, world_id, "exit", f"{room_id}:{args[0]}", command=raw)
+        return CommandResult(f"Unlinked {args[0]}.")
+
     def _cmd_builder(self, character: Any, args: list[str], raw: str) -> CommandResult:
         sub = args[0].lower() if args else "status"
         if sub in {"on", "enable"} or raw.split()[0].lower() == "build":
@@ -538,7 +613,7 @@ Available commands:
             return CommandResult(narrative="Room builder metadata:\n" + "\n".join(f"{k}: {v}" for k,v in room.items()))
         if cmd == "rcreate":
             rid = args[0] if args else room_id
-            return out(self.builder.create_or_update(character, "rooms", rid, {"area_id": getattr(character,"area_id", ""), "zone_id": getattr(character,"zone_id", ""), "world_id": world_id, "exits": {}, "features": {}}, "rcreate", "room"))
+            setattr(character, "last_room_id", room_id); setattr(character, "room_id", rid); setattr(character, "last_created_room_id", rid); return out(self.builder.create_or_update(character, "rooms", rid, {"area_id": getattr(character,"current_area_id", getattr(character,"area_id", "")), "zone_id": getattr(character,"current_zone_id", getattr(character,"zone_id", "")), "world_id": world_id, "exits": {}, "features": {}}, "rcreate", "room"))
         if cmd == "rname":
             return out(self.builder.create_or_update(character, "rooms", room_id, {"name": self._builder_value(raw,1)}, "rname", "room"))
         if cmd == "rdesc":

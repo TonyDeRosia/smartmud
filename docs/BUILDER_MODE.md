@@ -107,3 +107,7 @@ grantrole <character/account> <player|helper|builder|admin|owner>
 ```
 
 Non-owners are denied. Each CLI or in-game role grant is logged to SQLite with account, character when available, role, timestamp, and source.
+
+## Phase 4B Builder runtime navigation note
+
+Builder-created draft rooms now participate in a runtime world graph overlay for builder/admin/owner users with Builder Mode enabled. Runtime lookup merges live world package rooms with BuilderWorkspace drafts, with drafts overriding live rooms for builders only. `goto`, `look`, `rooms`/`rlist`, `rfind`/`rsearch`, `dig`, `link`, `unlink`, and `map`/`rmap` use this merged lookup and the canonical room renderer. Normal players do not see builder-only metadata or draft-only rooms. Draft saves export BuilderWorkspace content; promotion to live packages is not implemented yet. See `docs/BUILDER_NAVIGATION.md`.

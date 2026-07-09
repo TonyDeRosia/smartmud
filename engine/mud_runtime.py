@@ -17,6 +17,7 @@ from engine.mud_commands import MudCommandEngine
 from engine.mud_displays import render_object, render_prompt, render_room, semantic
 from engine.mud_rendering import render_semantic_plain
 from smart_mud.world_registry import WorldRegistry
+from smart_mud.builder import BuilderWorkspace
 from smart_mud.event_bus import EventBus
 from engine.plugin_system import HookRegistry, PluginRegistry
 
@@ -91,6 +92,12 @@ class MudCharacter:
     last_input_time: str = ""
     account_id: str = ""
     account_role: str = "player"
+    builder_enabled: bool = False
+    current_area_id: str = ""
+    current_zone_id: str = ""
+    last_room_id: str = ""
+    last_created_room_id: str = ""
+    last_edited_target: str = ""
 
 
 @dataclass
@@ -535,6 +542,8 @@ class MudRuntime:
         self.entity_templates: dict[str, MappingProxyType] = {}
         self.sessions: dict[str, MudSession] = {}
         self.command_engine = MudCommandEngine(self.state_store, event_bus=self.event_bus)
+        self.builder = BuilderWorkspace(event_bus=self.event_bus)
+        self.command_engine.runtime = self
         self.sqlite_ready = (user_data_dir / "mud_state.db").exists()
         self.event_bus.publish("runtime_ready", {"sqlite_ready": self.sqlite_ready}, source_system="runtime")
         print("[mud-runtime] Smart MUD runtime initialized")
@@ -721,12 +730,132 @@ class MudRuntime:
         self.event_bus.publish("prompt_rendered", {"world_id": self.active_world_id or "", "character_id": char.id, "room_id": char.room_id, "output_format": "web_html", "render_kind": "prompt"}, source_system="render", world_id=self.active_world_id or "", character_id=char.id)
         return {"html": html, "text": self._room_text(room), "prompt": prompt, "room_id": char.room_id}
 
+
+    def _builder_visible(self, char: MudCharacter) -> bool:
+        return str(getattr(char, "role", "player")).lower() in BUILDER_ROLES and bool(getattr(char, "builder_mode", False) or getattr(char, "builder_enabled", False))
+
+    def _drafts(self) -> dict[str, Any]:
+        return self.builder.load(self.active_world_id or "shattered_realms")
+
+    def _live_room_data(self, room_id: str) -> dict[str, Any] | None:
+        if self.active_world is None:
+            return None
+        try:
+            return dict(self.active_world.room(room_id))
+        except Exception:
+            return None
+
+    def runtime_room_data(self, char: MudCharacter, room_id: str) -> tuple[dict[str, Any] | None, str]:
+        rid = str(room_id or "")
+        if self._builder_visible(char):
+            draft = self._drafts().get("rooms", {}).get(rid)
+            if isinstance(draft, dict):
+                return dict(draft), "draft"
+        live = self._live_room_data(rid)
+        if live is not None:
+            return live, "live"
+        return None, "missing"
+
+    def all_runtime_rooms(self, char: MudCharacter) -> dict[str, tuple[dict[str, Any], str]]:
+        rooms: dict[str, tuple[dict[str, Any], str]] = {}
+        if self.active_world is not None:
+            for raw in getattr(self.active_world, "rooms", []) or []:
+                if isinstance(raw, dict) and raw.get("id"):
+                    rooms[str(raw["id"])] = (dict(raw), "live")
+        if self._builder_visible(char):
+            for rid, raw in self._drafts().get("rooms", {}).items():
+                if isinstance(raw, dict):
+                    rooms[str(rid)] = (dict(raw), "draft")
+        return rooms
+
+    def goto_room(self, char: MudCharacter, room_id: str) -> tuple[bool, str]:
+        data, source = self.runtime_room_data(char, room_id)
+        if data is None:
+            return False, f"Room not found: {room_id}"
+        previous = char.room_id
+        setattr(char, "last_room_id", previous)
+        char.room_id = str(data.get("id") or room_id)
+        self.state_store.save_character(char, self.active_world_id or "")
+        self.builder.audit(char, self.active_world_id or "", "goto", "room", char.room_id, {"room_id": previous}, {"room_id": char.room_id, "source": source})
+        self.event_bus.publish("builder_goto", {"character_id": char.id, "world_id": self.active_world_id or "", "room_id": previous, "target_id": char.room_id, "source": source}, source_system="builder", world_id=self.active_world_id or "", character_id=char.id, room_id=char.room_id)
+        return True, f"You have been transferred to {char.room_id}."
+
+    def _builder_nav_command(self, char: MudCharacter, cmd: str, args: list[str], raw: str):
+        from engine.mud_commands import CommandResult
+        if cmd in {"goto", "home"} and str(getattr(char, "role", "player")).lower() not in BUILDER_ROLES:
+            return CommandResult("You do not have permission for that command.", ok=False)
+        if cmd == "home":
+            args = [getattr(self.active_world, "default_starting_room_id", "") or "start"]
+            cmd = "goto"
+        if cmd == "where":
+            data, _source = self.runtime_room_data(char, char.room_id)
+            name = (data or {}).get("name") or (data or {}).get("title") or char.room_id
+            return CommandResult(f"You are in {name} ({char.room_id}).")
+        if cmd == "rwhere":
+            data, source = self.runtime_room_data(char, char.room_id)
+            name = (data or {}).get("name") or (data or {}).get("title") or char.room_id
+            return CommandResult(f"Builder location: {char.room_id}\nName: {name}\nSource: {source}\nLast: {getattr(char,'last_room_id','') or 'none'}")
+        if cmd == "goto":
+            if not args:
+                return CommandResult("Syntax: goto <room_id|room name|last|here|home>", ok=False)
+            q = " ".join(args).strip()
+            if q.lower() == "here":
+                return self._builder_nav_command(char, "rwhere", [], raw)
+            if q.lower() == "last":
+                q = getattr(char, "last_room_id", "")
+                if not q:
+                    return CommandResult("No previous room recorded.", ok=False)
+            if q.lower() == "home":
+                q = getattr(self.active_world, "default_starting_room_id", "") or "start"
+            rooms = self.all_runtime_rooms(char)
+            target = q if q in rooms else ""
+            if not target:
+                matches = [rid for rid, (r, _src) in rooms.items() if str(r.get("name") or r.get("title") or "").lower() == q.lower()]
+                if len(matches) > 1:
+                    return CommandResult("Multiple rooms match:\n" + "\n".join(matches), ok=False)
+                if len(matches) == 1:
+                    target = matches[0]
+            if not target:
+                return CommandResult(f"Room not found: {q}", ok=False)
+            ok, msg = self.goto_room(char, target)
+            return CommandResult(msg, ok=ok, state_updates={"render_room": ok})
+        if cmd in {"rooms", "rlist"}:
+            lines = ["Rooms:"]
+            for rid, (r, src) in sorted(self.all_runtime_rooms(char).items()):
+                exits = r.get("exits") or {}
+                ec = len(exits) if isinstance(exits, dict) else len(exits or [])
+                lines.append(f"{rid} | {r.get('name') or r.get('title') or rid} | {r.get('area_id','')} | {r.get('zone_id','')} | {src} | exits:{ec}")
+            self.event_bus.publish("builder_room_listed", {"character_id": char.id, "count": len(lines) - 1}, source_system="builder")
+            return CommandResult("\n".join(lines))
+        if cmd in {"rfind", "rsearch"}:
+            q = " ".join(args).lower()
+            out = []
+            for rid, (r, src) in self.all_runtime_rooms(char).items():
+                if q and q in json.dumps(r).lower():
+                    out.append(f"{rid} | {r.get('name') or r.get('title') or rid} | {src}")
+            self.event_bus.publish("builder_room_searched", {"character_id": char.id, "query": q, "count": len(out)}, source_system="builder")
+            return CommandResult("Room search results:\n" + ("\n".join(out) if out else "No rooms found."))
+        if cmd in {"map", "rmap"}:
+            data, _source = self.runtime_room_data(char, char.room_id)
+            lines = [f"Current: {char.room_id} {(data or {}).get('name') or (data or {}).get('title') or char.room_id}"]
+            exits = (data or {}).get("exits") or {}
+            edict = {e.get("direction") or e.get("dir"): e for e in exits} if isinstance(exits, list) else exits
+            for d in ["north", "south", "east", "west", "up", "down", "in", "out"]:
+                ex = edict.get(d) or {}
+                tgt = ex.get("target_room_id") or ex.get("destination_room_id") or ex.get("to") or ex.get("room_id") or "-"
+                tr, _ = self.runtime_room_data(char, tgt) if tgt != "-" else (None, "")
+                lines.append(f"{d.title()}: {tgt} {((tr or {}).get('name') or (tr or {}).get('title') or '')}")
+            self.event_bus.publish("builder_map_rendered", {"character_id": char.id, "room_id": char.room_id}, source_system="builder")
+            return CommandResult("\n".join(lines))
+        return None
+
     def handle_input(self, character_id: str, command: str) -> dict[str, Any]:
         """Execute a command and persist command/output scrollback to SQLite."""
         char = self.state_store.load_character(character_id)
         if char is None:
             raise ValueError(f"Character not found: {character_id}")
         result = self._handle_runtime_command(char, command)
+        self.state_store.save_character(char, self.active_world_id or "")
         session = self.sessions.get(character_id)
         turn = (session.command_count + 1) if session else 1
         self.state_store.save_command(character_id, self.active_world_id or "", turn, command, session.account_id if session else "", session.session_id if session else "")
@@ -748,7 +877,9 @@ class MudRuntime:
         lower = [w.lower() for w in words]
         raw = lower[0]
         alias_note = ""
-        if raw == "pick" and len(lower) > 1 and lower[1] == "up":
+        if raw in {"in", "out"}:
+            cmd = raw; args = words[1:]
+        elif raw == "pick" and len(lower) > 1 and lower[1] == "up":
             cmd = "get"; args = words[2:]; alias_note = "pick up"
         elif raw == "pickup":
             cmd = "get"; args = words[1:]; alias_note = "pickup"
@@ -771,6 +902,13 @@ class MudRuntime:
     def _room_features(self, room: MudRoom) -> list[dict[str, Any]]:
         hay = f"{room.id} {room.title} {room.description}".lower()
         features = []
+        try:
+            drafts = self.builder.load(self.active_world_id or "").get("rooms", {}).get(room.id, {}).get("features", {})
+            for fid, feat in drafts.items() if isinstance(drafts, dict) else []:
+                if isinstance(feat, dict):
+                    features.append({**feat, "feature_id": fid, "entity_type": "room_feature", "keywords": [fid, *feat.get("keywords", [])] if isinstance(feat.get("keywords", []), list) else [fid]})
+        except Exception:
+            pass
         # Room object ids may describe fixed scenery rather than portable items.
         if self.active_world is not None:
             try:
@@ -929,6 +1067,13 @@ class MudRuntime:
             if direction in {"north", "south", "east", "west", "up", "down", "in", "out", "northeast", "northwest", "southeast", "southwest"}:
                 cmd_name = direction
                 args = []
+        nav_result = self._builder_nav_command(char, cmd_name, args, command)
+        if nav_result is not None:
+            result = nav_result
+            if result.state_updates and result.state_updates.get("render_room"):
+                room_text = self._room_text(self._current_room(char))
+                result.narrative = f"{result.narrative}\n\n{room_text}" if result.narrative else room_text
+            return result
         dialogue_result = self._handle_dialogue_command(char, cmd_name, args)
         if dialogue_result is not None:
             self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": dialogue_result.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
@@ -990,25 +1135,32 @@ class MudRuntime:
         return html_to_plain_text(render_room(room, self.get_effective_mud_colors()))
 
     def _current_room(self, char: MudCharacter) -> MudRoom:
-        if self.active_world is not None:
-            try:
-                room_data = self.active_world.room(char.room_id)
-                rid = str(room_data.get("id", char.room_id))
-                visible = self.find_visible_entities(rid, char)
-                return MudRoom(
-                    id=rid,
-                    area_id=str(room_data.get("area_id", "")),
-                    title=str(room_data.get("name") or room_data.get("title") or char.room_id),
-                    description=str(room_data.get("long_description") or room_data.get("description") or room_data.get("short_description") or ""),
-                    exits=list(room_data.get("exits", []) or []),
-                    players=visible.get("players", []),
-                    npcs=visible.get("npcs", []),
-                    mobs=visible.get("mobs", []),
-                    objects=visible.get("objects", []) + visible.get("corpses", []),
-                )
-            except Exception:
-                pass
-        return MudRoom(id=char.room_id or "void", area_id="", title="The Void", description="An unfinished room.", exits=[])
+        room_data, source = self.runtime_room_data(char, char.room_id)
+        if room_data is None:
+            return MudRoom(id=char.room_id or "void", area_id="", title="Missing Room", description=f"Current room '{char.room_id}' is invalid. Use goto home or contact a builder.", exits=[])
+        rid = str(room_data.get("id", char.room_id))
+        visible = self.find_visible_entities(rid, char)
+        exits_raw = room_data.get("exits", []) or []
+        if isinstance(exits_raw, dict):
+            exits = [{"direction": d, **(v if isinstance(v, dict) else {"target_room_id": v})} for d, v in exits_raw.items()]
+        else:
+            exits = list(exits_raw)
+        features = room_data.get("features", {}) or {}
+        objects = visible.get("objects", []) + visible.get("corpses", [])
+        for fid, feat in features.items() if isinstance(features, dict) else []:
+            if isinstance(feat, dict):
+                objects.append({"id": fid, "name": feat.get("name") or fid, "short_description": feat.get("short_description", ""), "portable": False})
+        return MudRoom(
+            id=rid,
+            area_id=str(room_data.get("area_id", "")),
+            title=str(room_data.get("name") or room_data.get("title") or char.room_id),
+            description=str(room_data.get("long_description") or room_data.get("description") or room_data.get("short_description") or ""),
+            exits=exits,
+            players=visible.get("players", []),
+            npcs=visible.get("npcs", []),
+            mobs=visible.get("mobs", []),
+            objects=objects,
+        )
 
     def _room_npcs(self, room_data: dict[str, Any]) -> list[Any]:
         ids = [str(v) for v in room_data.get("npcs", []) or []]
