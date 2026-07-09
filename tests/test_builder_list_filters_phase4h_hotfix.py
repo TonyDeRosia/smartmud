@@ -3,7 +3,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from engine.mud_commands import MudCommandEngine
+from engine.mud_runtime import MudRuntime
 from smart_mud.builder import BuilderWorkspace
+from smart_mud.world_registry import WorldRegistry
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = "starter_guildlands_content_pack_v1.json"
@@ -38,6 +40,28 @@ def engine_with_pack(tmp_path):
 
 def text(engine, a, command):
     return engine.handle_command(a, command).narrative
+
+
+def runtime_with_pack(tmp_path):
+    worlds = tmp_path / "worlds"
+    shutil.copytree(ROOT / "worlds/shattered_realms", worlds / "shattered_realms", ignore=shutil.ignore_patterns("audit", "history", "snapshots", "exports"))
+    rt = MudRuntime(ROOT, tmp_path / "user_data", world_registry=WorldRegistry(worlds))
+    rt.builder = BuilderWorkspace(worlds_dir=worlds, event_bus=rt.event_bus)
+    rt.command_engine.builder = rt.builder
+    acct = rt.create_account("Runtime Builder", role="builder")
+    rt.load_world("shattered_realms")
+    cid = rt.create_character(world_id="shattered_realms", name="Runtime Builder", account_id=acct["account_id"])["character_id"]
+    rt.enter_world(cid)
+    rt.handle_input(cid, "builder on")
+    char = rt.state_store.load_character(cid)
+    assert char is not None
+    assert rt.builder.template_copy(char, PACK, "pack.json").ok
+    assert rt.builder.import_apply(char, "pack.json").ok
+    return rt, cid
+
+
+def runtime_text(rt, cid, command):
+    return rt.handle_input(cid, command)["output"]
 
 
 def test_alist_defaults_current_and_all_and_id(tmp_path):
@@ -84,6 +108,34 @@ def test_rlist_and_rooms_filters_and_errors(tmp_path):
     assert "Invalid range: start must be less than or equal to end." in text(engine, a, "rlist 1099-1000")
     assert "Invalid range" in text(engine, a, "rlist 1000-east")
     assert text(engine, a, "rooms").splitlines()[0] == default.splitlines()[0]
+
+
+def test_runtime_rlist_and_rooms_filters_use_active_drafts_after_import(tmp_path):
+    rt, cid = runtime_with_pack(tmp_path)
+
+    alist = runtime_text(rt, cid, "alist all")
+    assert "starter_guildlands" in alist
+    assert " | 70 | " in alist
+
+    zlist = runtime_text(rt, cid, "zlist all")
+    assert "guildhall_crossing" in zlist
+    assert "rat_cellar" in zlist
+
+    zone_rooms = runtime_text(rt, cid, "rlist zone guildhall_crossing")
+    assert "Rooms in zone guildhall_crossing" in zone_rooms
+    assert "guildhall_crossing_square" in zone_rooms
+    assert "starter_guildlands_1031" not in zone_rooms
+
+    area_rooms = runtime_text(rt, cid, "rooms area starter_guildlands")
+    assert "guildhall_crossing_square" in area_rooms
+    assert "starter_guildlands_1031" in area_rooms
+
+    ranged = runtime_text(rt, cid, "rlist 1000-1029")
+    assert "guildhall_crossing_square" in ranged
+    assert "starter_guildlands_1031" not in ranged
+
+    assert "Invalid range: start must be less than or equal to end." in runtime_text(rt, cid, "rlist 1099-1000")
+    assert "Invalid range. Usage:" in runtime_text(rt, cid, "rlist 1000-east")
 
 
 def test_rooms_legacy_large_warning_and_placeholders(tmp_path):

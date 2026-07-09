@@ -862,6 +862,16 @@ class MudRuntime:
                 msg = msg + "\n" + self.command_engine._builder_room_status(char, target, self.builder.load(self.active_world_id or ""))
             return CommandResult(msg, ok=ok, state_updates={"render_room": ok})
         if cmd in {"rooms", "rlist"}:
+            # Phase 4H list filters (local default, area/zone filters, VNUM
+            # ranges, and active draft area/zone counts) live in
+            # MudCommandEngine._cmd_builder_nav.  The runtime keeps only the
+            # legacy explicit source views so older ``rooms draft`` /
+            # ``rooms live`` workflows still render as before; every other
+            # room-list form must fall through to the command engine so it
+            # reads the active Builder draft workspace instead of the runtime's
+            # live/draft source split.
+            if not args or args[0].lower() not in {"draft", "live", "unassigned", "legacy"}:
+                return None
             filt = (args[0].lower() if args else "draft")
             if filt in {"unassigned", "legacy"}:
                 rooms = [(rid, r, src) for rid, (r, src) in self.all_runtime_rooms(char).items() if src == "draft" and not r.get("area_id") and not r.get("zone_id") and r.get("vnum") is None]
