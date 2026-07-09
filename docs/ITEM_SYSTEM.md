@@ -374,3 +374,11 @@ Item behavior and ownership remain unchanged by semantic color rendering. Web di
 ### Item semantic color roles
 
 Item names shown in rooms, inventory, and equipment should use semantic roles rather than fixed colors. Room objects use `object` or rarity roles (`item_common`, `item_uncommon`, `item_rare`, `item_epic`, `item_legendary`), and equipped names use `equipment_item`; telnet output must remain HTML-free.
+
+## Phase 4A Builder Foundation
+
+Smart MUD supports an in-game Builder foundation for authorized `builder`, `admin`, and `owner` roles. Builder commands are registered in the command registry and are hidden from normal players. Draft edits are persisted under `worlds/<world_id>/builder/` rather than being written directly to live world package files.
+
+The Builder workspace uses `audit`, `history`, `snapshots`, `exports`, `imports`, and `templates` folders. Room, exit, feature, item template, entity template, and spawn edits go through Builder services so runtime validation and permission checks remain authoritative. `builder validate` checks draft consistency; `builder save` creates a safe export; `builder reload` reloads drafts where safe; `builder snapshot` captures the current draft state; and `builder history` reads audit records.
+
+Future work may add a richer semantic web Builder UI and AI-assisted Builder tools, but Phase 4A intentionally does not add AI Builder, combat, quests, shops, or spellcasting.

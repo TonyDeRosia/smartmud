@@ -7,6 +7,7 @@ from typing import Any, Optional, Callable
 import re
 from engine.mud_displays import semantic
 from engine.command_registry import CommandRegistry
+from smart_mud.builder import BuilderWorkspace
 
 
 @dataclass
@@ -140,6 +141,7 @@ class MudCommandEngine:
         self.ai_provider = ai_provider
         self.event_bus = event_bus
         self.registry = CommandRegistry(event_bus=event_bus)
+        self.builder = BuilderWorkspace(event_bus=event_bus)
         self.command_handlers: dict[str, Callable] = {
             # Info commands
             "score": self._cmd_score,
@@ -190,12 +192,17 @@ class MudCommandEngine:
             "weather": self._cmd_generic,
             "where": self._cmd_generic,
             "exits": self._cmd_generic,
-            
+
+            # Builder foundation
+            "builder": self._cmd_builder,
+            "build": self._cmd_builder,
             # Admin
             "wizhelp": self._cmd_wizhelp,
             "goto": self._cmd_goto,
             "stat": self._cmd_stat,
         }
+        for _name in "redit rstat rcreate rset rdesc rname rexits rfeature rdelete exedit excreate exset exdelete fedit fcreate fset fdesc fdelete oedit ocreate oset odesc odelete ostat medit mcreate mset mdesc mdelete mstat spawnedit spawncreate spawnset spawndelete spawnstat zstat astat wstat".split():
+            self.command_handlers[_name] = self._cmd_builder_edit
 
     def handle_command(self, character: Any, command_text: str) -> CommandResult:
         """Route command to deterministic handler or AI."""
@@ -216,9 +223,9 @@ class MudCommandEngine:
         # Check if admin command
         meta = self.registry.commands.get(cmd_name)
         if meta and (meta.admin_only or meta.builder_only):
-            if character.role not in (["admin", "implementor"] if meta.admin_only else ["builder", "admin", "implementor"]):
+            if character.role not in (["admin", "owner", "implementor"] if meta.admin_only else ["builder", "admin", "owner", "implementor"]):
                 print(f"[mud-command] Access denied: {character.name} not admin")
-                result = CommandResult(narrative="You do not have permission for that command.")
+                result = CommandResult(narrative="You do not have permission for that command.", ok=False)
                 self._publish("command_executed", character, command_text, raw_input=command_text, canonical_command=cmd_name, arguments=args, current_room_id=getattr(character, "room_id", ""), result_summary=result.narrative[:120])
                 return result
         
@@ -384,7 +391,15 @@ class MudCommandEngine:
         return CommandResult(narrative=f"{character.name} {text}")
 
     def _cmd_look(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Look around (stub - real impl in mud_displays)."""
+        """Look around or at draft Builder features when present."""
+        if args:
+            room_id = self.builder.current_room_id(character)
+            features = self.builder.load(self.builder.world_id(character)).get("rooms", {}).get(room_id, {}).get("features", {})
+            target = args[0].lower()
+            for fid, feature in features.items():
+                keys = [fid, feature.get("name", ""), *(feature.get("keywords", []) if isinstance(feature.get("keywords"), list) else [])]
+                if target in [str(k).lower() for k in keys if k]:
+                    return CommandResult(narrative=feature.get("long_description") or feature.get("short_description") or feature.get("name") or fid)
         return CommandResult(narrative="", state_updates={"render_room": True})
 
     def _cmd_help(self, character: Any, args: list[str], raw: str) -> CommandResult:
@@ -444,6 +459,80 @@ Available commands:
             return CommandResult(narrative="Smart MUD uses a pinned web prompt separate from scrollback. Configure the web prompt through Smart MUD settings; future telnet prompt customization is planned.")
         self._publish("command_placeholder_used", character, raw, canonical_command=cmd)
         return CommandResult(narrative=self._placeholder_for(cmd))
+
+
+    def _builder_value(self, text: str, count: int) -> str:
+        parts = text.split(maxsplit=count)
+        return parts[count] if len(parts) > count else ""
+
+    def _cmd_builder(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        sub = args[0].lower() if args else "status"
+        if sub in {"on", "enable"} or raw.split()[0].lower() == "build":
+            res = self.builder.set_builder_mode(character, True)
+            return CommandResult(narrative=res.message, ok=res.ok)
+        if sub in {"off", "disable"}:
+            res = self.builder.set_builder_mode(character, False)
+            return CommandResult(narrative=res.message, ok=res.ok)
+        if sub == "validate":
+            res = self.builder.validate(character); return CommandResult(narrative=res.message, ok=res.ok)
+        if sub == "save":
+            res = self.builder.export(character); return CommandResult(narrative=res.message, ok=res.ok)
+        if sub == "reload":
+            self.builder.publish("builder_reload_requested", character, self.builder.world_id(character), "builder", "reload", command="builder reload")
+            return CommandResult(narrative="Builder drafts reloaded from workspace.")
+        if sub == "snapshot":
+            res = self.builder.snapshot(character); return CommandResult(narrative=res.message, ok=res.ok)
+        if sub == "history":
+            res = self.builder.history(character); return CommandResult(narrative=res.message, ok=res.ok)
+        return CommandResult(narrative=f"Builder mode is {'ON' if getattr(character, 'builder_mode', False) else 'OFF'}. Use builder on/off, builder validate, builder save, builder snapshot, builder history.")
+
+    def _cmd_builder_edit(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        cmd = raw.strip().split()[0].lower()
+        world_id = self.builder.world_id(character); room_id = self.builder.current_room_id(character)
+        self.builder.publish("builder_command_received", character, world_id, "command", cmd, command=raw)
+        drafts = self.builder.load(world_id)
+        def out(res): return CommandResult(narrative=res.message, ok=res.ok)
+        if cmd in {"rstat", "redit"}:
+            room = drafts.get("rooms", {}).get(room_id, {"id": room_id})
+            return CommandResult(narrative="Room builder metadata:\n" + "\n".join(f"{k}: {v}" for k,v in room.items()))
+        if cmd == "rcreate":
+            rid = args[0] if args else room_id
+            return out(self.builder.create_or_update(character, "rooms", rid, {"area_id": getattr(character,"area_id", ""), "zone_id": getattr(character,"zone_id", ""), "world_id": world_id, "exits": {}, "features": {}}, "rcreate", "room"))
+        if cmd == "rname":
+            return out(self.builder.create_or_update(character, "rooms", room_id, {"name": self._builder_value(raw,1)}, "rname", "room"))
+        if cmd == "rdesc":
+            return out(self.builder.create_or_update(character, "rooms", room_id, {"description": self._builder_value(raw,1)}, "rdesc", "room"))
+        if cmd == "rset" and len(args)>=2:
+            return out(self.builder.create_or_update(character, "rooms", room_id, {args[0]: self._builder_value(raw,2)}, "rset", "room"))
+        if cmd in {"rexits", "rfeature"}:
+            room=drafts.get("rooms",{}).get(room_id,{})
+            return CommandResult(narrative=str(room.get("exits" if cmd=="rexits" else "features", {})))
+        if cmd == "rdelete": return out(self.builder.delete(character, "rooms", args[0] if args else room_id, "room"))
+        if cmd == "excreate" and len(args)>=2: return out(self.builder.set_exit(character, args[0], {"target_room_id": args[1]}, True))
+        if cmd == "exset" and len(args)>=3: return out(self.builder.set_exit(character, args[0], {args[1]: self._builder_value(raw,3)}))
+        if cmd == "exdelete" and args:
+            d=self.builder.load(world_id); before=d.get("rooms",{}).setdefault(room_id,{"id":room_id}).setdefault("exits",{}).pop(args[0],None); self.builder.save_drafts(world_id,d); self.builder.audit(character,world_id,"exdelete","exit",f"{room_id}:{args[0]}",before,None); return CommandResult(narrative=f"Draft exit {args[0]} deleted.")
+        if cmd == "fcreate" and args: return out(self.builder.create_or_update(character,"rooms",room_id,{"features":{**drafts.get("rooms",{}).get(room_id,{}).get("features",{}), args[0]: {"id":args[0], "name":args[0]}}},"fcreate","feature"))
+        if cmd == "fset" and len(args)>=3:
+            feats=drafts.get("rooms",{}).get(room_id,{}).get("features",{}); feat={**feats.get(args[0],{"id":args[0]}), args[1]: self._builder_value(raw,3)}; feats[args[0]]=feat; return out(self.builder.create_or_update(character,"rooms",room_id,{"features":feats},"fset","feature"))
+        if cmd == "fdesc" and len(args)>=2:
+            feats=drafts.get("rooms",{}).get(room_id,{}).get("features",{}); feat={**feats.get(args[0],{"id":args[0]}), "long_description": self._builder_value(raw,2)}; feats[args[0]]=feat; return out(self.builder.create_or_update(character,"rooms",room_id,{"features":feats},"fdesc","feature"))
+        if cmd == "fdelete" and args:
+            feats=drafts.get("rooms",{}).get(room_id,{}).get("features",{}); feats.pop(args[0],None); return out(self.builder.create_or_update(character,"rooms",room_id,{"features":feats},"fdelete","feature"))
+        maps={"o":"items","m":"entities","spawn":"spawns"}
+        prefix = "spawn" if cmd.startswith("spawn") else cmd[0]
+        coll=maps.get(prefix); target_type={"items":"item_template","entities":"entity_template","spawns":"spawn"}.get(coll, "builder")
+        if coll:
+            if cmd.endswith("create") and args:
+                updates={"name": args[0]}
+                if coll=="spawns" and len(args)>1: updates["entity_template_id"]=args[1]; updates.setdefault("room_id", room_id)
+                return out(self.builder.create_or_update(character, coll, args[0], updates, cmd, target_type))
+            if cmd.endswith("set") and len(args)>=3: return out(self.builder.create_or_update(character, coll, args[0], {args[1]: self._builder_value(raw,3)}, cmd, target_type))
+            if cmd.endswith("desc") and len(args)>=2: return out(self.builder.create_or_update(character, coll, args[0], {"long_description": self._builder_value(raw,2)}, cmd, target_type))
+            if cmd.endswith("delete") and args: return out(self.builder.delete(character, coll, args[0], target_type))
+            if cmd.endswith("stat") and args: return CommandResult(narrative=f"Draft {target_type}: {drafts.get(coll,{}).get(args[0],{})}")
+        if cmd in {"zstat","astat","wstat"}: return CommandResult(narrative=f"{cmd}: world_id={world_id} room_id={room_id} builder_drafts={ {k: len(v) for k,v in drafts.items()} }")
+        return CommandResult(narrative=f"Usage error for {cmd}.", ok=False)
 
     def _cmd_wizhelp(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display admin help."""
