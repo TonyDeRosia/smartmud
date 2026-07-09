@@ -545,6 +545,13 @@ Available commands:
     def _reverse_dir(self, direction: str) -> str:
         return {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in"}.get(direction, "")
 
+    def _valid_room_id(self, room_id: str) -> bool:
+        return bool(re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", str(room_id or "")))
+
+    def _room_id_usage(self, attempted: str = "") -> str:
+        hint = re.sub(r"[^a-z0-9]+", "_", str(attempted).lower()).strip("_") or "test_room_two"
+        return f"Room IDs cannot contain spaces or unsafe characters. Use: rcreate {hint}"
+
     def _cmd_dig(self, character: Any, args: list[str], raw: str) -> CommandResult:
         import shlex
         usage = 'Usage: dig <direction> <room_id> ["room name"] [--one-way] [--allow-self-loop]'
@@ -555,6 +562,9 @@ Available commands:
         args = parsed[1:]
         if len(args) < 2: return CommandResult(usage, ok=False)
         direction, rid = args[0].lower(), args[1]
+        if not self._valid_room_id(rid):
+            self.builder.publish("builder_dig_rejected", character, self.builder.world_id(character), "room", rid, command=raw)
+            return CommandResult('Room IDs cannot contain spaces or unsafe characters. Use lowercase underscore ids, e.g. dig north test_room_two "Test Room Two"', ok=False)
         one_way = "--one-way" in args
         allow_self_loop = "--allow-self-loop" in args
         name_parts = [a for a in args[2:] if a not in {"--one-way", "--allow-self-loop"}]
@@ -573,10 +583,11 @@ Available commands:
             setattr(character, "last_edited_target", previous_edit)
             if hasattr(character, "edit_room_id"): delattr(character, "edit_room_id")
         setattr(character, "last_room_id", old); setattr(character, "room_id", rid); setattr(character, "last_edited_target", rid); setattr(character, "last_created_room_id", rid)
-        self.builder.publish("builder_room_dug", character, world_id, "room", rid, command=raw)
+        self.builder.publish("builder_dig_completed", character, world_id, "room", rid, command=raw)
+        self.builder.publish("builder_room_graph_updated", character, world_id, "room", rid, command=raw)
         runtime = getattr(self, "runtime", None)
         if runtime: runtime.state_store.save_character(character, world_id)
-        return CommandResult(f"Dug {direction} to {rid}.", state_updates={"render_room": True})
+        return CommandResult(f"Dug {direction} to {rid}.\n" + self._builder_room_status(character, rid, self.builder.load(world_id)), state_updates={"render_room": True})
 
     def _cmd_link(self, character: Any, args: list[str], raw: str) -> CommandResult:
         both = bool(args and args[0].lower()=="both")
@@ -585,6 +596,8 @@ Available commands:
         allow_self_loop = "--allow-self-loop" in args
         args = [a for a in args if a != "--allow-self-loop"]
         direction,target=args[0].lower(),args[1]
+        if not self._valid_room_id(target):
+            return CommandResult("Room IDs cannot contain spaces or unsafe characters. Use lowercase underscore ids.", ok=False)
         runtime=getattr(self,"runtime",None)
         if runtime and runtime.runtime_room_data(character,target)[0] is None: return CommandResult(f"Room not found: {target}", ok=False)
         old=self.builder.current_room_id(character)
@@ -593,15 +606,16 @@ Available commands:
         res=self.builder.set_exit(character,direction,{"target_room_id":target},True)
         if both and self._reverse_dir(direction):
             setattr(character,"room_id",target); self.builder.set_exit(character,self._reverse_dir(direction),{"target_room_id":old},True); setattr(character,"room_id",old)
-        self.builder.publish("builder_exit_linked", character, self.builder.world_id(character), "room", target, command=raw)
-        return CommandResult(f"Linked {direction} to {target}.", ok=res.ok)
+        self.builder.publish("builder_link_completed", character, self.builder.world_id(character), "room", target, command=raw)
+        self.builder.publish("builder_room_graph_updated", character, self.builder.world_id(character), "room", target, command=raw)
+        return CommandResult(f"Linked {direction} to {target}.\n" + self._builder_room_status(character, old, self.builder.load(self.builder.world_id(character))), ok=res.ok)
 
     def _cmd_unlink(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if not args: return CommandResult("Syntax: unlink <direction>", ok=False)
         world_id=self.builder.world_id(character); room_id=self.builder.current_room_id(character); drafts=self.builder.load(world_id)
         before=drafts.get("rooms",{}).setdefault(room_id,{"id":room_id}).setdefault("exits",{}).pop(args[0].lower(),None)
-        self.builder.save_drafts(world_id,drafts); self.builder.audit(character,world_id,"unlink","exit",f"{room_id}:{args[0]}",before,None); self.builder.publish("builder_exit_unlinked", character, world_id, "exit", f"{room_id}:{args[0]}", command=raw)
-        return CommandResult(f"Unlinked {args[0]}.")
+        self.builder.save_drafts(world_id,drafts); self.builder.audit(character,world_id,"unlink","exit",f"{room_id}:{args[0]}",before,None); self.builder.publish("builder_unlink_completed", character, world_id, "exit", f"{room_id}:{args[0]}", command=raw); self.builder.publish("builder_room_graph_updated", character, world_id, "room", room_id, command=raw)
+        return CommandResult(f"Unlinked {args[0]}.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)))
 
     def _cmd_builder(self, character: Any, args: list[str], raw: str) -> CommandResult:
         sub = args[0].lower() if args else "status"
@@ -631,7 +645,7 @@ Available commands:
         source = "draft" if draft is not None else "live" if live is not None else "draft"
         name = (draft or live or {}).get("name") or (draft or live or {}).get("title") or "(unnamed)"
         dirty = "yes" if draft is not None else "no"
-        return f"Editing room: {room_id} {name}\nSource: {source}\nDirty: {dirty}"
+        return f"Currently editing:\nRoom: {room_id}\nName: {name}\nSource: {source}\nDirty: {dirty}\nEditing room: {room_id} {name}"
 
     def _cmd_builder_edit(self, character: Any, args: list[str], raw: str) -> CommandResult:
         cmd = raw.strip().split()[0].lower()
@@ -657,15 +671,25 @@ Available commands:
         if cmd in {"rstat", "rwhere"}:
             return CommandResult(self._builder_room_status(character, room_id, drafts))
         if cmd == "rcreate":
-            rid = args[0] if args else room_id
-            setattr(character, "last_room_id", getattr(character, "room_id", room_id)); setattr(character, "room_id", rid); setattr(character, "edit_room_id", rid); setattr(character, "last_edited_target", rid); setattr(character, "last_created_room_id", rid); return out(self.builder.create_or_update(character, "rooms", rid, {"area_id": getattr(character,"current_area_id", getattr(character,"area_id", "")), "zone_id": getattr(character,"current_zone_id", getattr(character,"zone_id", "")), "world_id": world_id, "exits": {}, "features": {}}, "rcreate", "room"))
+            if len(args) != 1:
+                return CommandResult(self._room_id_usage(" ".join(args)), ok=False)
+            rid = args[0]
+            if not self._valid_room_id(rid):
+                return CommandResult(self._room_id_usage(rid), ok=False)
+            setattr(character, "last_room_id", getattr(character, "room_id", room_id)); setattr(character, "room_id", rid); setattr(character, "edit_room_id", rid); setattr(character, "last_edited_target", rid); setattr(character, "last_created_room_id", rid)
+            res = self.builder.create_or_update(character, "rooms", rid, {"area_id": getattr(character,"current_area_id", getattr(character,"area_id", "")), "zone_id": getattr(character,"current_zone_id", getattr(character,"zone_id", "")), "world_id": world_id, "exits": {}, "features": {}}, "rcreate", "room")
+            return CommandResult(res.message + "\n" + self._builder_room_status(character, rid, self.builder.load(world_id)), ok=res.ok)
         if cmd == "rname":
+            if not getattr(character, "edit_room_id", "") and not getattr(character, "last_edited_target", ""):
+                return CommandResult("No room is currently selected. Use rcreate, redit <room_id>, goto <room_id>, or btarget room <room_id>.", ok=False)
             val = self._builder_value(raw,1)
             res = self.builder.create_or_update(character, "rooms", room_id, {"name": val}, "rname", "room")
-            return CommandResult(narrative=f"Room {room_id} name changed to {val}.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)), ok=res.ok)
+            return CommandResult(narrative=f"Room {room_id} renamed to {val}.\nRoom {room_id} name changed to {val}.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)), ok=res.ok)
         if cmd == "rdesc":
+            if not getattr(character, "edit_room_id", "") and not getattr(character, "last_edited_target", ""):
+                return CommandResult("No room is currently selected. Use rcreate, redit <room_id>, goto <room_id>, or btarget room <room_id>.", ok=False)
             res = self.builder.create_or_update(character, "rooms", room_id, {"description": self._builder_value(raw,1)}, "rdesc", "room")
-            return CommandResult(narrative=f"Room {room_id} description changed.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)), ok=res.ok)
+            return CommandResult(narrative=f"Room {room_id} description updated.\nRoom {room_id} description changed.\n" + self._builder_room_status(character, room_id, self.builder.load(world_id)), ok=res.ok)
         if cmd == "rset" and len(args)>=2:
             return out(self.builder.create_or_update(character, "rooms", room_id, {args[0]: self._builder_value(raw,2)}, "rset", "room"))
         if cmd in {"rexits", "rfeature"}:

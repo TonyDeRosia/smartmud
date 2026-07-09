@@ -746,15 +746,42 @@ class MudRuntime:
             return None
 
     def runtime_room_data(self, char: MudCharacter, room_id: str) -> tuple[dict[str, Any] | None, str]:
+        """Return a room from the canonical runtime graph: draft overlay, then live world."""
         rid = str(room_id or "")
         if self._builder_visible(char):
             draft = self._drafts().get("rooms", {}).get(rid)
             if isinstance(draft, dict):
-                return dict(draft), "draft"
+                data = dict(draft); data.setdefault("id", rid)
+                return data, "draft"
         live = self._live_room_data(rid)
         if live is not None:
             return live, "live"
         return None, "missing"
+
+    def canonical_exits(self, char: MudCharacter, room_id: str) -> dict[str, dict[str, Any]]:
+        data, _source = self.runtime_room_data(char, room_id)
+        raw = (data or {}).get("exits") or {}
+        if isinstance(raw, dict):
+            return {str(d).lower(): {"direction": str(d).lower(), **(v if isinstance(v, dict) else {"target_room_id": v})} for d, v in raw.items()}
+        exits: dict[str, dict[str, Any]] = {}
+        for ex in raw if isinstance(raw, list) else []:
+            if isinstance(ex, dict):
+                d = str(ex.get("direction") or ex.get("dir") or "").lower()
+                if d: exits[d] = dict(ex, direction=d)
+        return exits
+
+    def resolve_exit(self, char: MudCharacter, room_id: str, direction: str) -> tuple[dict[str, Any] | None, str]:
+        ex = self.canonical_exits(char, room_id).get(str(direction or "").lower())
+        if not ex: return None, "no_exit"
+        if ex.get("hidden"): return ex, "hidden"
+        if ex.get("closed"): return ex, "closed"
+        if ex.get("locked"): return ex, "locked"
+        if ex.get("blocked"): return ex, str(ex.get("blocked_reason") or "blocked")
+        target = ex.get("target_room_id") or ex.get("destination_room_id") or ex.get("to") or ex.get("room_id") or ex.get("target")
+        if not target: return ex, "missing target_room_id"
+        target_data, _ = self.runtime_room_data(char, str(target))
+        if target_data is None: return ex, f"target room not found: {target}"
+        return {**ex, "target_room_id": str(target)}, "ok"
 
     def all_runtime_rooms(self, char: MudCharacter) -> dict[str, tuple[dict[str, Any], str]]:
         rooms: dict[str, tuple[dict[str, Any], str]] = {}
@@ -775,6 +802,14 @@ class MudRuntime:
         previous = char.room_id
         setattr(char, "last_room_id", previous)
         char.room_id = str(data.get("id") or room_id)
+        if self._builder_visible(char):
+            setattr(char, "edit_room_id", char.room_id)
+            setattr(char, "last_edited_target", char.room_id)
+            setattr(char, "current_target_type", "room")
+            setattr(char, "current_target_id", char.room_id)
+            setattr(char, "current_target_name", str(data.get("name") or data.get("title") or char.room_id))
+            self.builder.publish("builder_target_selected", char, self.active_world_id or "", "room", char.room_id, command="goto")
+            self.builder.publish("builder_context_changed", char, self.active_world_id or "", "room", char.room_id, command="goto")
         self.state_store.save_character(char, self.active_world_id or "")
         self.builder.audit(char, self.active_world_id or "", "goto", "room", char.room_id, {"room_id": previous}, {"room_id": char.room_id, "source": source})
         self.event_bus.publish("builder_goto", {"character_id": char.id, "world_id": self.active_world_id or "", "room_id": previous, "target_id": char.room_id, "source": source}, source_system="builder", world_id=self.active_world_id or "", character_id=char.id, room_id=char.room_id)
@@ -820,6 +855,8 @@ class MudRuntime:
             if not target:
                 return CommandResult(f"Room not found: {q}", ok=False)
             ok, msg = self.goto_room(char, target)
+            if ok and self._builder_visible(char):
+                msg = msg + "\n" + self.command_engine._builder_room_status(char, target, self.builder.load(self.active_world_id or ""))
             return CommandResult(msg, ok=ok, state_updates={"render_room": ok})
         if cmd in {"rooms", "rlist"}:
             lines = ["Rooms:"]
@@ -840,8 +877,7 @@ class MudRuntime:
         if cmd in {"map", "rmap"}:
             data, _source = self.runtime_room_data(char, char.room_id)
             lines = [f"Current: {char.room_id} {(data or {}).get('name') or (data or {}).get('title') or char.room_id}"]
-            exits = (data or {}).get("exits") or {}
-            edict = {e.get("direction") or e.get("dir"): e for e in exits} if isinstance(exits, list) else exits
+            edict = self.canonical_exits(char, char.room_id)
             for d in ["north", "south", "east", "west", "up", "down", "in", "out"]:
                 ex = edict.get(d) or {}
                 tgt = ex.get("target_room_id") or ex.get("destination_room_id") or ex.get("to") or ex.get("room_id") or "-"
@@ -1113,24 +1149,19 @@ class MudRuntime:
 
     def _move_character(self, char: MudCharacter, direction: str):
         from engine.mud_commands import CommandResult
-        room = self._current_room(char)
-        self.event_bus.publish("movement_attempted", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
-        for exit_data in room.exits:
-            if not isinstance(exit_data, dict):
-                continue
-            exit_direction = str(exit_data.get("direction") or exit_data.get("dir") or "").lower()
-            if exit_direction != direction:
-                continue
-            target = exit_data.get("destination_room_id") or exit_data.get("to") or exit_data.get("room_id") or exit_data.get("target")
-            if not target:
-                break
-            char.room_id = str(target)
+        room_id = char.room_id
+        self.event_bus.publish("movement_attempted", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
+        exit_data, reason = self.resolve_exit(char, room_id, direction)
+        if exit_data and reason == "ok":
+            char.room_id = str(exit_data["target_room_id"])
             self.state_store.save_character(char, self.active_world_id or "")
-            new_room = self._current_room(char)
-            self.event_bus.publish("movement_succeeded", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room.id, "target_room_id": char.room_id, "result_summary": "moved"}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
+            self.event_bus.publish("movement_succeeded", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id, "target_room_id": char.room_id, "result_summary": "moved"}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
             return CommandResult(narrative=f"You head {direction}.", state_updates={"render_room": True})
-        self.event_bus.publish("movement_failed", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room.id, "result_summary": "no_exit"}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
-        return CommandResult(narrative="You cannot go that way.", ok=False)
+        summary = reason if exit_data else "no_exit"
+        if exit_data:
+            self.event_bus.publish("builder_exit_graph_mismatch_detected", {"character_id": char.id, "room_id": room_id, "direction": direction, "reason": summary}, source_system="builder", world_id=self.active_world_id or "", character_id=char.id, room_id=room_id)
+        self.event_bus.publish("movement_failed", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id, "result_summary": summary}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
+        return CommandResult(narrative="You cannot go that way." if summary == "no_exit" else f"You cannot go that way: {summary}.", ok=False)
 
     def _room_text(self, room: MudRoom) -> str:
         from smart_mud.transport import html_to_plain_text
@@ -1142,11 +1173,7 @@ class MudRuntime:
             return MudRoom(id=char.room_id or "void", area_id="", title="Missing Room", description=f"Current room '{char.room_id}' is invalid. Use goto home or contact a builder.", exits=[])
         rid = str(room_data.get("id", char.room_id))
         visible = self.find_visible_entities(rid, char)
-        exits_raw = room_data.get("exits", []) or []
-        if isinstance(exits_raw, dict):
-            exits = [{"direction": d, **(v if isinstance(v, dict) else {"target_room_id": v})} for d, v in exits_raw.items()]
-        else:
-            exits = list(exits_raw)
+        exits = list(self.canonical_exits(char, rid).values())
         features = room_data.get("features", {}) or {}
         objects = visible.get("objects", []) + visible.get("corpses", [])
         for fid, feat in features.items() if isinstance(features, dict) else []:
