@@ -22,6 +22,7 @@ from smart_mud.event_bus import EventBus
 from engine.plugin_system import HookRegistry, PluginRegistry
 from engine.living_world import LivingWorldService, init_living_schema
 from engine.abilities import AbilityExecutionService, init_ability_schema
+from engine.crafting import init_crafting_schema
 
 VALID_ROLES = {"player", "helper", "builder", "admin", "owner"}
 BUILDER_ROLES = {"builder", "admin", "owner"}
@@ -448,6 +449,7 @@ class MudStateStore:
 
             init_living_schema(self.db_path)
             init_ability_schema(self.db_path)
+            init_crafting_schema(self.db_path)
             conn.commit()
 
     def save_character(self, char: MudCharacter, world_id: str) -> None:

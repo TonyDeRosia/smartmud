@@ -1,0 +1,54 @@
+{
+  "crafting_quality_profiles": [
+    {
+      "base_quality": 55,
+      "critical_success_threshold": 95,
+      "description": "Formula-engine-compatible deterministic score profile.",
+      "failure_threshold": 0,
+      "id": "standard_crafting_quality",
+      "ingredient_quality_input": "average_quality_score",
+      "maximum_quality": "masterwork",
+      "maximum_score": 100,
+      "minimum_quality": "poor",
+      "minimum_score": 0,
+      "name": "Standard deterministic crafting quality",
+      "plugin_data": {},
+      "profession_rank_input": "rank",
+      "quality_formula_id": "phase7c_standard_quality",
+      "quality_tiers": [
+        {
+          "id": "poor",
+          "maximum_score": 39,
+          "minimum_score": 0,
+          "quality_profile_id": "poor"
+        },
+        {
+          "id": "common",
+          "maximum_score": 69,
+          "minimum_score": 40,
+          "quality_profile_id": "common"
+        },
+        {
+          "id": "fine",
+          "maximum_score": 89,
+          "minimum_score": 70,
+          "quality_profile_id": "fine"
+        },
+        {
+          "id": "masterwork",
+          "maximum_score": 100,
+          "minimum_score": 90,
+          "quality_profile_id": "masterwork"
+        }
+      ],
+      "recipe_difficulty": 0,
+      "seed_policy": "job_quality_seed",
+      "tags": [
+        "phase7c"
+      ],
+      "tool_quality_input": "placeholder",
+      "version": 1,
+      "workstation_quality_input": "quality_modifier"
+    }
+  ]
+}

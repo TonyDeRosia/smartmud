@@ -1,0 +1,19 @@
+{
+  "profession_experience_curves": [
+    {
+      "id": "starter_profession_curve",
+      "name": "Starter profession curve",
+      "plugin_data": {},
+      "tags": [
+        "phase7c"
+      ],
+      "thresholds": [
+        0,
+        100,
+        250,
+        500
+      ],
+      "version": 1
+    }
+  ]
+}
