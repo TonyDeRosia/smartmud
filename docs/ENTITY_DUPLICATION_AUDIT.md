@@ -133,3 +133,15 @@ look
 ```
 
 Expected result: Blacksmith Harl, Apprentice Mage Lina, and Training Master Borik each appear exactly once unless `entityaudit` reports a preexisting duplicate risk that requires manual data review. After restart and Builder reload, repeat `look` and `rcontents here`; counts should remain stable.
+
+
+## Legacy declaration retirement findings
+
+Phase 5A makes legacy NPC declarations compatibility and diagnostic sources only. Legacy room NPC arrays and entity-template default rooms normalize into deterministic canonical spawn declarations, materialize into SQLite `entity_instances`, and then normal rendering, targeting, dialogue, look, scan, search, and movement-room rendering consume runtime instances only. Builder diagnostics may still show templates, spawns, legacy declarations, and materialization records separately.
+
+Canonical spawns supersede equivalent legacy declarations by world, room, template, and compatible quantity. Display-name deduplication is not allowed because legitimate same-name runtime instances must remain visible. Upgraded databases adopt one matching existing runtime row into the materialization record and report ambiguous extras as duplicate candidates instead of deleting or hiding them.
+
+
+### Legacy declaration retirement findings
+
+The leaking legacy collection was the room legacy NPC declaration set (`room.npcs`, plus compatibility `entity_template.default_room_id`). The historical append method was the legacy room NPC merge helper `_room_npcs`, which resolved `room.npcs` and default-room NPC records as renderable room occupants in older gameplay rendering paths. The canonical runtime collection also contained the same intended NPC through `get_room_contents(...)["entity_instances"]`, populated from SQLite rows created or adopted by `materialize_entity_spawn`. Earlier tests missed the committed-world combination because they asserted synthetic or isolated materialization behavior and did not load the real Shattered Realms rooms where legacy room declarations, template default rooms, generated legacy spawn IDs, and materialized SQLite instances coexist.

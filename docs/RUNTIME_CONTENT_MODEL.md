@@ -11,3 +11,10 @@ Smart MUD distinguishes definitions, declarations, and instances.
 - Entity instances are live SQLite records with stable identity and mutable state.
 
 The canonical room query is `MudRuntime.get_room_contents(room_id, viewer=None, include_builder_metadata=False)`.
+
+
+## Runtime-instance-only entity rendering
+
+Phase 5A makes legacy NPC declarations compatibility and diagnostic sources only. Legacy room NPC arrays and entity-template default rooms normalize into deterministic canonical spawn declarations, materialize into SQLite `entity_instances`, and then normal rendering, targeting, dialogue, look, scan, search, and movement-room rendering consume runtime instances only. Builder diagnostics may still show templates, spawns, legacy declarations, and materialization records separately.
+
+Canonical spawns supersede equivalent legacy declarations by world, room, template, and compatible quantity. Display-name deduplication is not allowed because legitimate same-name runtime instances must remain visible. Upgraded databases adopt one matching existing runtime row into the materialization record and report ambiguous extras as duplicate candidates instead of deleting or hiding them.
