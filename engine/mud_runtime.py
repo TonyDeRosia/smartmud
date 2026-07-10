@@ -102,6 +102,7 @@ class MudCharacter:
     last_edited_target: str = ""
     builder_desc_editor_room_id: str = ""
     builder_desc_editor_lines: list[str] = field(default_factory=list)
+    actor_data: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
