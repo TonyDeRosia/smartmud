@@ -16,7 +16,7 @@ VALID_ENTITY_TYPES = {"npc", "mob", "merchant", "trainer", "banker", "healer", "
 
 DRAFT_FILES = {
     "areas": "areas.json", "zones": "zones.json", "rooms": "rooms.json",
-    "features": "features.json", "items": "item_templates.json", "entities": "entity_templates.json", "spawns": "spawns.json"
+    "features": "features.json", "items": "item_templates.json", "item_placements": "item_placements.json", "entities": "entity_templates.json", "spawns": "spawns.json"
 }
 
 @dataclass
@@ -188,7 +188,7 @@ class BuilderWorkspace:
             return BuilderResult(False, "You do not have permission for that command.")
         bundle, err, future_keys = self._load_import_bundle(self.world_id(actor), filename)
         if err: return BuilderResult(False, err)
-        drafts=self.load(self.world_id(actor)); names=[('areas','Areas'),('zones','Zones'),('rooms','Rooms'),('features','Features'),('items','Items'),('entities','Entities'),('spawns','Spawns')]
+        drafts=self.load(self.world_id(actor)); names=[('areas','Areas'),('zones','Zones'),('rooms','Rooms'),('features','Features'),('items','Items'),('item_placements','Item placements'),('entities','Entities'),('spawns','Spawns')]
         lines=[]
         for k,label in names:
             b=bundle.get(k,{}) if isinstance(bundle.get(k,{}),dict) else {}; add=sum(1 for x in b if x not in drafts.get(k,{})); upd=len(b)-add; lines.append(f'{label} to add/update: {add}/{upd}')
@@ -208,7 +208,7 @@ class BuilderWorkspace:
         return BuilderResult(True, f'Builder import applied: {filename}\nMode: {"replace-drafts" if replace else "merge"}')
 
     def _validate_bundle_refs(self, drafts: dict[str, Any], errors: list[str], warnings: list[str]) -> None:
-        safe=re.compile(r'^[a-z0-9]+(?:_[a-z0-9]+)*$'); areas=drafts.get('areas',{}); zones=drafts.get('zones',{}); rooms=drafts.get('rooms',{})
+        safe=re.compile(r'^[a-z0-9]+(?:_[a-z0-9]+)*$'); areas=drafts.get('areas',{}); zones=drafts.get('zones',{}); rooms=drafts.get('rooms',{}); live_items={str(r.get('id')) for r in _records(self.worlds_dir / 'shattered_realms', 'items') if r.get('id')}
         for kind,bucket in [('area',areas),('zone',zones),('room',rooms)]:
             for oid in bucket:
                 if not safe.fullmatch(str(oid)): errors.append(f'{kind} ID unsafe: {oid}')
@@ -234,6 +234,10 @@ class BuilderWorkspace:
                 if t and t not in rooms: errors.append(f'room {rid} exit {d} references missing room {t}')
         for (aid,v),ids in seen.items():
             if len(ids)>1: errors.append(f'duplicate vnum {v} inside area {aid}: {", ".join(ids)}')
+        for pid, pl in drafts.get('item_placements', {}).items():
+            if not safe.fullmatch(str(pid)): errors.append(f'item placement ID unsafe: {pid}')
+            if pl.get('item_template_id') not in drafts.get('items', {}) and pl.get('item_template_id') not in live_items: errors.append(f'item placement {pid} references missing item template {pl.get("item_template_id")}')
+            if pl.get('room_id') not in rooms: errors.append(f'item placement {pid} references missing room {pl.get("room_id")}')
 
     def can_build(self, actor: Any) -> bool:
         roles = {str(getattr(actor, "role", "player")).lower(), str(getattr(actor, "account_role", "player")).lower()}
@@ -412,6 +416,7 @@ class BuilderWorkspace:
                     if int(one.get("vnum_start") or 0) <= int(two.get("vnum_end") or 0) and int(two.get("vnum_start") or 0) <= int(one.get("vnum_end") or 0): errors.append(f"zone vnum ranges overlap in area {aid}: {z1} and {z2}")
 
         live_rooms = {str(r.get("id")) for r in _records(self.worlds_dir / world_id, "rooms") if r.get("id")}
+        live_items = {str(r.get("id")) for r in _records(self.worlds_dir / world_id, "items") if r.get("id")}
         draft_rooms = set(drafts["rooms"].keys()); all_rooms = live_rooms | draft_rooms
         reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in"}
         seen_names = {}
@@ -480,8 +485,17 @@ class BuilderWorkspace:
         for eid, ent in drafts["entities"].items():
             if not ent.get("name"): errors.append(f"entity {eid} missing name")
             if ent.get("entity_type") and ent.get("entity_type") not in VALID_ENTITY_TYPES: errors.append(f"entity {eid} invalid entity_type {ent.get('entity_type')}")
+        for pid, pl in drafts.get("item_placements", {}).items():
+            if not safe_re.fullmatch(str(pid)): errors.append(f"item placement {pid} has unsafe id")
+            if pl.get("item_template_id") not in drafts["items"] and pl.get("item_template_id") not in live_items: errors.append(f"item placement {pid} references missing item template {pl.get('item_template_id')}")
+            if pl.get("room_id") not in all_rooms: errors.append(f"item placement {pid} references missing room {pl.get('room_id')}")
+            try:
+                if int(pl.get("quantity") or 0) <= 0: errors.append(f"item placement {pid} quantity must be positive")
+            except Exception: errors.append(f"item placement {pid} quantity must be numeric")
+            if pl.get("seed_policy", "once") not in {"once", "ensure_initial", "disabled"}: errors.append(f"item placement {pid} invalid seed_policy {pl.get('seed_policy')}")
         for sid, sp in drafts["spawns"].items():
             if sp.get("entity_template_id") not in drafts["entities"]: errors.append(f"spawn {sid} references missing entity template {sp.get('entity_template_id')}")
+            if sp.get("room_id") and sp.get("room_id") not in all_rooms: errors.append(f"spawn {sid} references missing room {sp.get('room_id')}")
         current = str(getattr(actor, "edit_room_id", "") or getattr(actor, "last_edited_target", ""))
         if current and current not in all_rooms: errors.append(f"builder current target missing: {current}")
         if current: info.append(f"builder current target: {current}")

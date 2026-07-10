@@ -306,3 +306,7 @@ Builder list commands are local by default: `alist` shows the current area, `zli
 ### Phase 4H Stability Hotfix
 
 Builder tests now isolate mutable workspace operations with a temporary copied Shattered Realms package and temporary SQLite database, protecting committed starter drafts from test-order pollution. Item bulk commands now treat duplicate names as distinct instances: `get all`/`take all` collect every portable room item, skip NPCs and nonportable scenery, and `drop all` returns every eligible unequipped carried item while preserving equipped state and instance identity. Seeded room items remain persistent until a future explicit reset system is designed.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

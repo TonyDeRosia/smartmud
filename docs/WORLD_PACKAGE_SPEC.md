@@ -134,3 +134,7 @@ To exchange the organized starter layer, run `builder export`, then place the ex
 ## Phase 4G Contract Freeze
 
 World packages are v1-compatible with the canonical contract in `WORLD_DATA_SPECIFICATION.md`. Existing area, zone, room, item, entity, feature, and spawn collections remain valid; optional future files such as `locations.json` and profile libraries are additive and not required for current worlds.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

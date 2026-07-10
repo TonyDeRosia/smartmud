@@ -296,6 +296,18 @@ class MudStateStore:
                     PRIMARY KEY(world_id, room_id, seed_key)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS content_materializations (
+                    world_id TEXT,
+                    declaration_kind TEXT,
+                    declaration_id TEXT,
+                    materialized_at TEXT,
+                    instance_ids_json JSON,
+                    status TEXT,
+                    metadata_json JSON,
+                    PRIMARY KEY(world_id, declaration_kind, declaration_id)
+                )
+            """)
 
             # Command history
             conn.execute("""
@@ -626,8 +638,7 @@ class MudRuntime:
         self.active_world_id = world_id
         self._load_item_templates()
         self._load_entity_templates()
-        self._seed_room_items()
-        self.populate_world()
+        self.materialize_world_content(world_id)
         self.hooks.emit("world_loaded", world_id=world_id, world=self.active_world)
         self.event_bus.publish("world_loaded", {"world_id": world_id}, source_system="runtime", world_id=world_id)
         return self.active_world
@@ -999,7 +1010,7 @@ class MudRuntime:
 
     def _room_features(self, room: MudRoom) -> list[dict[str, Any]]:
         hay = f"{room.id} {room.title} {room.description}".lower()
-        features = []
+        features = list(self._resolved_room_features(room.id, None))
         try:
             drafts = self.builder.load(self.active_world_id or "").get("rooms", {}).get(room.id, {}).get("features", {})
             for fid, feat in drafts.items() if isinstance(drafts, dict) else []:
@@ -1157,6 +1168,10 @@ class MudRuntime:
             from engine.mud_commands import CommandResult
             choices = parsed["alias_note"].split(":", 1)[1].strip()
             return CommandResult(f"Which command did you mean? {choices}", ok=False)
+        if raw_cmd in {"rcontents", "istat", "itemstat", "mstat", "estat", "sstat", "seedstat"}:
+            from engine.mud_commands import CommandResult
+            if not self._builder_visible(char): return CommandResult("You do not have permission for that command.", ok=False)
+            return CommandResult(self._builder_content_diagnostic(char, raw_cmd, args))
         self.event_bus.publish("command_resolved", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
         if raw_cmd != cmd_name or parsed.get("alias_note"):
             self._publish_interaction_event("command_alias_resolved", char, cmd_name, command, {"raw_command": raw_cmd, "canonical_command": cmd_name, "arguments": args, "note": parsed.get("alias_note", "")})
@@ -1230,6 +1245,36 @@ class MudRuntime:
         from smart_mud.transport import html_to_plain_text
         return html_to_plain_text(render_room(room, self.get_effective_mud_colors()))
 
+    def _builder_content_diagnostic(self, char: MudCharacter, cmd: str, args: list[str]) -> str:
+        q = " ".join(args).strip()
+        if cmd == "rcontents":
+            rid = char.room_id if q in {"", "here"} else q
+            contents = self.get_room_contents(rid, char, include_builder_metadata=True)
+            mats=[]
+            with sqlite3.connect(self.state_store.db_path) as conn:
+                for row in conn.execute("SELECT declaration_kind,declaration_id,status,instance_ids_json FROM content_materializations WHERE world_id=? ORDER BY declaration_kind,declaration_id", (self.active_world_id or "",)):
+                    mats.append(f"{row[0]} {row[1]} {row[2]} {row[3]}")
+            lines=[f"Room: {rid}", "Resolved source: canonical runtime content", "Features:"]
+            lines += [f"- {f.get('id')}: {f.get('name')} portable={f.get('portable', False)} source={f.get('source','')}" for f in contents['features']] or ["- none"]
+            lines += ["Runtime item instances:"] + ([f"- {i.get('instance_id')} template={i.get('template_id')} name={i.get('name')} location={i.get('owner_type')}:{i.get('room_id') or i.get('owner_id')} portable={(i.get('template') or {}).get('portable', True)} seed={(i.get('custom_flags') or {}).get('source_seed_id','')}" for i in contents['item_instances']] or ["- none"])
+            lines += ["Runtime entity instances:"] + ([f"- {e.get('instance_id')} template={e.get('template_id')} name={e.get('name')} type={e.get('entity_type')} room={e.get('room_id')} spawn={(e.get('state') or {}).get('source_spawn_id','')}" for e in contents['entity_instances']] or ["- none"])
+            lines += ["Players:", "- none", "Item placement declarations:"] + ([f"- {p.get('id')} template={p.get('item_template_id')} room={p.get('room_id')} qty={p.get('quantity')} policy={p.get('seed_policy','once')}" for p in contents.get('item_placement_declarations', [])] or ["- none"])
+            lines += ["Entity spawn declarations:"] + ([f"- {sp.get('id')} template={sp.get('entity_template_id')} room={sp.get('room_id')} qty={sp.get('quantity')} policy={sp.get('spawn_policy','once')}" for sp in contents.get('entity_spawn_declarations', [])] or ["- none"])
+            lines += ["Materialization records:"] + (mats or ["- none"])
+            return "\n".join(lines)
+        if cmd in {"istat", "itemstat"}:
+            item = self.find_item(q) or (self.resolve_item_keywords(q, self.get_visible_room_items(char.room_id)).get('item') if q else None)
+            if not item: return "Item not found."
+            return "\n".join([f"Instance ID: {item['instance_id']}", f"Template ID: {item['template_id']}", f"Current location: {item['owner_type']}:{item.get('room_id') or item.get('owner_id')}", f"Portable: {(item.get('template') or {}).get('portable', True)}", f"Seed declaration ID: {(item.get('custom_flags') or {}).get('source_seed_id','')}", f"Created: {item.get('created_at')}", f"Custom state: {item.get('custom_flags')}"])
+        if cmd in {"mstat", "estat"}:
+            ent = self.find_entity(q) or (self.resolve_entity_keywords(q, self.find_room_entities(char.room_id)).get('entity') if q else None)
+            if not ent: return "Entity not found."
+            return "\n".join([f"Instance ID: {ent['instance_id']}", f"Template ID: {ent['template_id']}", f"Room: {ent.get('room_id')}", f"Entity type: {ent.get('entity_type')}", f"Alive/visible: {ent.get('is_alive')}/{ent.get('is_visible')}", f"Spawn declaration ID: {(ent.get('state') or {}).get('source_spawn_id','')}", f"AI profile: {((ent.get('plugin_data') or {}).get('ai_profile') or {})}", f"Custom state: {ent.get('custom_state')}"])
+        kind = 'entity_spawn' if cmd == 'sstat' else 'item_placement'
+        row = self._materialization_row(kind, q)
+        decl = (self._live_entity_spawns().get(q) if cmd == 'sstat' else self._live_item_placements().get(q)) or {}
+        return "\n".join([f"Declaration: {q}", f"Data: {json.dumps(decl, sort_keys=True)}", f"Materialization: {json.dumps(row or {}, sort_keys=True)}"])
+
     def _current_room(self, char: MudCharacter) -> MudRoom:
         room_data, source = self.runtime_room_data(char, char.room_id)
         if room_data is None:
@@ -1237,7 +1282,7 @@ class MudRuntime:
         rid = str(room_data.get("id", char.room_id))
         visible = self.find_visible_entities(rid, char)
         exits = list(self.canonical_exits(char, rid).values())
-        features = room_data.get("features", {}) or {}
+        features = {f.get("id") or f.get("feature_id"): f for f in self._resolved_room_features(rid, char)}
         feature_keys: set[tuple[str, str]] = set()
         def _norm(value: Any) -> str:
             return str(value or "").strip().lower().replace("_", " ")
@@ -1628,19 +1673,64 @@ class MudRuntime:
                 if slot and self.validate_equipment(character_id,item,slot).get("ok"): self.move_item(item["instance_id"],"equipment",character_id,equipped_slot=slot)
 
     def _seed_room_items(self) -> None:
-        if not self.active_world_id: return
-        now=datetime.now(timezone.utc).isoformat()
+        self.materialize_world_content(self.active_world_id or "")
+
+    def _live_item_placements(self) -> dict[str, dict[str, Any]]:
+        placements: dict[str, dict[str, Any]] = {}
+        for raw in getattr(self.active_world, "item_placements", []) or []:
+            if isinstance(raw, dict) and raw.get("id"):
+                placements[str(raw["id"])] = dict(raw)
+        # Backward-compatible migration of proven legacy room object declarations.
+        for room in getattr(self.active_world, "rooms", []) or []:
+            rid = str(room.get("id") or "")
+            counts: dict[str, int] = {}
+            for oid in room.get("objects", []) or []:
+                tid = str(oid.get("template_id") or oid.get("id") if isinstance(oid, dict) else oid)
+                if tid in self.item_templates and self.item_templates[tid].get("portable", True):
+                    counts[tid] = counts.get(tid, 0) + 1
+            for tid, qty in counts.items():
+                pid = f"legacy_{rid}_{tid}"
+                placements.setdefault(pid, {"id": pid, "item_template_id": tid, "room_id": rid, "quantity": qty, "seed_policy": "once", "flags": ["legacy_room_object"], "tags": [], "plugin_data": {"source": "rooms.objects"}})
+        return placements
+
+    def materialize_world_content(self, world_id: str | None = None) -> dict[str, Any]:
+        self.event_bus.publish("content_materialization_started", {"world_id": world_id or self.active_world_id or ""}, source_system="runtime", world_id=world_id or self.active_world_id or "")
+        item_ids=[]; ent_ids=[]
+        for pid in sorted(self._live_item_placements()): item_ids += self.materialize_item_seed(pid).get("instance_ids", [])
+        for sid in sorted(self._live_entity_spawns()): ent_ids += self.materialize_entity_spawn(sid).get("instance_ids", [])
+        self.event_bus.publish("content_materialization_completed", {"world_id": world_id or self.active_world_id or "", "item_instance_ids": item_ids, "entity_instance_ids": ent_ids}, source_system="runtime", world_id=world_id or self.active_world_id or "")
+        return {"item_instance_ids": item_ids, "entity_instance_ids": ent_ids}
+
+    def materialize_room_content(self, world_id: str, room_id: str) -> dict[str, Any]:
+        item_ids=[]; ent_ids=[]
+        for pid,p in self._live_item_placements().items():
+            if str(p.get("room_id")) == str(room_id): item_ids += self.materialize_item_seed(pid).get("instance_ids", [])
+        for sid,s in self._live_entity_spawns().items():
+            if str(s.get("room_id")) == str(room_id): ent_ids += self.materialize_entity_spawn(sid).get("instance_ids", [])
+        return {"item_instance_ids": item_ids, "entity_instance_ids": ent_ids}
+
+    def _materialization_row(self, kind: str, declaration_id: str) -> dict[str, Any] | None:
         with sqlite3.connect(self.state_store.db_path) as conn:
-            for room in getattr(self.active_world,"rooms",[]) or []:
-                rid=str(room.get("id") or "")
-                for idx, oid in enumerate(room.get("objects",[]) or []):
-                    tid=str(oid.get("template_id") or oid.get("id") if isinstance(oid,dict) else oid)
-                    if tid not in self.item_templates: continue
-                    seed=f"{idx}:{tid}"
-                    try: conn.execute("INSERT INTO room_item_seeds(world_id,room_id,template_id,seed_key,created_at) VALUES(?,?,?,?,?)", (self.active_world_id,rid,tid,seed,now))
-                    except sqlite3.IntegrityError: continue
-                    iid=f"item_{uuid.uuid4().hex}"
-                    conn.execute("INSERT INTO item_instances(instance_id,world_id,template_id,owner_type,owner_id,room_id,equipped_slot,stack_count,condition,durability,created_at,updated_at,custom_flags,plugin_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (iid,self.active_world_id,tid,"room","",rid,"",1,"normal",100,now,now,"{}","{}"))
+            row=conn.execute("SELECT instance_ids_json,status,metadata_json,materialized_at FROM content_materializations WHERE world_id=? AND declaration_kind=? AND declaration_id=?", (self.active_world_id or "", kind, declaration_id)).fetchone()
+        if not row: return None
+        return {"instance_ids": json.loads(row[0] or "[]"), "status": row[1], "metadata": json.loads(row[2] or "{}"), "materialized_at": row[3]}
+
+    def materialize_item_seed(self, seed_id: str) -> dict[str, Any]:
+        row=self._materialization_row("item_placement", seed_id)
+        if row: return row
+        p=self._live_item_placements().get(seed_id); ids=[]; now=datetime.now(timezone.utc).isoformat()
+        if not p or p.get("seed_policy", "once") == "disabled": return {"instance_ids": [], "status": "disabled"}
+        tid=str(p.get("item_template_id") or p.get("template_id") or ""); rid=str(p.get("room_id") or ""); qty=max(0, int(p.get("quantity") or 1))
+        if tid not in self.item_templates or not rid: status="failed"; meta={"error":"missing template or room"}
+        else:
+            with sqlite3.connect(self.state_store.db_path) as conn:
+                for _ in range(qty):
+                    iid=f"item_{uuid.uuid4().hex}"; ids.append(iid)
+                    conn.execute("INSERT INTO item_instances(instance_id,world_id,template_id,owner_type,owner_id,room_id,equipped_slot,stack_count,condition,durability,created_at,updated_at,custom_flags,plugin_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (iid,self.active_world_id or "",tid,"room","",rid,"",1,"normal",100,now,now,json.dumps({"source_seed_id": seed_id}),json.dumps(p.get("plugin_data") or {})))
+                conn.execute("INSERT INTO content_materializations(world_id,declaration_kind,declaration_id,materialized_at,instance_ids_json,status,metadata_json) VALUES(?,?,?,?,?,?,?)", (self.active_world_id or "","item_placement",seed_id,now,json.dumps(ids),"materialized",json.dumps({"template_id": tid, "room_id": rid, "quantity": qty})))
+            status="materialized"; meta={"template_id": tid, "room_id": rid, "quantity": qty}
+            self.event_bus.publish("item_seed_materialized", {"world_id": self.active_world_id or "", "declaration_id": seed_id, "template_id": tid, "room_id": rid, "instance_ids": ids, "quantity": qty, "policy": p.get("seed_policy", "once")}, source_system="runtime", world_id=self.active_world_id or "", room_id=rid)
+        return {"instance_ids": ids, "status": status, "metadata": meta, "materialized_at": now}
 
     ENTITY_TYPES = {"player", "npc", "mob", "object", "container", "corpse", "door", "shop", "pet", "summon"}
 
@@ -1725,13 +1815,20 @@ class MudRuntime:
 
     def find_entity(self, entity_id: str) -> dict[str, Any] | None: return next(iter(self._fetch_entities("entity_id=?", (entity_id,))), None)
     def find_room_entities(self, room_id: str) -> list[dict[str, Any]]: return self._fetch_entities("owner_type='room' AND current_room_id=?", (room_id,))
-    def find_visible_entities(self, room_id: str, viewer: Any = None) -> dict[str, list[dict[str, Any]]]:
-        groups = {"players": [], "npcs": [], "mobs": [], "objects": [], "corpses": []}
+    def get_room_contents(self, room_id: str, viewer: Any = None, include_builder_metadata: bool = False) -> dict[str, Any]:
+        groups = {"features": self._resolved_room_features(room_id, viewer), "item_instances": self.get_visible_room_items(room_id), "entity_instances": [], "players": [], "exits": []}
         for ent in self.find_room_entities(room_id):
-            if not self.is_entity_visible(ent, viewer):
-                continue
+            if self.is_entity_visible(ent, viewer): groups["entity_instances"].append(ent)
+        if include_builder_metadata:
+            groups["item_placement_declarations"] = [p for p in self._live_item_placements().values() if str(p.get("room_id")) == str(room_id)]
+            groups["entity_spawn_declarations"] = [s for s in self._live_entity_spawns().values() if str(s.get("room_id")) == str(room_id)]
+        return groups
+
+    def find_visible_entities(self, room_id: str, viewer: Any = None) -> dict[str, list[dict[str, Any]]]:
+        contents = self.get_room_contents(room_id, viewer)
+        groups = {"players": [], "npcs": [], "mobs": [], "objects": list(contents["item_instances"]), "corpses": []}
+        for ent in contents["entity_instances"]:
             groups[{"npc":"npcs", "mob":"mobs", "corpse":"corpses"}.get(ent.get("entity_type"), "objects")].append(ent)
-        groups["objects"].extend(self.get_visible_room_items(room_id))
         return groups
 
     def resolve_entity_keywords(self, query: str, candidate_entities: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1765,6 +1862,50 @@ class MudRuntime:
         if ent: self._publish_entity_event("entity_destroyed", ent, source_system=source_system, **ctx); self._publish_entity_event("room_entities_changed", ent, source_system=source_system, **ctx)
         return bool(ent)
 
+    def _resolved_room_features(self, room_id: str, viewer: Any = None) -> list[dict[str, Any]]:
+        room_data = None
+        if viewer is not None: room_data, _ = self.runtime_room_data(viewer, room_id)
+        room_data = room_data or self._live_room_data(room_id) or {}
+        library = {str(f.get("id")): f for f in getattr(self.active_world, "features", []) or [] if isinstance(f, dict) and f.get("id")}
+        if viewer is not None and self._builder_visible(viewer):
+            library.update({str(k): dict(v, id=str(k)) for k,v in self._drafts().get("features", {}).items() if isinstance(v, dict)})
+        out=[]; seen=set()
+        for fid in room_data.get("feature_refs", []) or []:
+            feat = dict(library.get(str(fid), {})); feat.setdefault("id", str(fid)); feat.setdefault("source", "shared"); feat.setdefault("local_or_shared", "shared")
+            if feat.get("name") and feat["id"] not in seen: out.append(feat); seen.add(feat["id"])
+        for fid, feat in (room_data.get("features", {}) or {}).items() if isinstance(room_data.get("features", {}), dict) else []:
+            if isinstance(feat, dict):
+                rec=dict(feat); rec.setdefault("id", str(fid)); rec.setdefault("source", "room"); rec.setdefault("local_or_shared", "local")
+                if rec["id"] not in seen: out.append(rec); seen.add(rec["id"])
+        for raw_obj in room_data.get("objects", []) or []:
+            oid = str(raw_obj.get("template_id") or raw_obj.get("id") if isinstance(raw_obj, dict) else raw_obj)
+            tmpl = dict(self.item_templates.get(oid, {}))
+            if tmpl and not tmpl.get("portable", True) and oid not in seen:
+                rec = {**tmpl, "id": oid, "feature_id": oid, "source": "legacy_room_object", "local_or_shared": "local", "portable": False}
+                out.append(rec); seen.add(oid)
+        return out
+
+    def _live_entity_spawns(self) -> dict[str, dict[str, Any]]:
+        spawns={}
+        for raw in getattr(self.active_world, "spawns", []) or []:
+            if isinstance(raw, dict) and raw.get("id"): spawns[str(raw["id"])] = dict(raw)
+        for tid, tmpl in self.entity_templates.items():
+            rid=str(tmpl.get("default_room_id") or "")
+            if rid: spawns.setdefault(f"legacy_{rid}_{tid}", {"id": f"legacy_{rid}_{tid}", "entity_template_id": tid, "room_id": rid, "zone_id": "", "quantity": 1, "spawn_policy": "once", "flags": ["legacy_default_room"], "tags": [], "plugin_data": {}})
+        return spawns
+
+    def materialize_entity_spawn(self, spawn_id: str) -> dict[str, Any]:
+        row=self._materialization_row("entity_spawn", spawn_id)
+        if row: return row
+        sp=self._live_entity_spawns().get(spawn_id); ids=[]; now=datetime.now(timezone.utc).isoformat()
+        if not sp or sp.get("spawn_policy", "once") == "disabled": return {"instance_ids": [], "status": "disabled"}
+        tid=str(sp.get("entity_template_id") or sp.get("template_id") or ""); rid=str(sp.get("room_id") or ""); qty=max(0, int(sp.get("quantity") or 1))
+        for _ in range(qty):
+            ent=self.spawn_entity(tid, room_id=rid, state={"current_state":"idle", "spawn_origin": rid, "source_spawn_id": spawn_id, "custom_state": {}}, source_system="materializer"); ids.append(ent.get("entity_id") or ent.get("instance_id"))
+        with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("INSERT INTO content_materializations(world_id,declaration_kind,declaration_id,materialized_at,instance_ids_json,status,metadata_json) VALUES(?,?,?,?,?,?,?)", (self.active_world_id or "","entity_spawn",spawn_id,now,json.dumps(ids),"materialized",json.dumps({"template_id": tid, "room_id": rid, "quantity": qty})))
+        self.event_bus.publish("entity_spawn_materialized", {"world_id": self.active_world_id or "", "declaration_id": spawn_id, "template_id": tid, "room_id": rid, "instance_ids": ids, "quantity": qty, "policy": sp.get("spawn_policy", "once")}, source_system="runtime", world_id=self.active_world_id or "", room_id=rid)
+        return {"instance_ids": ids, "status":"materialized", "materialized_at": now}
+
     def _publish_entity_event(self, name: str, ent: dict[str, Any], source_system: str = "runtime", **extra: Any) -> None:
         payload = {"entity_id": ent.get("entity_id"), "entity_type": ent.get("entity_type"), "world_id": ent.get("world_id", self.active_world_id or ""), "room_id": ent.get("current_room_id", ""), "template_id": ent.get("template_id"), "source_system": source_system, "timestamp": datetime.now(timezone.utc).isoformat(), **extra}
         self.event_bus.publish(name, payload, source_system=source_system, world_id=payload.get("world_id", ""), character_id=payload.get("character_id", ""), account_id=payload.get("account_id", ""), session_id=payload.get("session_id", ""), room_id=payload.get("room_id", ""))
@@ -1789,8 +1930,8 @@ class MudRuntime:
     HIDDEN_VISIBILITY_FLAGS = {"hidden", "invisible", "builder_hidden", "future_stealth"}
 
     def populate_world(self) -> None:
-        """Idempotently populate all room entity spawn definitions through MudRuntime."""
-        self._seed_room_entities()
+        """Backward-compatible alias for idempotent world materialization."""
+        self.materialize_world_content(self.active_world_id or "")
 
     def find_entities(self, **filters: Any) -> list[dict[str, Any]]:
         clauses = ["world_id=?"]; params: list[Any] = [self.active_world_id or ""]

@@ -292,3 +292,7 @@ Builder rendering now treats draft room features as the preferred Builder view o
 ## Phase 4H content-pack records
 
 Starter Guildlands Content Pack v1 demonstrates external JSON authoring for the current Builder bundle keys: `areas`, `zones`, `rooms`, `features`, `items`, `entities`, and `spawns`. Entity `plugin_data.ai_profile` is explicitly non-authoritative metadata for future AI, and spawn records are placeholders until reset/spawn runtime systems exist.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.
