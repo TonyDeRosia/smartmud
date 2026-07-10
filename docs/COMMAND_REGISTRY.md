@@ -116,3 +116,7 @@ Builder list commands are local by default: `alist` shows the current area, `zli
 ## Phase 4H Bulk Item Routing
 
 `get all`, `take all`, `get everything`, and `take everything` share one bulk pickup implementation. `drop all` and `drop everything` share one bulk drop implementation. Bulk commands use runtime-owned item movement APIs and publish the normal per-item transfer events for each moved instance; bulk pickup also emits aggregate start/completed metadata for audit consumers.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

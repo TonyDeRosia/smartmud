@@ -229,3 +229,7 @@ Builder JSON imports are staged from `worlds/<world_id>/builder/imports/` with `
 ## Phase 4G World Data Architecture
 
 `WORLD_DATA_SPECIFICATION.md` is the canonical world data reference. The engine owns rules and validation, world packages own content, Builder drafts are editable overlays, imports apply to drafts first, and Builder does not mutate live package files. The architecture keeps area/zone/vnum organization while reserving optional future collections and a generic location hierarchy.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

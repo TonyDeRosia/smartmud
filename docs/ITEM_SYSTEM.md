@@ -390,3 +390,7 @@ Future work may add a richer semantic web Builder UI and AI-assisted Builder too
 `drop all` and `drop everything` move carried, unequipped inventory items to the current room without changing item instance IDs. Equipped items are skipped and reported so bulk drop cannot silently delete, duplicate, or unequip gear. `get all` does not disturb equipped items.
 
 Seeded room objects are created once per world/room/template seed key. Looking, moving away and back, saving, or reloading must not reseed collected items or multiply dropped items. Explicit zone or room reset behavior remains a future system.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

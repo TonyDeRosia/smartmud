@@ -29,8 +29,8 @@ def names(items):
 def test_blacksmith_get_all_takes_every_portable_duplicate_and_ignores_npc(tmp_path):
     rt, cid = make_runtime(tmp_path)
     char = move_to_blacksmith(rt, cid)
-    extra_iron = rt.spawn_item("iron_sword", "room", room_id=char.room_id)["instance_id"]
     initial = rt.find_room_items(char.room_id)
+    extra_iron = next(i["instance_id"] for i in initial if i["name"] == "Iron Sword")
     assert names(initial).count("Iron Sword") == 2
     assert names(initial).count("Training Sword") == 1
     assert "Blacksmith Harl" in out(rt, cid, "look")
@@ -49,7 +49,6 @@ def test_take_aliases_match_bulk_get_and_no_portables_message(tmp_path):
     for command in ("take all", "get everything", "take everything"):
         rt, cid = make_runtime(tmp_path / command.replace(" ", "_"))
         char = move_to_blacksmith(rt, cid)
-        rt.spawn_item("iron_sword", "room", room_id=char.room_id)
         msg = out(rt, cid, command)
         assert msg.count("Iron Sword") == 2
         assert msg.count("Training Sword") == 1
@@ -60,7 +59,6 @@ def test_take_aliases_match_bulk_get_and_no_portables_message(tmp_path):
 def test_get_one_duplicate_then_get_all_remaining(tmp_path):
     rt, cid = make_runtime(tmp_path)
     char = move_to_blacksmith(rt, cid)
-    rt.spawn_item("iron_sword", "room", room_id=char.room_id)
     first = out(rt, cid, "get iron")
     assert first == "You pick up Iron Sword."
     assert names(rt.find_room_items(char.room_id)).count("Iron Sword") == 1
@@ -73,7 +71,6 @@ def test_get_one_duplicate_then_get_all_remaining(tmp_path):
 def test_drop_all_round_trip_preserves_ids_and_skips_equipped(tmp_path):
     rt, cid = make_runtime(tmp_path)
     char = move_to_blacksmith(rt, cid)
-    rt.spawn_item("iron_sword", "room", room_id=char.room_id)
     out(rt, cid, "get all")
     assert len(rt.find_inventory_items(cid)) >= 3
     assert "equip" in out(rt, cid, "wield iron").lower()

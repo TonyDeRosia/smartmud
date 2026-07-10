@@ -58,3 +58,7 @@ Entity templates include `plugin_data.ai_profile` fields for personality, speech
 ## Spawn placeholders
 
 The `spawns` collection connects entity templates to draft rooms with spawn vnums in the Starter Guildlands spawn range. Each record is marked as a placeholder because Smart MUD does not yet implement a reset or spawn execution system for this content pack.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

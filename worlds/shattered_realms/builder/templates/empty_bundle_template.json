@@ -1,1 +1,10 @@
-{"areas": {}, "zones": {}, "rooms": {}, "features": {}, "items": {}, "entities": {}, "spawns": {}}
+{
+  "areas": {},
+  "entities": {},
+  "features": {},
+  "item_placements": {},
+  "items": {},
+  "rooms": {},
+  "spawns": {},
+  "zones": {}
+}

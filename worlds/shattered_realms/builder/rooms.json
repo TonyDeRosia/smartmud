@@ -77,20 +77,10 @@
         "target_room_id": "market_lane"
       }
     },
-    "features": {
-      "iron_sword": {
-        "id": "iron_sword",
-        "name": "Iron Sword",
-        "portable": false,
-        "source": "live room object"
-      },
-      "training_sword": {
-        "id": "training_sword",
-        "name": "Training Sword",
-        "portable": false,
-        "source": "live room object"
-      }
-    },
+    "feature_refs": [
+      "blacksmith_anvil"
+    ],
+    "features": {},
     "flags": [],
     "id": "blacksmith_stall",
     "name": "Blacksmith Stall",

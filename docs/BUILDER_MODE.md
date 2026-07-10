@@ -244,3 +244,7 @@ Builder list commands are local by default: `alist` shows the current area, `zli
 ## Builder Test Isolation
 
 Mutating Builder tests use the shared `isolated_builder_world` pytest fixture instead of the repository `worlds/shattered_realms/builder/` directory. The fixture copies the Shattered Realms package into `tmp_path`, points `BuilderWorkspace`, `MudRuntime`, and the world registry at that copy, and uses a temporary SQLite database. This keeps starter drafts byte-for-byte stable and prevents import/export/history/snapshot noise from being committed accidentally. See `docs/BUILDER_TEST_ISOLATION.md`.
+
+## Phase 5A runtime content synchronization
+
+Phase 5A establishes one canonical runtime truth. Item templates and entity templates are definitions only; `item_placements` and `spawns` are declarations; SQLite item/entity rows are live instances. Room rendering, look/examine, get/take, diagnostics, and future perception use canonical runtime room contents. Shared `feature_refs` resolve nonportable scenery alongside local room `features`. Blacksmith Stall now uses an anvil feature, two materialized Iron Sword item instances, one materialized Training Sword item instance, and one materialized Blacksmith Harl entity instance.

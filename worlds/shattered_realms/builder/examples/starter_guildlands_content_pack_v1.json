@@ -652,6 +652,7 @@
       "visible": true
     }
   },
+  "item_placements": {},
   "items": {
     "field_ration": {
       "description": "A starter-safe field ration template for Builder import testing.",
