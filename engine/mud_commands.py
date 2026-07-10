@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Optional, Callable
 import re
 from engine.mud_displays import semantic
+from engine.actors import actor_from_runtime_character
+from engine.score_renderer import ActorScoreRenderer
 from engine.command_registry import CommandRegistry
 from smart_mud.builder import BuilderWorkspace
 
@@ -443,19 +445,18 @@ class MudCommandEngine:
         return CommandResult(narrative=f"Granted {rec['role']} to account {rec.get('account_id') or 'n/a'} character {rec.get('character_name') or rec.get('character_id') or 'n/a'}.")
 
     def _cmd_score(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display character score (stats)."""
-        narrative = "\n".join([
-            f"{semantic('score_label', 'Name:')} {semantic('player', character.name)}",
-            f"{semantic('score_label', 'Level:')} {semantic('score_value', character.level)}",
-            f"{semantic('hp', 'HP:')} {semantic('score_value', f'{character.hp}/{character.max_hp}')}",
-            f"{semantic('mp', 'Mana:')} {semantic('score_value', f'{character.mana}/{character.max_mana}')}",
-            f"{semantic('stamina', 'Stamina:')} {semantic('score_value', f'{character.stamina}/{character.max_stamina}')}",
-            f"{semantic('score_label', 'XP:')} {semantic('score_value', character.xp)}",
-            f"{semantic('gold', 'Gold:')} {semantic('gold', character.gold)}",
-            f"{semantic('score_label', 'Character Role:')} {semantic('score_value', getattr(character, 'role', 'player'))}",
-            f"{semantic('score_label', 'Account Role:')} {semantic('score_value', getattr(character, 'account_role', 'player'))}",
-        ])
-        print(f"[mud-command] Score displayed for {character.name}")
+        """Display the modular Actor score sheet or one score section."""
+        actor = actor_from_runtime_character(character, getattr(self, "world_id", ""))
+        section = args[0].lower() if args else "all"
+        admin = str(getattr(character, "role", "player")).lower() in {"builder", "admin", "owner"} or bool(getattr(character, "builder_enabled", False))
+        narrative = ActorScoreRenderer().render(actor, section, admin=admin)
+        if section == "all":
+            legacy_top = "\n".join([
+                f"{semantic('score_label', 'Name:')} {semantic('player', character.name)}",
+                f"{semantic('score_label', 'Level:')} {semantic('score_value', character.level)}",
+            ])
+            narrative = legacy_top + "\n" + narrative
+        print(f"[mud-command] Score displayed for {character.name} section={section}")
         return CommandResult(narrative=narrative)
 
     def _cmd_inventory(self, character: Any, args: list[str], raw: str) -> CommandResult:
