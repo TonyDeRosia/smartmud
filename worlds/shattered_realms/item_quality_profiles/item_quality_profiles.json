@@ -1,0 +1,76 @@
+{
+  "item_quality_profiles": [
+    {
+      "color_role": "item_common",
+      "description": "Usable but rough pilot quality.",
+      "display_name": "Poor",
+      "durability_multiplier_placeholder": 0.9,
+      "id": "poor",
+      "maximum_score": 39,
+      "minimum_score": 0,
+      "modifier_profile_id": "",
+      "name": "poor",
+      "plugin_data": {},
+      "rank": 0,
+      "tags": [
+        "phase7c"
+      ],
+      "value_multiplier": 0.75,
+      "version": 1
+    },
+    {
+      "color_role": "item_common",
+      "description": "Baseline quality.",
+      "display_name": "Common",
+      "durability_multiplier_placeholder": 1.0,
+      "id": "common",
+      "maximum_score": 69,
+      "minimum_score": 40,
+      "modifier_profile_id": "",
+      "name": "common",
+      "plugin_data": {},
+      "rank": 1,
+      "tags": [
+        "phase7c"
+      ],
+      "value_multiplier": 1.0,
+      "version": 1
+    },
+    {
+      "color_role": "item_uncommon",
+      "description": "Slightly better workmanship metadata.",
+      "display_name": "Fine",
+      "durability_multiplier_placeholder": 1.05,
+      "id": "fine",
+      "maximum_score": 89,
+      "minimum_score": 70,
+      "modifier_profile_id": "",
+      "name": "fine",
+      "plugin_data": {},
+      "rank": 2,
+      "tags": [
+        "phase7c"
+      ],
+      "value_multiplier": 1.15,
+      "version": 1
+    },
+    {
+      "color_role": "item_rare",
+      "description": "Rare pilot quality without overpowered bonuses.",
+      "display_name": "Masterwork",
+      "durability_multiplier_placeholder": 1.1,
+      "id": "masterwork",
+      "maximum_score": 100,
+      "minimum_score": 90,
+      "modifier_profile_id": "",
+      "name": "masterwork",
+      "plugin_data": {},
+      "rank": 3,
+      "tags": [
+        "phase7c"
+      ],
+      "value_multiplier": 1.35,
+      "version": 1
+    }
+  ]
+}

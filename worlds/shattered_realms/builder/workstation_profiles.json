@@ -1,0 +1,159 @@
+{
+  "workstation_profiles": [
+    {
+      "access_requirements": {},
+      "allowed_recipe_ids": [
+        "iron_sword_recipe",
+        "training_sword_recipe",
+        "basic_armor_repair_material"
+      ],
+      "allowed_recipe_types": [
+        "forge",
+        "craft",
+        "repair_material"
+      ],
+      "capacity": 1,
+      "description": "A conservative starter anvil/forge workstation.",
+      "enabled": true,
+      "feature_tags": [
+        "anvil",
+        "forge",
+        "blacksmith"
+      ],
+      "id": "guild_blacksmith_anvil",
+      "messages": {},
+      "name": "Guild Blacksmith Anvil",
+      "owner_policy": "public_guild",
+      "plugin_data": {},
+      "provided_tool_tags": [
+        "hammer",
+        "anvil"
+      ],
+      "quality_modifier": 0,
+      "queue_policy": "single",
+      "room_ids": [
+        "guild_workshop"
+      ],
+      "schedule_id": "",
+      "speed_modifier": 1.0,
+      "tags": [
+        "phase7c"
+      ],
+      "version": 1,
+      "workstation_type": "anvil"
+    },
+    {
+      "access_requirements": {},
+      "allowed_recipe_ids": [
+        "simple_food_recipe"
+      ],
+      "allowed_recipe_types": [
+        "cook"
+      ],
+      "capacity": 1,
+      "description": "A safe cooking fire for pilot recipes.",
+      "enabled": true,
+      "feature_tags": [
+        "fire",
+        "cooking"
+      ],
+      "id": "starter_cooking_fire",
+      "messages": {},
+      "name": "Starter Cooking Fire",
+      "owner_policy": "public_guild",
+      "plugin_data": {},
+      "provided_tool_tags": [
+        "cooking_fire"
+      ],
+      "quality_modifier": 0,
+      "queue_policy": "single",
+      "room_ids": [
+        "guild_workshop"
+      ],
+      "schedule_id": "",
+      "speed_modifier": 1.0,
+      "tags": [
+        "phase7c"
+      ],
+      "version": 1,
+      "workstation_type": "cooking_fire"
+    },
+    {
+      "access_requirements": {},
+      "allowed_recipe_ids": [
+        "herb_extract_recipe"
+      ],
+      "allowed_recipe_types": [
+        "alchemy",
+        "refine",
+        "process"
+      ],
+      "capacity": 1,
+      "description": "A placeholder alchemy workstation for extracts.",
+      "enabled": true,
+      "feature_tags": [
+        "alchemy",
+        "table"
+      ],
+      "id": "starter_alchemy_table_placeholder",
+      "messages": {},
+      "name": "Starter Alchemy Table Placeholder",
+      "owner_policy": "public_guild",
+      "plugin_data": {},
+      "provided_tool_tags": [
+        "mortar",
+        "pestle"
+      ],
+      "quality_modifier": 0,
+      "queue_policy": "single",
+      "room_ids": [
+        "guild_workshop"
+      ],
+      "schedule_id": "",
+      "speed_modifier": 1.0,
+      "tags": [
+        "phase7c",
+        "placeholder"
+      ],
+      "version": 1,
+      "workstation_type": "alchemy_table"
+    },
+    {
+      "access_requirements": {},
+      "allowed_recipe_ids": [
+        "scrap_salvage_recipe"
+      ],
+      "allowed_recipe_types": [
+        "salvage",
+        "disassemble"
+      ],
+      "capacity": 1,
+      "description": "A low-impact destructive salvage bench.",
+      "enabled": true,
+      "feature_tags": [
+        "salvage",
+        "bench"
+      ],
+      "id": "starter_salvage_bench",
+      "messages": {},
+      "name": "Starter Salvage Bench",
+      "owner_policy": "public_guild",
+      "plugin_data": {},
+      "provided_tool_tags": [
+        "salvage_tool"
+      ],
+      "quality_modifier": 0,
+      "queue_policy": "single",
+      "room_ids": [
+        "guild_workshop"
+      ],
+      "schedule_id": "",
+      "speed_modifier": 1.0,
+      "tags": [
+        "phase7c"
+      ],
+      "version": 1,
+      "workstation_type": "salvage_bench"
+    }
+  ]
+}

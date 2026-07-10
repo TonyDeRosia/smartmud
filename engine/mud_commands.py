@@ -15,6 +15,7 @@ from engine.command_registry import CommandRegistry
 from smart_mud.builder import BuilderWorkspace
 from engine.abilities import AbilityExecutionService
 from engine.combat_behavior import CombatBehaviorService
+from engine.crafting import CraftingService, CraftingContent
 
 
 @dataclass
@@ -32,6 +33,14 @@ class CommandResult:
 DETERMINISTIC_COMMANDS = {
     # Information
     "score": {"category": "info", "aliases": ["sc"], "admin": False},
+    "recipes": {"category": "crafting", "admin": False},
+    "recipe": {"category": "crafting", "admin": False},
+    "craft": {"category": "crafting", "admin": False},
+    "crafting": {"category": "crafting", "admin": False},
+    "professions": {"category": "crafting", "admin": False},
+    "profession": {"category": "crafting", "admin": False},
+    "salvage": {"category": "crafting", "admin": False},
+    "refine": {"category": "crafting", "admin": False},
     "worth": {"category": "info", "admin": False},
     "finger": {"category": "info", "admin": False},
     "inventory": {"category": "info", "aliases": ["inv", "i"], "admin": False},
@@ -160,6 +169,14 @@ class MudCommandEngine:
         self.command_handlers: dict[str, Callable] = {
             # Info commands
             "score": self._cmd_score,
+            "recipes": self._cmd_crafting_player,
+            "recipe": self._cmd_crafting_player,
+            "craft": self._cmd_crafting_player,
+            "crafting": self._cmd_crafting_player,
+            "professions": self._cmd_crafting_player,
+            "profession": self._cmd_crafting_player,
+            "salvage": self._cmd_crafting_player,
+            "refine": self._cmd_crafting_player,
             "worth": self._cmd_worth,
             "inventory": self._cmd_inventory,
             "equipment": self._cmd_equipment,
@@ -326,8 +343,100 @@ class MudCommandEngine:
                 self.command_handlers[_name] = self._cmd_builder_edit
         for _name in ("rassign", "rmove", "rrenameid"):
             self.command_handlers[_name] = self._cmd_room_assign
+        for _name in "recipelist recipestat recipecreate recipeclone recipeset recipedelete recipevalidate recipepreview recipeinput recipeinputentry recipeoutput recipeoutputentry recipetool workstationlist workstationstat workstationcreate workstationclone workstationset workstationdelete workstationvalidate workstationpreview productionlist productionstat productioncreate productionset productionclone productiondelete productionvalidate qualitylist qualitystat qualitycreate qualityset qualityclone qualitydelete qualityvalidate craftpreview craftstart craftjob crafttrace craftcancel crafttick recipegrant reciperevoke actorrecipes professionstat professionxp workstationaudit craftingaudit recipeaudit recipetrace ingredienttrace workstationtrace qualitytrace professiontrace reservationtrace productiontrace".split():
+            self.command_handlers[_name] = self._cmd_crafting_builder
         for _name in "behaviorlist behaviorstat behaviorvalidate behaviorpreview actorbehavior behaviortrace combatdecision combattrace combatcandidates threatlist threatstat threatadd threatclear hostilitytrace combattick protect protectset unprotect protectclear surrender callforhelp assisttrace fleetrace pursuittrace protecttrace combatgrouptrace petmode order".split():
             self.command_handlers[_name] = self._cmd_combat_behavior
+
+    def _crafting_service(self, character: Any) -> CraftingService | None:
+        store = self.state_store
+        db_path = getattr(store, "db_path", None)
+        if not db_path:
+            return None
+        world_id = getattr(character, "world_id", "") or "shattered_realms"
+        return CraftingService(db_path, world_id=world_id, runtime=getattr(self, "runtime", None), event_bus=self.event_bus)
+
+    def _recipe_match(self, svc: CraftingService, query: str) -> dict[str, Any] | None:
+        q = str(query or "").lower().replace(" ", "_")
+        recipes = svc.content.list("recipe_definitions")
+        for r in recipes:
+            vals = {str(r.get("id", "")).lower(), str(r.get("short_name", "")).lower(), str(r.get("name", "")).lower().replace(" ", "_")}
+            if q in vals or any(q and q in v for v in vals):
+                return r
+        return None
+
+    def _cmd_crafting_player(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc = self._crafting_service(character)
+        if not svc:
+            return CommandResult(narrative="Crafting is unavailable in this runtime.", ok=False)
+        cmd = raw.split()[0].lower() if raw.split() else "recipes"
+        actor_id = getattr(character, "id", "") or getattr(character, "character_id", "")
+        if cmd in {"recipes", "learned"} or raw.lower().startswith("learned recipes"):
+            prof = args[0] if args else ""
+            recs = [r for r in svc.get_actor_recipes(actor_id) if not prof or r.get("profession_id") == prof]
+            lines = ["Known recipes:"] + [f"{i+1}. {r.get('name')} ({r.get('profession_id') or 'general'})" for i, r in enumerate(recs)]
+            return CommandResult(narrative="\n".join(lines or ["No known recipes."]))
+        if cmd == "recipe":
+            r = self._recipe_match(svc, " ".join(args)) if args else None
+            if not r: return CommandResult(narrative="Usage: recipe <name>", ok=False)
+            p = svc.preview_recipe(actor_id, r["id"], 1)
+            d = p.details
+            lines = [r.get("name", r["id"]), r.get("description", ""), f"Profession: {r.get('profession_id') or 'none'} rank {r.get('minimum_profession_rank', 0)}", f"Workstation: {d.get('workstation') or 'none'}", f"Duration: {d.get('duration', 0)}", f"Eligible: {p.eligible}"]
+            if d.get("missing_inputs"): lines.append(f"Missing: {d['missing_inputs']}")
+            return CommandResult(narrative="\n".join(lines))
+        if cmd in {"craft", "refine"}:
+            if args and args[0].lower()=="preview":
+                query=" ".join(args[1:]); start=False
+            else:
+                query=" ".join(args); start=True
+            qty=1
+            toks=query.split()
+            if toks and toks[-1].isdigit(): qty=int(toks[-1]); query=" ".join(toks[:-1])
+            r=self._recipe_match(svc, query)
+            if not r: return CommandResult(narrative="Usage: craft [preview] <recipe> [quantity]", ok=False)
+            p=svc.preview_recipe(actor_id,r["id"],qty)
+            if not start:
+                return CommandResult(narrative=f"Craft preview: {r.get('name')} x{qty}\nEligible: {p.eligible}\nSelected: {p.details.get('selected_inputs')}\nMissing: {p.details.get('missing_inputs')}\nDuration: {p.details.get('duration')}\nQuality: {p.details.get('quality_range')}\nWarnings: {p.details.get('warnings')}")
+            try: job=svc.start_crafting(actor_id,r["id"],qty)
+            except Exception as exc: return CommandResult(narrative=f"Cannot craft: {exc}", ok=False)
+            return CommandResult(narrative=f"Crafting job started: {job['crafting_job_id']} status={job['status']} completes at world time {job['completes_world_time']}.")
+        if cmd == "salvage":
+            r = next((x for x in svc.content.list("recipe_definitions") if x.get("recipe_type")=="salvage"), None)
+            if not r: return CommandResult(narrative="No salvage recipe is available.", ok=False)
+            p=svc.preview_recipe(actor_id,r["id"],1)
+            return CommandResult(narrative=f"Salvage preview: {r.get('name')}\nEligible: {p.eligible}\nWarning: destructive; exact selected item instances: {p.details.get('selected_inputs')}\nMissing: {p.details.get('missing_inputs')}")
+        if cmd == "crafting":
+            if args and args[0].lower()=="cancel" and len(args)>1:
+                job=svc.cancel_crafting(actor_id,args[1]); return CommandResult(narrative=f"Cancelled crafting job {job['crafting_job_id']}.")
+            jobs=svc.list_actor_crafting_jobs(actor_id)
+            return CommandResult(narrative="Crafting jobs:\n"+"\n".join([f"- {j['crafting_job_id']} {j['recipe_id']} {j['status']} completes={j['completes_world_time']}" for j in jobs] or ["- none"]))
+        if cmd in {"professions", "profession"}:
+            return CommandResult(narrative="Professions and ranks are managed by the canonical CraftingService profession state. Use score professions for summary.")
+        return CommandResult(narrative="Crafting command recognized.")
+
+    def _cmd_crafting_builder(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc = self._crafting_service(character)
+        if not svc:
+            return CommandResult(narrative="Crafting is unavailable in this runtime.", ok=False)
+        cmd = raw.split()[0].lower() if raw.split() else ""
+        if cmd.endswith("list") or cmd in {"recipelist", "workstationlist", "productionlist", "qualitylist"}:
+            coll = {"recipelist":"recipe_definitions","workstationlist":"workstation_profiles","productionlist":"production_profiles","qualitylist":"item_quality_profiles"}.get(cmd,"recipe_definitions")
+            return CommandResult(narrative="\n".join([f"- {x.get('id')}: {x.get('name', x.get('display_name',''))}" for x in svc.content.list(coll)] or [f"No {coll}."]))
+        if cmd in {"recipevalidate","workstationvalidate","productionvalidate","qualityvalidate","craftingaudit","recipeaudit"}:
+            v=svc.content.validate(); return CommandResult(narrative=f"Errors:\n"+"\n".join(v['errors'] or ["none"])+"\nWarnings:\n"+"\n".join(v['warnings'] or ["none"]))
+        if cmd in {"craftpreview","recipepreview"} and len(args)>=2:
+            actor=args[1] if cmd=="recipepreview" else args[0]; recipe=args[0] if cmd=="recipepreview" else args[1]; qty=int(args[2]) if len(args)>2 and args[2].isdigit() else 1
+            p=svc.preview_recipe(actor,recipe,qty); return CommandResult(narrative=json.dumps({"eligible":p.eligible, **p.details}, indent=2, default=str))
+        if cmd=="craftstart" and len(args)>=2:
+            job=svc.start_crafting(args[0],args[1],int(args[2]) if len(args)>2 and args[2].isdigit() else 1); return CommandResult(narrative=json.dumps(job, indent=2, default=str))
+        if cmd=="crafttick":
+            wt=int(args[0]) if args and args[0].isdigit() else 0; done=svc.process_crafting_jobs(world_time=wt); return CommandResult(narrative=f"Processed {len(done)} crafting jobs.")
+        if cmd=="recipegrant" and len(args)>=2: return CommandResult(narrative=f"Granted recipe knowledge {svc.grant_recipe(args[0],args[1])}.")
+        if cmd=="reciperevoke" and len(args)>=2: svc.revoke_recipe(args[0],args[1]); return CommandResult(narrative="Recipe source revoked.")
+        if cmd=="actorrecipes" and args: return CommandResult(narrative="\n".join(r['id'] for r in svc.get_actor_recipes(args[0])) or "No recipes.")
+        if cmd in {"craftjob","crafttrace","productiontrace"} and args: return CommandResult(narrative=json.dumps(svc.trace_crafting_job(args[0]), indent=2, default=str))
+        if cmd=="professionxp" and len(args)>=3: return CommandResult(narrative=json.dumps(svc.award_profession_experience(args[0],args[1],int(args[2])), indent=2, default=str))
+        return CommandResult(narrative="Crafting Builder/Admin command foundation is available; edits are stored through Builder draft JSON in Phase 7C content collections.")
 
     def _living_entity(self, query: str) -> dict[str, Any] | None:
         rt=getattr(self,'runtime',None)

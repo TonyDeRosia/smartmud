@@ -5,3 +5,7 @@ Phase 7A introduces the canonical `engine.rewards.RewardService` pipeline. Rewar
 The implemented foundation covers reward definitions, loot tables, treasure groups, currency awards, progression hooks, item-instance delivery through canonical runtime/store item APIs, pending-claim schema, corpse inventory state schema, resource-node state schema, validation, traces, and conservative Shattered Realms pilot content. Shops, crafting, full quests, group loot, mail, and economy balance remain separate systems.
 
 Manual acceptance smoke commands: `builder on`, `rewardlist`, `loottablelist`, `treasurelist`, `deathlootlist`, `corpsedecaylist`, `nodelist`, `loottablepreview rat_common_loot 12345`, `loottablepreview rat_common_loot 12345`, `grantreward self starter_training_reward`, `rewardtrace <packet_id>`, `rewards`, and `claim all`.
+
+## Phase 7C crafting integration
+
+Phase 7C adds `engine.crafting.CraftingService` as the single canonical crafting and production service. Recipes are Builder/world-package data; exact runtime item instances are selected and reserved; jobs persist in SQLite and advance by world time; costs use EconomyService; outputs use RewardService; profession rewards use canonical profession/progression state; and crafted item instances retain quality and provenance without mutating item templates. Salvaging and refining are normal recipe types, while quests, final trainers, autonomous AI production, random affixes, auction houses, and final enchantment remain outside this phase.

@@ -100,13 +100,13 @@ class ActorScoreRenderer:
 
     order = [
         "identity", "resources", "primary_attributes", "derived_attributes", "combat", "equipment",
-        "conditions", "resistances", "affects", "spellup", "abilities", "skills", "spells", "cooldowns", "current_cast", "combat_loadout", "passive_abilities", "progression", "currencies", "banking", "transactions", "relationships",
+        "conditions", "resistances", "affects", "spellup", "abilities", "skills", "spells", "cooldowns", "current_cast", "combat_loadout", "passive_abilities", "progression", "professions", "crafting", "recipes", "currencies", "banking", "transactions", "relationships",
         "simulation", "behavior", "threat", "tactics", "diagnostics", "formulas", "raw",
     ]
     aliases = {
         "score": "all", "preview": "all", "actor": "all", "attrs": "primary_attributes", "attributes": "primary_attributes",
         "derived": "derived_attributes", "resists": "resistances", "saff": "affects", "spellups": "spellup",
-        "worth": "currencies", "cast": "current_cast", "currency": "currencies", "money": "currencies", "bank": "banking", "banking": "banking", "transactions": "transactions", "builder": "diagnostics",
+        "worth": "currencies", "profession": "professions", "recipe": "recipes", "cast": "current_cast", "currency": "currencies", "money": "currencies", "bank": "banking", "banking": "banking", "transactions": "transactions", "builder": "diagnostics",
         "builder_diagnostics": "diagnostics", "ai": "simulation", "ai_diagnostics": "simulation", "behaviour": "behavior",
     }
 
@@ -326,6 +326,33 @@ class ActorScoreRenderer:
     def render_progression(self, actor: Actor, admin: bool = False) -> str:
         data = actor.progression_profile or {}
         return self._section("PROGRESSION", self._two_col([(_human(k), data.get(k, "future"), "score_value") for k in PROGRESSION_FIELDS]))
+
+    def render_professions(self, actor: Actor, admin: bool = False) -> str:
+        data = (actor.plugin_data.get("professions", {}) if getattr(actor, "plugin_data", None) else {})
+        rows = []
+        if isinstance(data, dict):
+            for pid, st in sorted(data.items()):
+                rows.append(_line(f"{pid:<24} rank={st.get('rank', 1) if isinstance(st, dict) else st} xp={st.get('experience', 0) if isinstance(st, dict) else 0}"))
+        if not rows:
+            rows = [_line("No profession progress recorded yet.")]
+        if admin:
+            rows.append(_line("Admin detail: actor_profession_state stores rank, XP, thresholds, and metadata."))
+        return self._section("PROFESSIONS", rows)
+
+    def render_crafting(self, actor: Actor, admin: bool = False) -> str:
+        data = (actor.plugin_data.get("crafting", {}) if getattr(actor, "plugin_data", None) else {})
+        rows = [_line(f"Active jobs: {data.get('active_job_count', 0) if isinstance(data, dict) else 0}"), _line(f"Current job: {data.get('current_job', '--') if isinstance(data, dict) else '--'}"), _line(f"Pending outputs: {data.get('pending_outputs', '--') if isinstance(data, dict) else '--'}")]
+        if admin:
+            rows.append(_line("Admin detail: job IDs, reservation IDs, workstation IDs, quality seed, and packet IDs are in CraftingService traces."))
+        return self._section("CRAFTING", rows)
+
+    def render_recipes(self, actor: Actor, admin: bool = False) -> str:
+        data = (actor.plugin_data.get("recipes", []) if getattr(actor, "plugin_data", None) else [])
+        count = len(data) if isinstance(data, list) else int(data.get("count", 0) if isinstance(data, dict) else 0)
+        rows = [_line(f"Known recipes: {count}"), _line("Use recipes, recipe <name>, and craft preview <recipe> for player-safe details.")]
+        if admin:
+            rows.append(_line("Admin detail: actor_recipe_knowledge preserves independent knowledge sources."))
+        return self._section("RECIPES", rows)
 
     def render_currencies(self, actor: Actor, admin: bool = False) -> str:
         data = actor.plugin_data.get("currencies", {})
