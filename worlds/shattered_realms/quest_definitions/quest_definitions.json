@@ -182,6 +182,117 @@
         }
       ],
       "version": 1
+    },
+    {
+      "id": "guildlands_emberleaf_errand",
+      "name": "Emberleaf for the Guild",
+      "short_name": "Emberleaf",
+      "summary": "Gather one emberleaf for Guild Registrar Maren.",
+      "description": "Guild Registrar Maren asks new arrivals to gather a single emberleaf from the crossing patch so the guild can confirm they can follow directions and use the gathering system.",
+      "quest_type": "tutorial",
+      "category": "starter",
+      "series_id": "starter_guildlands",
+      "chapter_id": "starter_help",
+      "sequence": 0,
+      "enabled": true,
+      "minimum_level": 1,
+      "maximum_level": 0,
+      "recommended_level": 1,
+      "availability_profile_id": "starter_available",
+      "acceptance_profile_id": "default_accept",
+      "repeat_policy_id": "once_per_actor",
+      "failure_profile_id": "default_failure",
+      "abandon_profile_id": "default_abandon",
+      "sharing_profile_id": "not_shareable",
+      "reward_definition_id": "guildlands_emberleaf_errand_reward",
+      "start_stage_id": "guildlands_emberleaf_gather",
+      "stage_ids": [
+        "guildlands_emberleaf_gather"
+      ],
+      "offer_sources": [
+        {
+          "source_type": "actor_template",
+          "source_id": "guild_registrar_maren",
+          "conversation_id": "maren_emberleaf_errand",
+          "offer_message": "Maren has a first field task for new guild recruits.",
+          "priority": 100,
+          "visible_marker": true,
+          "turn_in_marker": true,
+          "conditions": [],
+          "metadata": {}
+        }
+      ],
+      "turn_in_sources": [
+        {
+          "source_type": "actor_template",
+          "source_id": "guild_registrar_maren",
+          "conversation_id": "maren_emberleaf_errand",
+          "priority": 100
+        }
+      ],
+      "completion_actions": [],
+      "failure_actions": [],
+      "abandon_actions": [],
+      "journal_visibility": "visible",
+      "tags": [
+        "starter",
+        "phase11f",
+        "gathering"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "guildlands_next_steps",
+      "name": "Guildlands Next Steps",
+      "short_name": "Next Steps",
+      "summary": "Maren will explain the next assignment after the emberleaf errand.",
+      "description": "A lightweight follow-up foundation proving quest prerequisites and locked dialogue after the first starter quest.",
+      "quest_type": "tutorial",
+      "category": "starter",
+      "series_id": "starter_guildlands",
+      "chapter_id": "starter_help",
+      "sequence": 1,
+      "enabled": true,
+      "minimum_level": 1,
+      "maximum_level": 0,
+      "recommended_level": 1,
+      "availability_profile_id": "after_emberleaf_errand",
+      "acceptance_profile_id": "default_accept",
+      "repeat_policy_id": "once_per_actor",
+      "failure_profile_id": "default_failure",
+      "abandon_profile_id": "default_abandon",
+      "sharing_profile_id": "not_shareable",
+      "reward_definition_id": "",
+      "start_stage_id": "guildlands_next_steps_placeholder",
+      "stage_ids": [
+        "guildlands_next_steps_placeholder"
+      ],
+      "offer_sources": [
+        {
+          "source_type": "actor_template",
+          "source_id": "guild_registrar_maren",
+          "conversation_id": "maren_emberleaf_errand",
+          "offer_message": "With emberleaf delivered, Maren can outline the next Guildlands assignment.",
+          "priority": 50,
+          "visible_marker": true,
+          "turn_in_marker": false,
+          "conditions": [],
+          "metadata": {}
+        }
+      ],
+      "turn_in_sources": [],
+      "completion_actions": [],
+      "failure_actions": [],
+      "abandon_actions": [],
+      "journal_visibility": "visible",
+      "tags": [
+        "starter",
+        "phase11f",
+        "followup"
+      ],
+      "plugin_data": {},
+      "version": 1
     }
   ]
 }

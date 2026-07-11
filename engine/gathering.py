@@ -218,7 +218,8 @@ class GatheringService:
             if rng.random() <= min(0.25, max(0.0,float(e.get("weight",0) or 0))): rare.append(e)
         xp=self.records["gathering_profession_xp_profiles"].get(str(rd.get("profession_xp_profile_id") or rd.get("profession_id") or ""), {}) if rd else {}
         profession_xp={"profession_id":rd.get("profession_id"),"base_xp":int(xp.get("base_xp",1) or 1),"advancement_api":"ProgressionService/profession hook"} if rd and rd.get("profession_id") else {}
-        return {"success":True,"deterministic_seed":stable_id(s["gathering_session_id"],n["yield_seed"]),"yields":yields,"rare_yields":rare,"quality_id":(yields[0].get("quality_id") if yields else None),"profession_xp":profession_xp,"reward_source":{"source_type":"gathering","source_id":s["resource_definition_id"],"source_instance_id":s["gathering_session_id"]}}
+        first=yields[0] if yields else {}
+        return {"success":True,"actor_id":s.get("actor_id"),"node_instance_id":s.get("node_instance_id"),"resource_definition_id":s.get("resource_definition_id"),"item_template_id":first.get("item_template_id"),"quantity":sum(int(y.get("quantity",0) or 0) for y in yields),"amount":sum(int(y.get("quantity",0) or 0) for y in yields),"deterministic_seed":stable_id(s["gathering_session_id"],n["yield_seed"]),"yields":yields,"rare_yields":rare,"quality_id":(yields[0].get("quality_id") if yields else None),"profession_xp":profession_xp,"reward_source":{"source_type":"gathering","source_id":s["resource_definition_id"],"source_instance_id":s["gathering_session_id"]}}
     def gather_mode(self, mode, actor_id, room_id, query=None, tool_id=None, world_time=0):
         resolved=self.resolve_room_node(actor_id, room_id, query, mode)
         if not resolved["ok"]: return resolved
