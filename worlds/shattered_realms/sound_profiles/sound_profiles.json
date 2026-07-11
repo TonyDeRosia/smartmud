@@ -1,0 +1,136 @@
+{
+  "sound_profiles": [
+    {
+      "id": "normal_speech",
+      "name": "Normal Speech",
+      "description": "Starter sound.",
+      "sound_type": "speech",
+      "base_intensity": 5,
+      "maximum_room_distance": 1,
+      "propagation_profile_id": "standard_room_sound",
+      "blocked_by_closed_doors": true,
+      "muffled_by_walls": true,
+      "weather_modifier": 0,
+      "indoor_modifier": 0,
+      "underground_modifier": 0,
+      "messages_by_distance": {
+        "1": "faint clue nearby"
+      },
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "shout_sound",
+      "name": "Shout Sound",
+      "description": "Starter sound.",
+      "sound_type": "shout",
+      "base_intensity": 12,
+      "maximum_room_distance": 3,
+      "propagation_profile_id": "standard_room_sound",
+      "blocked_by_closed_doors": true,
+      "muffled_by_walls": true,
+      "weather_modifier": 0,
+      "indoor_modifier": 0,
+      "underground_modifier": 0,
+      "messages_by_distance": {
+        "1": "faint clue nearby"
+      },
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "combat_clash",
+      "name": "Combat Clash",
+      "description": "Starter sound.",
+      "sound_type": "combat",
+      "base_intensity": 10,
+      "maximum_room_distance": 2,
+      "propagation_profile_id": "standard_room_sound",
+      "blocked_by_closed_doors": true,
+      "muffled_by_walls": true,
+      "weather_modifier": 0,
+      "indoor_modifier": 0,
+      "underground_modifier": 0,
+      "messages_by_distance": {
+        "1": "faint clue nearby"
+      },
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "door_sound",
+      "name": "Door Sound",
+      "description": "Starter sound.",
+      "sound_type": "door",
+      "base_intensity": 7,
+      "maximum_room_distance": 1,
+      "propagation_profile_id": "standard_room_sound",
+      "blocked_by_closed_doors": true,
+      "muffled_by_walls": true,
+      "weather_modifier": 0,
+      "indoor_modifier": 0,
+      "underground_modifier": 0,
+      "messages_by_distance": {
+        "1": "faint clue nearby"
+      },
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "footstep_sound",
+      "name": "Footstep Sound",
+      "description": "Starter sound.",
+      "sound_type": "movement",
+      "base_intensity": 4,
+      "maximum_room_distance": 1,
+      "propagation_profile_id": "standard_room_sound",
+      "blocked_by_closed_doors": true,
+      "muffled_by_walls": true,
+      "weather_modifier": 0,
+      "indoor_modifier": 0,
+      "underground_modifier": 0,
+      "messages_by_distance": {
+        "1": "faint clue nearby"
+      },
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "alarm_bell",
+      "name": "Alarm Bell",
+      "description": "Starter sound.",
+      "sound_type": "alarm",
+      "base_intensity": 15,
+      "maximum_room_distance": 4,
+      "propagation_profile_id": "standard_room_sound",
+      "blocked_by_closed_doors": true,
+      "muffled_by_walls": true,
+      "weather_modifier": 0,
+      "indoor_modifier": 0,
+      "underground_modifier": 0,
+      "messages_by_distance": {
+        "1": "faint clue nearby"
+      },
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

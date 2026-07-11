@@ -1,0 +1,202 @@
+{
+  "concealment_profiles": [
+    {
+      "id": "basic_hide",
+      "name": "Basic Hide",
+      "description": "Starter concealment profile.",
+      "concealment_type": "hidden",
+      "base_concealment": 20,
+      "visual_concealment": 20,
+      "sound_concealment": 15,
+      "scent_concealment": 12,
+      "movement_concealment": 16,
+      "light_modifier": 0,
+      "weather_modifier": 0,
+      "terrain_modifier": 0,
+      "stationary_bonus": 5,
+      "moving_penalty": -5,
+      "combat_penalty": -20,
+      "equipment_tags": [],
+      "effect_tags": [],
+      "ability_tags": [],
+      "break_conditions": [
+        "combat",
+        "movement_if_configured"
+      ],
+      "reveal_conditions": [
+        "successful_search",
+        "admin_reveal"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "darkness_concealment",
+      "name": "Darkness Concealment",
+      "description": "Starter concealment profile.",
+      "concealment_type": "obscured",
+      "base_concealment": 15,
+      "visual_concealment": 15,
+      "sound_concealment": 10,
+      "scent_concealment": 7,
+      "movement_concealment": 11,
+      "light_modifier": 0,
+      "weather_modifier": 0,
+      "terrain_modifier": 0,
+      "stationary_bonus": 5,
+      "moving_penalty": -5,
+      "combat_penalty": -20,
+      "equipment_tags": [],
+      "effect_tags": [],
+      "ability_tags": [],
+      "break_conditions": [
+        "combat",
+        "movement_if_configured"
+      ],
+      "reveal_conditions": [
+        "successful_search",
+        "admin_reveal"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "fog_concealment",
+      "name": "Fog Concealment",
+      "description": "Starter concealment profile.",
+      "concealment_type": "obscured",
+      "base_concealment": 15,
+      "visual_concealment": 15,
+      "sound_concealment": 10,
+      "scent_concealment": 7,
+      "movement_concealment": 11,
+      "light_modifier": 0,
+      "weather_modifier": 0,
+      "terrain_modifier": 0,
+      "stationary_bonus": 5,
+      "moving_penalty": -5,
+      "combat_penalty": -20,
+      "equipment_tags": [],
+      "effect_tags": [],
+      "ability_tags": [],
+      "break_conditions": [
+        "combat",
+        "movement_if_configured"
+      ],
+      "reveal_conditions": [
+        "successful_search",
+        "admin_reveal"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "quiet_movement",
+      "name": "Quiet Movement",
+      "description": "Starter concealment profile.",
+      "concealment_type": "silent",
+      "base_concealment": 12,
+      "visual_concealment": 12,
+      "sound_concealment": 7,
+      "scent_concealment": 4,
+      "movement_concealment": 8,
+      "light_modifier": 0,
+      "weather_modifier": 0,
+      "terrain_modifier": 0,
+      "stationary_bonus": 5,
+      "moving_penalty": -5,
+      "combat_penalty": -20,
+      "equipment_tags": [],
+      "effect_tags": [],
+      "ability_tags": [],
+      "break_conditions": [
+        "combat",
+        "movement_if_configured"
+      ],
+      "reveal_conditions": [
+        "successful_search",
+        "admin_reveal"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "concealed_item_basic",
+      "name": "Concealed Item Basic",
+      "description": "Starter concealment profile.",
+      "concealment_type": "concealed_item",
+      "base_concealment": 15,
+      "visual_concealment": 15,
+      "sound_concealment": 10,
+      "scent_concealment": 7,
+      "movement_concealment": 11,
+      "light_modifier": 0,
+      "weather_modifier": 0,
+      "terrain_modifier": 0,
+      "stationary_bonus": 5,
+      "moving_penalty": -5,
+      "combat_penalty": -20,
+      "equipment_tags": [],
+      "effect_tags": [],
+      "ability_tags": [],
+      "break_conditions": [
+        "combat",
+        "movement_if_configured"
+      ],
+      "reveal_conditions": [
+        "successful_search",
+        "admin_reveal"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "secret_exit_basic",
+      "name": "Secret Exit Basic",
+      "description": "Starter concealment profile.",
+      "concealment_type": "secret_exit",
+      "base_concealment": 18,
+      "visual_concealment": 18,
+      "sound_concealment": 13,
+      "scent_concealment": 10,
+      "movement_concealment": 14,
+      "light_modifier": 0,
+      "weather_modifier": 0,
+      "terrain_modifier": 0,
+      "stationary_bonus": 5,
+      "moving_penalty": -5,
+      "combat_penalty": -20,
+      "equipment_tags": [],
+      "effect_tags": [],
+      "ability_tags": [],
+      "break_conditions": [
+        "combat",
+        "movement_if_configured"
+      ],
+      "reveal_conditions": [
+        "successful_search",
+        "admin_reveal"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "perception_profiles": [
+    {
+      "id": "standard_perception",
+      "name": "Standard Perception",
+      "description": "Starter deterministic profile.",
+      "base_detection_formula_id": "perception_base_v1",
+      "visual_formula_id": "perception_visual_v1",
+      "hearing_formula_id": "perception_hearing_v1",
+      "scent_formula_id": "perception_scent_v1",
+      "search_formula_id": "perception_search_v1",
+      "tracking_formula_id": "perception_tracking_v1",
+      "investigation_formula_id": "perception_investigation_v1",
+      "minimum_detection_score": 0,
+      "maximum_detection_score": 100,
+      "partial_detection_threshold": 15,
+      "full_detection_threshold": 25,
+      "critical_detection_threshold_placeholder": 40,
+      "failure_memory_policy": "temporary_suspected",
+      "success_memory_policy": "observer_knowledge",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "active_search",
+      "name": "Active Search",
+      "description": "Starter deterministic profile.",
+      "base_detection_formula_id": "perception_base_v1",
+      "visual_formula_id": "perception_visual_v1",
+      "hearing_formula_id": "perception_hearing_v1",
+      "scent_formula_id": "perception_scent_v1",
+      "search_formula_id": "perception_search_v1",
+      "tracking_formula_id": "perception_tracking_v1",
+      "investigation_formula_id": "perception_investigation_v1",
+      "minimum_detection_score": 0,
+      "maximum_detection_score": 100,
+      "partial_detection_threshold": 15,
+      "full_detection_threshold": 25,
+      "critical_detection_threshold_placeholder": 40,
+      "failure_memory_policy": "temporary_suspected",
+      "success_memory_policy": "observer_knowledge",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "standard_tracking",
+      "name": "Standard Tracking",
+      "description": "Starter deterministic profile.",
+      "base_detection_formula_id": "perception_base_v1",
+      "visual_formula_id": "perception_visual_v1",
+      "hearing_formula_id": "perception_hearing_v1",
+      "scent_formula_id": "perception_scent_v1",
+      "search_formula_id": "perception_search_v1",
+      "tracking_formula_id": "perception_tracking_v1",
+      "investigation_formula_id": "perception_investigation_v1",
+      "minimum_detection_score": 0,
+      "maximum_detection_score": 100,
+      "partial_detection_threshold": 15,
+      "full_detection_threshold": 25,
+      "critical_detection_threshold_placeholder": 40,
+      "failure_memory_policy": "temporary_suspected",
+      "success_memory_policy": "observer_knowledge",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "standard_investigation",
+      "name": "Standard Investigation",
+      "description": "Starter deterministic profile.",
+      "base_detection_formula_id": "perception_base_v1",
+      "visual_formula_id": "perception_visual_v1",
+      "hearing_formula_id": "perception_hearing_v1",
+      "scent_formula_id": "perception_scent_v1",
+      "search_formula_id": "perception_search_v1",
+      "tracking_formula_id": "perception_tracking_v1",
+      "investigation_formula_id": "perception_investigation_v1",
+      "minimum_detection_score": 0,
+      "maximum_detection_score": 100,
+      "partial_detection_threshold": 15,
+      "full_detection_threshold": 25,
+      "critical_detection_threshold_placeholder": 40,
+      "failure_memory_policy": "temporary_suspected",
+      "success_memory_policy": "observer_knowledge",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

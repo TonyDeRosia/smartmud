@@ -322,3 +322,8 @@ Smart MUD now includes the canonical `PropertyService` (`engine.property`) for B
 ## Phase 11A Builder Environment Content
 
 Builder drafts mirror implemented environment collections under `worlds/<world_id>/builder/*.json`. Builders can validate and preview environment content through EnvironmentService traces while runtime mutations remain Admin/Owner-oriented.
+
+
+## Phase 11B Perception Integration
+
+Phase 11B adds `engine.perception.PerceptionService` as the single sensory boundary for stealth, concealment, search, tracking, scent, sound, trails, and observer knowledge. It queries canonical services, especially `EnvironmentService`, and stores restart-safe sensory state in SQLite.

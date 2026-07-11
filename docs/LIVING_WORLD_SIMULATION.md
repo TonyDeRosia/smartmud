@@ -22,3 +22,8 @@ Phase 8A introduces `engine.quests.QuestService`, `QuestEventRouter`, `Conversat
 ## Phase 8B Organization Integration
 
 Phase 8B adds the canonical `OrganizationService` for parties, guilds, clans, NPC organizations, roles, permissions, invitations, applications, shared quest context, group combat attribution, and organization audit history. These systems provide context only and call existing canonical services for combat, quests, rewards, economy, progression, crafting, and world state.
+
+
+## Phase 11B Perception Integration
+
+Phase 11B adds `engine.perception.PerceptionService` as the single sensory boundary for stealth, concealment, search, tracking, scent, sound, trails, and observer knowledge. It queries canonical services, especially `EnvironmentService`, and stores restart-safe sensory state in SQLite.

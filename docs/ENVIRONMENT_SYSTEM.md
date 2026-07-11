@@ -5,3 +5,8 @@ Smart MUD now has one canonical `EnvironmentService` in `engine/environment.py`.
 Pipeline: world time -> climate profile -> weather state -> room environment -> light and visibility -> actor exposure/context hooks -> canonical systems and EventBus presentation. The service does not own actors, movement, combat, quests, achievements, properties, items, or room definitions.
 
 Manual acceptance commands: `weather`, `forecast`, `season`, `time`, `dayperiod`, `environment`, `environmenttick <minutes>`, `roomlight`, `light <item>`, `extinguish <item>`, `visibilitytrace self <target>`, `weathertrace world default`, `environmenttrace <room>`, `exposuretrace self`, and `environmentaudit`.
+
+
+## Phase 11B Perception Integration
+
+Phase 11B adds `engine.perception.PerceptionService` as the single sensory boundary for stealth, concealment, search, tracking, scent, sound, trails, and observer knowledge. It queries canonical services, especially `EnvironmentService`, and stores restart-safe sensory state in SQLite.

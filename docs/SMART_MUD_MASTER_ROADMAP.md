@@ -388,3 +388,8 @@ Smart MUD now includes the canonical `PropertyService` (`engine.property`) for B
 ## Phase 11A Environment Foundation
 
 Phase 11A adds the canonical `engine.environment.EnvironmentService` for deterministic climate, season, daylight, weather, lighting, visibility, exposure, and environmental context hooks. Runtime weather, light-source, exposure, and override state is SQLite-authoritative; Builder/world-package profile collections provide conservative Shattered Realms pilot content.
+
+
+## Phase 11B Perception Integration
+
+Phase 11B adds `engine.perception.PerceptionService` as the single sensory boundary for stealth, concealment, search, tracking, scent, sound, trails, and observer knowledge. It queries canonical services, especially `EnvironmentService`, and stores restart-safe sensory state in SQLite.
