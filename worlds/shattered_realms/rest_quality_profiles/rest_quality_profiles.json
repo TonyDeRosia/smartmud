@@ -1,0 +1,53 @@
+{
+  "rest_quality_profiles": [
+    {
+      "id": "ground_rest",
+      "name": "Ground Rest",
+      "description": "Basic ground rest.",
+      "base_quality": 45,
+      "bed_modifier": 0,
+      "shelter_modifier": 10,
+      "temperature_modifier": 0,
+      "weather_modifier": 0,
+      "noise_modifier": 0,
+      "light_modifier": 0,
+      "property_modifier": 0,
+      "campfire_modifier": 0,
+      "effect_modifiers": {},
+      "minimum_quality": 10,
+      "maximum_quality": 100,
+      "formula_id": "rest_quality_linear",
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "campfire_rest_bonus",
+      "name": "Campfire Rest Bonus",
+      "description": "Sheltered rest near a campfire.",
+      "base_quality": 55,
+      "bed_modifier": 0,
+      "shelter_modifier": 10,
+      "temperature_modifier": 0,
+      "weather_modifier": 0,
+      "noise_modifier": 0,
+      "light_modifier": 0,
+      "property_modifier": 0,
+      "campfire_modifier": 10,
+      "effect_modifiers": {},
+      "minimum_quality": 10,
+      "maximum_quality": 100,
+      "formula_id": "rest_quality_linear",
+      "messages": {},
+      "tags": [
+        "starter",
+        "campfire"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

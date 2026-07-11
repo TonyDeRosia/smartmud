@@ -17,7 +17,10 @@ SURVIVAL_COLLECTIONS = (
     "actor_need_definitions", "actor_needs_profiles", "needs_offline_policies",
     "need_threshold_profiles", "consumable_profiles", "consumable_portion_profiles",
     "food_freshness_profiles", "consumption_requirement_profiles",
-    "consumption_interruption_profiles", "survival_message_profiles", "survival_render_profiles",
+    "consumption_interruption_profiles",
+    "rest_quality_profiles", "rest_location_profiles", "sleep_profiles", "campfire_profiles",
+    "campfire_fuel_profiles", "campsite_profiles",
+    "survival_message_profiles", "survival_render_profiles",
 )
 NEED_STATUSES = {"inactive","optimal","normal","warning","critical","recovering","suspended","immune","archived"}
 SESSION_STATUSES = {"started","in_progress","interrupted","completed","failed","cancelled","expired"}
@@ -58,6 +61,15 @@ class SurvivalContent:
                 if nid not in self.records.get('actor_need_definitions',{}): e.append(f"needs profile {p.get('id')} missing need {nid}")
         for c in self.list('consumable_profiles'):
             if c.get('portion_profile_id') and c.get('portion_profile_id') not in self.records.get('consumable_portion_profiles',{}): e.append(f"consumable {c.get('id')} missing portion profile")
+        for r in self.list('rest_location_profiles'):
+            if int(r.get('capacity',1) or 1) <= 0: e.append(f"rest location {r.get('id')} invalid capacity")
+            if r.get('rest_quality_profile_id') and r.get('rest_quality_profile_id') not in self.records.get('rest_quality_profiles',{}): e.append(f"rest location {r.get('id')} missing quality profile")
+        for q in self.list('rest_quality_profiles'):
+            if float(q.get('minimum_quality',0)) > float(q.get('maximum_quality',100)): e.append(f"rest quality {q.get('id')} invalid bounds")
+        for cf in self.list('campfire_profiles'):
+            if int(cf.get('duration_minutes',1) or 0) <= 0: e.append(f"campfire {cf.get('id')} invalid duration")
+        for cs in self.list('campsite_profiles'):
+            if int(cs.get('duration_minutes',1) or 0) <= 0: e.append(f"campsite {cs.get('id')} invalid duration")
         return e
 
 @dataclass
@@ -202,6 +214,115 @@ class SurvivalNeedsService:
             if self.get_actor_need(actor_id,nid): self.modify_actor_need(actor_id,nid,float(delta)*take,'consumption',sid)
         self._publish('survival_event_consumption',{'actor_id':actor_id,'item_instance_id':item_instance_id,'consumable_profile_id':prof['id'],'servings':take})
         return {'ok':True,'consumption_session_id':sid,'servings_consumed':take,'servings_remaining':cur-take,'result':result}
+
+    def _active_rest_session(self, actor_id: str) -> dict[str, Any] | None:
+        with sqlite3.connect(self.db_path) as c:
+            c.row_factory=sqlite3.Row
+            r=c.execute("SELECT * FROM actor_rest_sessions WHERE world_id=? AND actor_id=? AND status IN ('started','resting','sleeping') ORDER BY started_world_time DESC LIMIT 1",(self.world_id,actor_id)).fetchone()
+            return dict(r) if r else None
+    def _room_for_actor(self, actor_id: str) -> str:
+        row=self._actor_row(actor_id); return row.get('room_id') or _loads(row.get('data'),{}).get('room_id') or 'guildhall_crossing_square'
+    def _rest_location(self, location_id: str|None, rest_type: str) -> dict[str, Any]:
+        if location_id: return self.content.get('rest_location_profiles', location_id) or {'id':location_id,'location_type':'custom','rest_allowed':True,'sleep_allowed':rest_type=='sleep','capacity':1,'rest_quality_profile_id':'ground_rest'}
+        pref='ground_rest' if rest_type!='sleep' else 'basic_bed'
+        return self.content.get('rest_location_profiles', pref) or {'id':pref,'location_type':'ground','rest_allowed':True,'sleep_allowed':rest_type!='sleep','capacity':99,'rest_quality_profile_id':'ground_rest'}
+    def get_shelter_context(self, actor_id: str) -> dict[str, Any]:
+        room_id=self._room_for_actor(actor_id); ctx={'actor_id':actor_id,'room_id':room_id,'indoors':False,'sheltered':False,'temperature_c':18,'precipitation':'none','wind':'calm','room_exposure':'normal','property_access':False,'private_room_access':False,'inn_room':False}
+        env=getattr(self.runtime,'environment',None) if self.runtime else None
+        if env and hasattr(env,'get_environment_context'):
+            try: ctx.update(env.get_environment_context(self.world_id,room_id) or {})
+            except TypeError: ctx.update(env.get_environment_context(room_id) or {})
+            except Exception: pass
+        prop=getattr(self.runtime,'property_service',None) if self.runtime else None
+        if prop and hasattr(prop,'actor_has_room_access'):
+            try: ctx['property_access']=bool(prop.actor_has_room_access(actor_id,room_id)); ctx['private_room_access']=ctx['property_access']
+            except Exception: pass
+        ctx['sheltered']=bool(ctx.get('sheltered') or ctx.get('indoors') or ctx.get('property_access'))
+        return ctx
+    def _quality(self, actor_id: str, location: dict[str,Any]) -> float:
+        qp=self.content.get('rest_quality_profiles', location.get('rest_quality_profile_id')) or self.content.get('rest_quality_profiles','ground_rest')
+        shelter=self.get_shelter_context(actor_id)
+        q=float(qp.get('base_quality',50)); q+=float(qp.get('bed_modifier',0) if location.get('location_type') in {'bed','inn_bed','property_bed','camp_bed','bedroll'} else 0)
+        q+=float(qp.get('shelter_modifier',0) if shelter.get('sheltered') else 0)
+        return max(float(qp.get('minimum_quality',0)), min(float(qp.get('maximum_quality',100)), q))
+    def can_rest(self, actor_id: str, room_id: str|None=None) -> dict[str,Any]:
+        if self._active_rest_session(actor_id): return {'ok':False,'reason':'already_resting'}
+        return {'ok':True,'reason':'ok','room_id':room_id or self._room_for_actor(actor_id)}
+    def start_rest(self, actor_id: str, location_id: str|None=None): return self._start_rest(actor_id,'rest',location_id)
+    def start_sleep(self, actor_id: str, location_id: str|None=None): return self._start_rest(actor_id,'sleep',location_id)
+    def _start_rest(self, actor_id: str, rest_type: str, location_id: str|None=None):
+        check=self.can_rest(actor_id); loc=self._rest_location(location_id,rest_type)
+        if not check['ok']: return check
+        if rest_type=='sleep' and not loc.get('sleep_allowed',True): return {'ok':False,'reason':'sleep_not_allowed'}
+        if rest_type=='rest' and not loc.get('rest_allowed',True): return {'ok':False,'reason':'rest_not_allowed'}
+        wt=self._world_minutes(); dur=int((loc.get('plugin_data') or {}).get('duration_minutes', 480 if rest_type=='sleep' else 60)); sid=f"rest_{_stable(self.world_id,actor_id,rest_type,loc.get('id'),wt)}"; now=utc_now(); status='sleeping' if rest_type=='sleep' else 'resting'; quality=self._quality(actor_id,loc)
+        with sqlite3.connect(self.db_path) as c:
+            c.execute('BEGIN IMMEDIATE')
+            if c.execute("SELECT 1 FROM actor_rest_sessions WHERE world_id=? AND actor_id=? AND status IN ('started','resting','sleeping')",(self.world_id,actor_id)).fetchone(): return {'ok':False,'reason':'already_resting'}
+            c.execute("INSERT INTO actor_rest_sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(sid,self.world_id,actor_id,rest_type,loc.get('location_type','ground'),loc.get('id'),check['room_id'],status,wt,wt+dur,wt,quality,'',sid,_json({}),now,now,_json({'shelter':self.get_shelter_context(actor_id)})))
+        self._publish('sleep_started' if rest_type=='sleep' else 'rest_started', {'actor_id':actor_id,'rest_session_id':sid,'quality_score':quality})
+        return {'ok':True,'rest_session_id':sid,'status':status,'quality_score':quality,'planned_end_world_time':wt+dur}
+    def process_rest_sessions(self, world_id: str, world_time: int|dict[str,Any]):
+        target=int(world_time.get('total_minutes',0) if isinstance(world_time,dict) else world_time); out=[]
+        with sqlite3.connect(self.db_path) as c:
+            c.row_factory=sqlite3.Row; rows=c.execute("SELECT * FROM actor_rest_sessions WHERE world_id=? AND status IN ('started','resting','sleeping') ORDER BY started_world_time,rest_session_id",(world_id,)).fetchall()
+        for r in rows:
+            elapsed=max(0,target-int(r['last_updated_world_time'] or r['started_world_time'] or 0));
+            if elapsed:
+                mult=max(0.25,float(r['quality_score'] or 50)/50.0); self.modify_actor_need(r['actor_id'],'fatigue', elapsed*0.05*mult, 'rest_recovery', r['rest_session_id']) if self.get_actor_need(r['actor_id'],'fatigue') else None
+                with sqlite3.connect(self.db_path) as c: c.execute("UPDATE actor_rest_sessions SET last_updated_world_time=?,updated_at=? WHERE rest_session_id=?",(target,utc_now(),r['rest_session_id']))
+            if target >= int(r['planned_end_world_time'] or target+1): out.append(self.complete_rest(r['rest_session_id']))
+        return out
+    def complete_rest(self, session_id: str):
+        with sqlite3.connect(self.db_path) as c:
+            c.row_factory=sqlite3.Row; r=c.execute("SELECT * FROM actor_rest_sessions WHERE rest_session_id=?",(session_id,)).fetchone()
+            if not r: return {'ok':False,'reason':'not_found'}
+            if r['status']=='completed': return {'ok':True,'rest_session_id':session_id,'status':'completed','duplicate':True}
+            result={'completed_world_time':self._world_minutes(),'quality_score':r['quality_score']}; c.execute("UPDATE actor_rest_sessions SET status='completed',result_json=?,updated_at=? WHERE rest_session_id=? AND status IN ('started','resting','sleeping')",(_json(result),utc_now(),session_id)); c.execute("INSERT OR IGNORE INTO rest_session_results VALUES(?,?,?,?,?,?,?)",(f"restres_{session_id}",session_id,self.world_id,r['actor_id'],self._world_minutes(),utc_now(),_json(result)))
+        self._publish('sleep_completed' if r['rest_type']=='sleep' else 'rest_completed', {'actor_id':r['actor_id'],'rest_session_id':session_id}); return {'ok':True,'rest_session_id':session_id,'status':'completed'}
+    def interrupt_rest(self, session_id: str, reason: str):
+        tr=self.trace_rest(session_id); 
+        with sqlite3.connect(self.db_path) as c: c.execute("UPDATE actor_rest_sessions SET status='interrupted',interruption_reason=?,updated_at=? WHERE rest_session_id=? AND status IN ('started','resting','sleeping')",(reason,utc_now(),session_id))
+        if tr: self._publish('actor_woke' if tr.get('rest_type')=='sleep' else 'rest_interrupted', {'actor_id':tr.get('actor_id'),'rest_session_id':session_id,'reason':reason})
+        return self.trace_rest(session_id)
+    def wake_actor(self, actor_id: str, reason: str|None=None):
+        s=self._active_rest_session(actor_id); return self.interrupt_rest(s['rest_session_id'], reason or 'wake') if s else {'ok':False,'reason':'not_resting'}
+    def get_rest_context(self, actor_id: str): return {'actor_id':actor_id,'active_session':self._active_rest_session(actor_id),'shelter':self.get_shelter_context(actor_id)}
+    def trace_rest(self, session_id):
+        with sqlite3.connect(self.db_path) as c: c.row_factory=sqlite3.Row; r=c.execute("SELECT * FROM actor_rest_sessions WHERE rest_session_id=?",(session_id,)).fetchone(); return dict(r) if r else {}
+    def create_campfire(self, actor_id, profile_id='basic_campfire', room_id=None):
+        prof=self.content.get('campfire_profiles',profile_id); room_id=room_id or self._room_for_actor(actor_id); wt=self._world_minutes(); iid=f"campfire_{_stable(self.world_id,profile_id,room_id,actor_id,wt)}"; now=utc_now()
+        with sqlite3.connect(self.db_path) as c: c.execute("INSERT OR IGNORE INTO campfire_instances VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(iid,self.world_id,profile_id,room_id,actor_id,'unlit',0,None,None,wt,now,now,_json({'profile':prof.get('id')})))
+        self._publish('campfire_created', {'actor_id':actor_id,'campfire_instance_id':iid,'room_id':room_id}); return {'ok':True,'campfire_instance_id':iid,'status':'unlit'}
+    def light_campfire(self, actor_id, campfire_instance_id):
+        wt=self._world_minutes(); now=utc_now()
+        with sqlite3.connect(self.db_path) as c:
+            c.row_factory=sqlite3.Row; r=c.execute("SELECT * FROM campfire_instances WHERE campfire_instance_id=?",(campfire_instance_id,)).fetchone();
+            if not r: return {'ok':False,'reason':'not_found'}
+            prof=self.content.get('campfire_profiles',r['profile_id']); exp=wt+int(prof.get('duration_minutes',120) or 120); c.execute("UPDATE campfire_instances SET status='lit',lit_world_time=?,expires_world_time=?,last_updated_world_time=?,updated_at=? WHERE campfire_instance_id=? AND status IN ('unlit','low_fuel','extinguished')",(wt,exp,wt,now,campfire_instance_id))
+        self._publish('campfire_lit', {'actor_id':actor_id,'campfire_instance_id':campfire_instance_id}); return {'ok':True,'status':'lit','expires_world_time':exp}
+    def add_campfire_fuel(self, actor_id, campfire_instance_id, item_instance_id=None):
+        eid=f"fuel_{_stable(campfire_instance_id,item_instance_id or 'generic',actor_id)}"; now=utc_now()
+        with sqlite3.connect(self.db_path) as c:
+            c.execute('BEGIN IMMEDIATE');
+            if c.execute("SELECT 1 FROM campfire_fuel_events WHERE fuel_event_id=?",(eid,)).fetchone(): return {'ok':True,'duplicate':True}
+            c.execute("UPDATE campfire_instances SET fuel_current=MAX(0,COALESCE(fuel_current,0))+1,status=CASE WHEN status='extinguished' THEN 'unlit' ELSE status END,updated_at=? WHERE campfire_instance_id=?",(now,campfire_instance_id)); c.execute("INSERT INTO campfire_fuel_events VALUES(?,?,?,?,?,?,?,?,?)",(eid,campfire_instance_id,self.world_id,actor_id,item_instance_id,1,self._world_minutes(),now,_json({})))
+        self._publish('campfire_fueled', {'actor_id':actor_id,'campfire_instance_id':campfire_instance_id}); return {'ok':True,'fuel_added':1}
+    def extinguish_campfire(self, actor_id, campfire_instance_id):
+        with sqlite3.connect(self.db_path) as c: c.execute("UPDATE campfire_instances SET status='extinguished',updated_at=? WHERE campfire_instance_id=?",(utc_now(),campfire_instance_id))
+        self._publish('campfire_extinguished', {'actor_id':actor_id,'campfire_instance_id':campfire_instance_id}); return {'ok':True,'status':'extinguished'}
+    def trace_campfire(self, iid):
+        with sqlite3.connect(self.db_path) as c: c.row_factory=sqlite3.Row; r=c.execute("SELECT * FROM campfire_instances WHERE campfire_instance_id=?",(iid,)).fetchone(); return dict(r) if r else {}
+    def create_campsite(self, actor_id, profile_id='basic_campsite', room_id=None):
+        room_id=room_id or self._room_for_actor(actor_id); wt=self._world_minutes(); iid=f"campsite_{_stable(self.world_id,profile_id,room_id,actor_id,wt)}"; prof=self.content.get('campsite_profiles',profile_id); now=utc_now(); exp=wt+int(prof.get('duration_minutes',480) or 480)
+        with sqlite3.connect(self.db_path) as c: c.execute("INSERT OR IGNORE INTO campsite_instances VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(iid,self.world_id,profile_id,room_id,actor_id,'active',_json([actor_id]),wt,exp,now,now,_json({}),f"{self.world_id}:{room_id}:{actor_id}:{profile_id}:{wt}"))
+        self._publish('campsite_created', {'actor_id':actor_id,'campsite_instance_id':iid,'room_id':room_id}); return {'ok':True,'campsite_instance_id':iid,'status':'active'}
+    def dismantle_campsite(self, actor_id, campsite_instance_id):
+        with sqlite3.connect(self.db_path) as c: c.execute("UPDATE campsite_instances SET status='dismantled',updated_at=? WHERE campsite_instance_id=? AND status IN ('active','occupied','abandoned')",(utc_now(),campsite_instance_id))
+        self._publish('campsite_dismantled', {'actor_id':actor_id,'campsite_instance_id':campsite_instance_id}); return {'ok':True,'status':'dismantled'}
+    def trace_campsite(self, iid):
+        with sqlite3.connect(self.db_path) as c: c.row_factory=sqlite3.Row; r=c.execute("SELECT * FROM campsite_instances WHERE campsite_instance_id=?",(iid,)).fetchone(); return dict(r) if r else {}
+
     def interrupt_consumption(self, session_id, reason):
         with sqlite3.connect(self.db_path) as c: c.execute("UPDATE consumption_sessions SET status='interrupted',failure_reason=?,updated_at=? WHERE consumption_session_id=? AND status IN ('started','in_progress')",(reason,utc_now(),session_id))
         return self.trace_consumption(session_id)
@@ -231,4 +352,10 @@ def init_survival_schema(db_path: Path) -> None:
         cols={r[1] for r in c.execute("PRAGMA table_info(item_instances)")}
         for name,ddl in {'freshness_created_world_time':'INTEGER','freshness_profile_id':'TEXT','servings_remaining':'INTEGER'}.items():
             if name not in cols: c.execute(f"ALTER TABLE item_instances ADD COLUMN {name} {ddl}")
+        c.execute("CREATE TABLE IF NOT EXISTS actor_rest_sessions(rest_session_id TEXT PRIMARY KEY,world_id TEXT,actor_id TEXT,rest_type TEXT,location_type TEXT,location_id TEXT,room_id TEXT,status TEXT,started_world_time INTEGER,planned_end_world_time INTEGER,last_updated_world_time INTEGER,quality_score REAL,interruption_reason TEXT,idempotency_key TEXT UNIQUE,result_json TEXT,created_at TEXT,updated_at TEXT,metadata_json TEXT)")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_actor_rest_one_active ON actor_rest_sessions(world_id,actor_id) WHERE status IN ('started','resting','sleeping')")
+        c.execute("CREATE TABLE IF NOT EXISTS rest_session_results(rest_session_result_id TEXT PRIMARY KEY,rest_session_id TEXT UNIQUE,world_id TEXT,actor_id TEXT,completed_world_time INTEGER,created_at TEXT,result_json TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS campfire_instances(campfire_instance_id TEXT PRIMARY KEY,world_id TEXT,profile_id TEXT,room_id TEXT,created_by_actor_id TEXT,status TEXT,fuel_current INTEGER,lit_world_time INTEGER,expires_world_time INTEGER,last_updated_world_time INTEGER,created_at TEXT,updated_at TEXT,metadata_json TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS campfire_fuel_events(fuel_event_id TEXT PRIMARY KEY,campfire_instance_id TEXT,world_id TEXT,actor_id TEXT,item_instance_id TEXT,fuel_added INTEGER,world_time INTEGER,created_at TEXT,metadata_json TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS campsite_instances(campsite_instance_id TEXT PRIMARY KEY,world_id TEXT,profile_id TEXT,room_id TEXT,created_by_actor_id TEXT,status TEXT,occupant_actor_ids_json TEXT,created_world_time INTEGER,expires_world_time INTEGER,created_at TEXT,updated_at TEXT,metadata_json TEXT,idempotency_key TEXT UNIQUE)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_actor_need_state_actor ON actor_need_state(actor_id,status)")

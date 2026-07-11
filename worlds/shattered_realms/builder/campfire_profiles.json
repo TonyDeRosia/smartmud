@@ -1,0 +1,31 @@
+{
+  "campfire_profiles": [
+    {
+      "id": "basic_campfire",
+      "name": "Basic Campfire",
+      "description": "A temporary fire for light, heat, and modest rest comfort.",
+      "required_item_tags": [
+        "firewood"
+      ],
+      "required_resource_ids": [],
+      "required_tool_tags": [],
+      "light_source_profile_id": "small_fire",
+      "heat_modifier": 5,
+      "rest_quality_modifier": 10,
+      "cooking_workstation_profile_id": "campfire",
+      "duration_minutes": 120,
+      "fuel_profile_id": "basic_firewood",
+      "extinguish_conditions": [
+        "heavy_rain",
+        "no_fuel"
+      ],
+      "room_environment_requirements": {},
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

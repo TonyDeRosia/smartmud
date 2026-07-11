@@ -1,0 +1,17 @@
+{
+  "sleep_profiles": [
+    {
+      "id": "normal_sleep",
+      "name": "Normal Sleep",
+      "description": "Conservative humanoid sleep profile.",
+      "minimum_fatigue": 0,
+      "duration_minutes": 480,
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

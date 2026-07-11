@@ -435,7 +435,7 @@ class MudCommandEngine:
         for _name in "behaviorlist behaviorstat behaviorvalidate behaviorpreview actorbehavior behaviortrace combatdecision combattrace combatcandidates threatlist threatstat threatadd threatclear hostilitytrace combattick protect protectset unprotect protectclear surrender callforhelp assisttrace fleetrace pursuittrace protecttrace combatgrouptrace petmode order".split():
             self.command_handlers[_name] = self._cmd_combat_behavior
 
-        for _name in "needs hunger thirst fatigue food drink eat consume sip taste needlist needstat needcreate needclone needset needdelete needvalidate needpreview needsprofilelist needsprofilestat needsprofilecreate needsprofileset needsprofiledelete needsprofilevalidate consumablelist consumablestat consumablecreate consumableclone consumableset consumabledelete consumablevalidate consumablepreview needsinspect needsset needsmodify needstick needstrace consumptiontrace survivalaudit".split():
+        for _name in "needs hunger thirst fatigue food drink eat consume sip taste rest sleep wake camp make break light extinguish add inspect stop needlist needstat needcreate needclone needset needdelete needvalidate needpreview needsprofilelist needsprofilestat needsprofilecreate needsprofileset needsprofiledelete needsprofilevalidate consumablelist consumablestat consumablecreate consumableclone consumableset consumabledelete consumablevalidate consumablepreview needsinspect needsset needsmodify needstick needstrace consumptiontrace survivalaudit".split():
             self.command_handlers[_name] = self._cmd_survival_needs
 
 
@@ -450,6 +450,20 @@ class MudCommandEngine:
 
     def _cmd_survival_needs(self, character: Any, args: list[str], raw: str) -> CommandResult:
         svc=self._survival_service(character); cmd=raw.split()[0].lower(); actor_id=str(getattr(character,'id',getattr(character,'character_id','self')))
+        if cmd in {'rest','sleep','wake','camp','make','break','light','extinguish','add','inspect','stop'}:
+            phrase=' '.join([cmd]+args)
+            if phrase in {'rest status','sleep status'}: return CommandResult(json.dumps(svc.get_rest_context(actor_id), indent=2, sort_keys=True))
+            if phrase in {'stop resting','wake'} or cmd=='wake': return CommandResult(json.dumps(svc.wake_actor(actor_id,'command'), indent=2, sort_keys=True))
+            if cmd=='rest': return CommandResult(json.dumps(svc.start_rest(actor_id, args[0] if args and args[0] not in {'here','status'} else None), indent=2, sort_keys=True))
+            if cmd=='sleep': return CommandResult(json.dumps(svc.start_sleep(actor_id, args[-1] if args and args[0]=='on' else None), indent=2, sort_keys=True))
+            if phrase in {'camp status'} or phrase=='inspect campsite': return CommandResult(json.dumps(svc.trace_campsite(args[-1] if args and args[-1].startswith('campsite_') else ''), indent=2, sort_keys=True))
+            if phrase in {'camp here','make camp'} or cmd=='camp': return CommandResult(json.dumps(svc.create_campsite(actor_id,'basic_campsite'), indent=2, sort_keys=True))
+            if phrase=='break camp': return CommandResult(json.dumps(svc.dismantle_campsite(actor_id,args[-1] if args and args[-1].startswith('campsite_') else ''), indent=2, sort_keys=True))
+            if phrase=='light campfire':
+                cf=svc.create_campfire(actor_id,'basic_campfire'); return CommandResult(json.dumps(svc.light_campfire(actor_id,cf['campfire_instance_id']), indent=2, sort_keys=True))
+            if phrase=='extinguish campfire': return CommandResult(json.dumps(svc.extinguish_campfire(actor_id,args[-1] if args and args[-1].startswith('campfire_') else ''), indent=2, sort_keys=True))
+            if phrase=='add fuel': return CommandResult(json.dumps(svc.add_campfire_fuel(actor_id,args[0] if args and args[0].startswith('campfire_') else '', args[1] if len(args)>1 else None), indent=2, sort_keys=True))
+            if phrase=='inspect campfire': return CommandResult(json.dumps(svc.trace_campfire(args[-1] if args and args[-1].startswith('campfire_') else ''), indent=2, sort_keys=True))
         if cmd in {'needs','hunger','thirst','fatigue','food'} or (cmd=='drink' and args[:1]==['status']):
             rows=svc.get_actor_needs(actor_id)
             if cmd in {'hunger','thirst','fatigue'}: rows=[r for r in rows if r['need_definition_id']==cmd or cmd in r['need_definition_id']]
@@ -473,6 +487,9 @@ class MudCommandEngine:
             fn=svc.set_actor_need if cmd=='needsset' else svc.modify_actor_need
             return CommandResult(json.dumps(fn(args[0],args[1],float(args[2]),'admin_command'), indent=2, sort_keys=True))
         if cmd=='consumptiontrace': return CommandResult(json.dumps(svc.trace_consumption(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='resttrace': return CommandResult(json.dumps(svc.trace_rest(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='campfiretrace': return CommandResult(json.dumps(svc.trace_campfire(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='campsitetrace': return CommandResult(json.dumps(svc.trace_campsite(args[0] if args else ''), indent=2, sort_keys=True))
         if cmd=='survivalaudit': return CommandResult('Survival audit events are stored in SQLite survival_audit_events.')
         coll = 'actor_need_definitions' if cmd.startswith('need') else 'actor_needs_profiles' if cmd.startswith('needsprofile') else 'consumable_profiles'
         if cmd.endswith('list') or cmd in {'needlist'}: return CommandResult('\n'.join(f"{x.get('id')} - {x.get('name','')}" for x in svc.content.list(coll)) or f'No {coll}.')
