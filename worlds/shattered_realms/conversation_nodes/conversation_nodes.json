@@ -104,6 +104,196 @@
       "terminal": true,
       "text": "Thank you.",
       "version": 1
+    },
+    {
+      "id": "maren_emberleaf_greeting",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "Guild Registrar Maren checks your guild token and nods. \"Welcome to Guildhall Crossing. I have a first field errand if you are ready.\"",
+      "terminal": false,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_offer",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Bring me one emberleaf from the crossing patch. The task is simple, but the guild records every step.\"",
+      "terminal": false,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_accept",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Good. Gather the emberleaf and return when your journal says the errand is ready.\"",
+      "terminal": false,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_decline",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Then look around the crossing and return when you are ready.\"",
+      "terminal": true,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_progress",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Your journal will show the emberleaf count. The patch is here at Guildhall Crossing.\"",
+      "terminal": false,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_insufficient",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Not yet. Gather one emberleaf before turning this in.\"",
+      "terminal": true,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_complete",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Well done. The guild records your first field task as complete.\"",
+      "terminal": false,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_done",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"You have already completed the emberleaf errand. I can now discuss your next steps.\"",
+      "terminal": false,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_followup_locked",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"First complete the emberleaf errand; then I will unlock your next assignment.\"",
+      "terminal": true,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "maren_emberleaf_farewell",
+      "conversation_id": "maren_emberleaf_errand",
+      "text": "\"Safe paths, recruit.\"",
+      "terminal": true,
+      "choice_ids": [],
+      "entry_conditions": [],
+      "on_enter_actions": [],
+      "speaker_ref": {
+        "type": "actor_template",
+        "id": "guild_registrar_maren"
+      },
+      "journal_note": "",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
     }
   ]
 }

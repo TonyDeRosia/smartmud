@@ -161,6 +161,31 @@
       },
       "version": 1,
       "visibility": "visible"
+    },
+    {
+      "id": "guildlands_emberleaf_gather_one",
+      "quest_id": "guildlands_emberleaf_errand",
+      "stage_id": "guildlands_emberleaf_gather",
+      "name": "Gather Emberleaf",
+      "description": "Gather 1 Emberleaf.",
+      "objective_type": "harvest_resource",
+      "progress_mode": "accumulate_amount",
+      "required_count": 1,
+      "target_definition": {
+        "item_template_id": "emberleaf"
+      },
+      "optional": false,
+      "reset_policy": "never",
+      "shared_progress_policy": "individual",
+      "completion_conditions": [],
+      "failure_conditions": [],
+      "messages": {},
+      "visibility": "visible",
+      "tags": [
+        "phase11f"
+      ],
+      "plugin_data": {},
+      "version": 1
     }
   ]
 }
