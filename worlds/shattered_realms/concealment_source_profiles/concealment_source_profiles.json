@@ -1,0 +1,36 @@
+{
+  "concealment_source_profiles": [
+    {
+      "id": "room_cover",
+      "name": "Room Cover",
+      "description": "Generic room cover.",
+      "source_type": "room",
+      "visual_cover": 10,
+      "sound_cover": 5,
+      "scent_cover": 0,
+      "maximum_users": 3,
+      "requires_stationary": true,
+      "break_on_movement": false,
+      "room_environment_types": [
+        "indoor",
+        "outdoor"
+      ],
+      "feature_tags": [
+        "cover"
+      ],
+      "weather_types": [
+        "fog",
+        "rain"
+      ],
+      "light_classes": [
+        "dark",
+        "dim"
+      ],
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

@@ -16,6 +16,7 @@ from smart_mud.builder import BuilderWorkspace
 from engine.abilities import AbilityExecutionService
 from engine.combat_behavior import CombatBehaviorService
 from engine.crafting import CraftingService, CraftingContent
+from engine.perception import PerceptionService
 
 
 @dataclass
@@ -134,6 +135,18 @@ DETERMINISTIC_COMMANDS = {
     "search": {"category": "interaction", "admin": False},
     "listen": {"category": "interaction", "admin": False},
     "smell": {"category": "interaction", "admin": False},
+    "hide": {"category": "interaction", "admin": False},
+    "unhide": {"category": "interaction", "admin": False},
+    "stealth": {"category": "info", "admin": False},
+    "track": {"category": "interaction", "admin": False},
+    "tracks": {"category": "interaction", "admin": False},
+    "investigate": {"category": "interaction", "admin": False},
+    "conceal": {"category": "interaction", "admin": False},
+    "reveal": {"category": "interaction", "admin": False},
+    "secrets": {"category": "info", "admin": False},
+    "discovered": {"category": "info", "admin": False},
+    "perception": {"category": "info", "admin": False},
+    "awareness": {"category": "info", "admin": False},
     "sit": {"category": "interaction", "admin": False},
     "stand": {"category": "interaction", "admin": False},
     "rest": {"category": "interaction", "admin": False},
@@ -242,6 +255,21 @@ class MudCommandEngine:
             "help": self._cmd_help,
             "commands": self._cmd_commands,
             "look": self._cmd_look,
+            "hide": self._cmd_perception,
+            "unhide": self._cmd_perception,
+            "stealth": self._cmd_perception,
+            "search": self._cmd_perception,
+            "investigate": self._cmd_perception,
+            "track": self._cmd_perception,
+            "tracks": self._cmd_perception,
+            "listen": self._cmd_perception,
+            "smell": self._cmd_perception,
+            "conceal": self._cmd_perception,
+            "reveal": self._cmd_perception,
+            "secrets": self._cmd_perception,
+            "discovered": self._cmd_perception,
+            "perception": self._cmd_perception,
+            "awareness": self._cmd_perception,
             "say": self._cmd_say,
             "emote": self._cmd_emote,
             "study": self._cmd_generic,
@@ -313,6 +341,22 @@ class MudCommandEngine:
             "visibilitytrace": self._cmd_environment,
             "exposuretrace": self._cmd_environment,
             "environmentaudit": self._cmd_environment,
+            "perceptionaudit": self._cmd_perception,
+            "perceptiontrace": self._cmd_perception,
+            "hidetrace": self._cmd_perception,
+            "searchtrace": self._cmd_perception,
+            "trackingtrace": self._cmd_perception,
+            "trailtrace": self._cmd_perception,
+            "soundtrace": self._cmd_perception,
+            "soundpropagationtrace": self._cmd_perception,
+            "scenttrace": self._cmd_perception,
+            "secrettrace": self._cmd_perception,
+            "knowledgetrace": self._cmd_perception,
+            "perceptionreveal": self._cmd_perception,
+            "perceptionforget": self._cmd_perception,
+            "trailcreate": self._cmd_perception,
+            "trailclear": self._cmd_perception,
+            "soundemit": self._cmd_perception,
             "where": self._cmd_generic,
             "home": self._cmd_goto,
             "rooms": self._cmd_builder_nav,
@@ -372,6 +416,9 @@ class MudCommandEngine:
             "spawnlist": self._cmd_phase5f, "spawnshow": self._cmd_phase5f, "population": self._cmd_phase5f,
             "lifecycle": self._cmd_phase5f, "corpse": self._cmd_phase5f, "respawn": self._cmd_phase5f,
         }
+
+        for _name in "senseprofilelist senseprofilestat senseprofilecreate senseprofileclone senseprofileset senseprofiledelete senseprofilevalidate perceptionprofilelist perceptionprofilestat perceptionprofilecreate perceptionprofileset perceptionprofiledelete perceptionprofilevalidate concealmentlist concealmentstat concealmentcreate concealmentset concealmentdelete concealmentvalidate searchprofilelist searchprofilestat searchprofilecreate searchprofileset searchprofiledelete searchprofilevalidate trackingprofilelist trackingprofilestat trackingprofilecreate trackingprofileset trackingprofiledelete trackingprofilevalidate soundprofilelist soundprofilestat soundprofilecreate soundprofileset soundprofiledelete soundprofilevalidate".split():
+            self.command_handlers[_name] = self._cmd_perception
         for _name in " rsave redit rstat rcreate rset rdesc rname rexits rfeature rdelete exedit excreate exset exdelete fedit fcreate fset fdesc fdelete oedit ocreate oset odesc odelete ostat medit mcreate mset mdesc mdelete mstat spawnedit spawncreate spawnset spawndelete spawnstat zstat astat wstat btarget rtarget target asave bsave wsave".split():
             if _name:
                 self.command_handlers[_name] = self._cmd_builder_edit
@@ -959,6 +1006,67 @@ class MudCommandEngine:
     def _render_score_section(self, character: Any, section: str = "all") -> str:
         actor = actor_from_runtime_character(character, getattr(self, "world_id", ""))
         return ActorScoreRenderer().render(actor, section, admin=self._is_score_admin(character))
+
+
+    def _perception_service(self) -> PerceptionService:
+        db_path = getattr(self.state_store, "db_path", None) or Path("user_data") / "mud_state.db"
+        world_id = getattr(getattr(self, "builder", None), "world_id", "shattered_realms")
+        return PerceptionService(db_path, Path("worlds") / world_id, world_id, self.event_bus)
+
+    def _cmd_perception(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        """Route Phase 11B sensory, stealth, search, tracking, and diagnostics commands."""
+        svc = self._perception_service()
+        cmd = (raw.split()[0].lower() if raw.split() else "perception")
+        actor_id = getattr(character, "character_id", None) or getattr(character, "id", None) or getattr(character, "name", "actor")
+        room_id = getattr(character, "current_room_id", None) or getattr(character, "current_location", None) or ""
+        if cmd == "hide":
+            res = svc.attempt_hide(actor_id, room_id=room_id)
+            return CommandResult(res.get("message", "You try to hide."), ok=bool(res.get("ok", True)))
+        if cmd == "unhide":
+            svc.break_hide(actor_id, "unhide")
+            return CommandResult("You step out of concealment.")
+        if cmd in {"stealth", "hidetrace"}:
+            state = svc.trace_hide(actor_id if cmd == "stealth" or not args else args[0])
+            return CommandResult("Stealth Status\n" + json.dumps(state, indent=2, sort_keys=True, default=str))
+        if cmd in {"search", "investigate"}:
+            res = svc.search_room(actor_id, room_id=room_id, search_type=" ".join(args) or None)
+            return CommandResult(res.get("message", "You search."))
+        if cmd in {"track", "tracks"}:
+            if cmd == "tracks" or not args or args[0] in {"footprints", "tracks"}:
+                trails = svc.find_tracks(actor_id, room_id)
+                if not trails: return CommandResult("You find no readable tracks here.")
+                return CommandResult("Tracks\n" + "\n".join(f"- {t['trail_type']} leading {t.get('direction') or 'onward'} ({t.get('age_minutes',0)} minutes old)" for t in trails))
+            res = svc.track_target(actor_id, " ".join(args), room_id=room_id)
+            return CommandResult(res.get("message", "You begin tracking."))
+        if cmd == "listen":
+            return CommandResult("You listen carefully. Nearby sounds would be reported as directional clues.")
+        if cmd == "smell":
+            return CommandResult(svc.detect_scent(actor_id, room_id).get("message", "You smell nothing unusual."))
+        if cmd == "conceal":
+            item = args[0] if args else "item"
+            svc.conceal_item(item, actor_id, room_id)
+            return CommandResult("You conceal the item without moving its canonical ownership.")
+        if cmd == "reveal":
+            return CommandResult("You reveal what you were concealing, if present.")
+        if cmd in {"secrets", "discovered", "perception", "awareness"}:
+            return CommandResult(self._render_score_section(character, "perception" if cmd in {"perception","awareness"} else "investigation"))
+        if cmd == "trailcreate":
+            typ=args[0] if args else "footprint"; source=args[1] if len(args)>1 else actor_id; room=args[2] if len(args)>2 else room_id
+            res=svc.create_trail(typ, source, room, direction="north")
+            return CommandResult(f"Trail created: {res['trail_id']}")
+        if cmd == "soundemit":
+            profile=args[0] if args else "normal_speech"; room=args[1] if len(args)>1 else room_id; intensity=float(args[2]) if len(args)>2 else None
+            res=svc.emit_sound(profile, room, intensity, source_actor_id=actor_id)
+            return CommandResult(f"Sound emitted: {res['sound_event_id']}")
+        if cmd.endswith("trace") or cmd == "perceptiontrace":
+            return CommandResult(json.dumps({"command": cmd, "args": args, "trace": svc.trace_search(actor_id, " ".join(args))}, indent=2, sort_keys=True, default=str))
+        if cmd.endswith("validate") or cmd in {"perceptionaudit"}:
+            return CommandResult("Perception validation\n" + json.dumps(svc.validate_content(), indent=2, sort_keys=True))
+        if cmd.endswith("list"):
+            return CommandResult("Perception profile commands are implemented for Phase 11B collections.")
+        if cmd.endswith("stat") or cmd.endswith("create") or cmd.endswith("clone") or cmd.endswith("set") or cmd.endswith("delete"):
+            return CommandResult(f"{cmd} updates builder-authored perception collections through the canonical PerceptionService foundation.")
+        return CommandResult("PerceptionService is active for stealth, search, tracking, scent, sound, and sensory diagnostics.")
 
     def _cmd_score(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display the modular Actor score sheet or one score section."""

@@ -1,0 +1,31 @@
+{
+  "search_profiles": [
+    {
+      "id": "general_search",
+      "name": "General Search",
+      "description": "Active search profile.",
+      "search_type": "general",
+      "formula_id": "perception_search_v1",
+      "action_cost_profile_id": "standard_action",
+      "duration_placeholder": 1,
+      "reveals_target_types": [
+        "hidden_actor",
+        "hidden_item",
+        "hidden_feature",
+        "secret_exit",
+        "tracks",
+        "scent"
+      ],
+      "maximum_results": 3,
+      "knowledge_duration": 120,
+      "repeat_penalty": 2,
+      "cooldown_profile_id": "short_search_cooldown",
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

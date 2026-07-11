@@ -103,13 +103,14 @@ class ActorScoreRenderer:
         "conditions", "resistances", "affects", "spellup", "abilities", "skills", "spells", "cooldowns", "current_cast", "combat_loadout", "passive_abilities", "progression", "professions", "crafting", "recipes", "quests", "journal", "questhistory", "currencies", "banking", "transactions", "relationships", "factions", "reputation", "standing", "diplomacy",
         "achievements", "milestones", "titles", "accolades", "collections",
         "property", "housing", "leases", "storage", "home",
+        "perception", "senses", "stealth", "tracking", "investigation",
         "simulation", "party", "organizations", "guild", "clan", "memberships", "social", "behavior", "threat", "tactics", "diagnostics", "formulas", "raw",
     ]
     aliases = {
         "score": "all", "preview": "all", "actor": "all", "attrs": "primary_attributes", "attributes": "primary_attributes",
         "derived": "derived_attributes", "resists": "resistances", "saff": "affects", "spellups": "spellup",
         "worth": "currencies", "profession": "professions", "recipe": "recipes", "cast": "current_cast", "currency": "currencies", "money": "currencies", "bank": "banking", "banking": "banking", "transactions": "transactions", "builder": "diagnostics",
-        "questlog": "journal", "quest_history": "questhistory", "builder_diagnostics": "diagnostics", "ai": "simulation", "ai_diagnostics": "simulation", "behaviour": "behavior", "membership": "memberships", "faction_standing": "standing", "relations": "diplomacy", "achievement": "achievements", "title": "titles", "collection": "collections",
+        "questlog": "journal", "quest_history": "questhistory", "builder_diagnostics": "diagnostics", "ai": "simulation", "ai_diagnostics": "simulation", "behaviour": "behavior", "membership": "memberships", "faction_standing": "standing", "relations": "diplomacy", "achievement": "achievements", "title": "titles", "collection": "collections", "awareness": "perception",
     }
 
     def __init__(self, formula_registry: FormulaRegistry | None = None, *, ansi: bool = False):
@@ -525,6 +526,47 @@ class ActorScoreRenderer:
         rows = [_line(_value(x)) for x in data[:8]] or [_line("No collection progress recorded yet.")]
         if admin: rows.append(_line("Admin detail: actor_collection_state stores stable collection entry source IDs."))
         return self._section("COLLECTIONS", rows)
+
+
+    def render_perception(self, actor: Actor, admin: bool = False) -> str:
+        data = actor.plugin_data.get("perception", {}) if isinstance(actor.plugin_data, dict) else {}
+        pairs = [
+            ("Vision", data.get("vision_profile_id", "normal vision"), "score_value"),
+            ("Hearing", data.get("hearing_rating", 10), "score_value"),
+            ("Scent", data.get("scent_rating", 5), "score_value"),
+            ("Awareness", data.get("awareness_rating", 10), "score_value"),
+            ("Known Secrets", data.get("known_secrets_count", 0), "score_value"),
+        ]
+        if admin:
+            pairs.append(("Perception Service", "engine.perception.PerceptionService", "score_value"))
+        return self._section("PERCEPTION", self._two_col(pairs))
+
+    def render_senses(self, actor: Actor, admin: bool = False) -> str:
+        data = actor.plugin_data.get("perception", {}) if isinstance(actor.plugin_data, dict) else {}
+        return self._section("SENSES", self._two_col([
+            ("Vision Profile", data.get("vision_profile_id", "normal_humanoid"), "score_value"),
+            ("Search", data.get("search_rating", 10), "score_value"),
+            ("Tracking", data.get("tracking_rating", 8), "score_value"),
+            ("Investigation", data.get("investigation_rating", 8), "score_value"),
+        ]))
+
+    def render_stealth(self, actor: Actor, admin: bool = False) -> str:
+        data = actor.plugin_data.get("stealth", {}) if isinstance(actor.plugin_data, dict) else {}
+        pairs=[("Concealment State", data.get("status", "not hidden"), "score_value"), ("Concealment", data.get("concealment", "none"), "score_value")]
+        if admin: pairs.append(("Stealth State ID", data.get("stealth_state_id", "SQLite actor_stealth_state"), "score_value"))
+        return self._section("STEALTH", self._two_col(pairs))
+
+    def render_tracking(self, actor: Actor, admin: bool = False) -> str:
+        data = actor.plugin_data.get("tracking", {}) if isinstance(actor.plugin_data, dict) else {}
+        pairs=[("Active Session", data.get("status", "none"), "score_value"), ("Trail Confidence", data.get("confidence", "--"), "score_value")]
+        if admin: pairs.append(("Tracking Session ID", data.get("tracking_session_id", "SQLite actor_tracking_sessions"), "score_value"))
+        return self._section("TRACKING", self._two_col(pairs))
+
+    def render_investigation(self, actor: Actor, admin: bool = False) -> str:
+        data = actor.plugin_data.get("investigation", {}) if isinstance(actor.plugin_data, dict) else {}
+        pairs=[("Search", data.get("search_rating", 10), "score_value"), ("Investigation", data.get("investigation_rating", 8), "score_value"), ("Discovered Clues", data.get("clue_count", 0), "score_value")]
+        if admin: pairs.append(("Knowledge IDs", data.get("knowledge_ids", "SQLite actor_perception_knowledge"), "score_value"))
+        return self._section("INVESTIGATION", self._two_col(pairs))
 
     def render_simulation(self, actor: Actor, admin: bool = False) -> str:
         data = actor.simulation_profile or {}

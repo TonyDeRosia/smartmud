@@ -212,3 +212,8 @@ Smart MUD now includes the canonical `PropertyService` (`engine.property`) for B
 ## Phase 11A Environment Collections
 
 World packages may define `climate_profiles`, `season_profiles`, `daylight_profiles`, `moonlight_profiles`, `weather_type_definitions`, `weather_transition_profiles`, `room_environment_profiles`, `light_source_profiles`, `actor_vision_profiles`, `environment_exposure_profiles`, `environment_message_profiles`, `environment_override_profiles`, `environment_render_profiles`, and `environment_hazard_profiles`.
+
+
+## Phase 11B Perception Integration
+
+Phase 11B adds `engine.perception.PerceptionService` as the single sensory boundary for stealth, concealment, search, tracking, scent, sound, trails, and observer knowledge. It queries canonical services, especially `EnvironmentService`, and stores restart-safe sensory state in SQLite.

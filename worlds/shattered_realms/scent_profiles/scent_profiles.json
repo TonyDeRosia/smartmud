@@ -1,0 +1,80 @@
+{
+  "scent_profiles": [
+    {
+      "id": "normal_actor_scent",
+      "name": "Normal Actor Scent",
+      "description": "Starter scent.",
+      "base_strength": 8,
+      "retention_minutes": 120,
+      "weather_sensitivity": 0.5,
+      "terrain_sensitivity": 0.5,
+      "species_tags": [],
+      "item_tags": [],
+      "effect_tags": [],
+      "maskable": true,
+      "identification_threshold": 20,
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "blood_scent",
+      "name": "Blood Scent",
+      "description": "Starter scent.",
+      "base_strength": 16,
+      "retention_minutes": 180,
+      "weather_sensitivity": 0.5,
+      "terrain_sensitivity": 0.5,
+      "species_tags": [],
+      "item_tags": [],
+      "effect_tags": [],
+      "maskable": true,
+      "identification_threshold": 20,
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "corpse_scent",
+      "name": "Corpse Scent",
+      "description": "Starter scent.",
+      "base_strength": 20,
+      "retention_minutes": 240,
+      "weather_sensitivity": 0.5,
+      "terrain_sensitivity": 0.5,
+      "species_tags": [],
+      "item_tags": [],
+      "effect_tags": [],
+      "maskable": true,
+      "identification_threshold": 20,
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "food_scent",
+      "name": "Food Scent",
+      "description": "Starter scent.",
+      "base_strength": 10,
+      "retention_minutes": 90,
+      "weather_sensitivity": 0.5,
+      "terrain_sensitivity": 0.5,
+      "species_tags": [],
+      "item_tags": [],
+      "effect_tags": [],
+      "maskable": true,
+      "identification_threshold": 20,
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

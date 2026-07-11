@@ -29,3 +29,8 @@ locker retrieve <item>
 ```
 
 Expected behavior: quotes come from EconomyService, leases and credentials persist, guests receive explicit grants, unrelated actors are denied, exact item instances move atomically, renewals are idempotent, expiration happens once, keys/grants are invalidated, retained items are preserved, and home locations persist for future recall systems.
+
+
+## Phase 11B Perception Integration
+
+Phase 11B adds `engine.perception.PerceptionService` as the single sensory boundary for stealth, concealment, search, tracking, scent, sound, trails, and observer knowledge. It queries canonical services, especially `EnvironmentService`, and stores restart-safe sensory state in SQLite.
