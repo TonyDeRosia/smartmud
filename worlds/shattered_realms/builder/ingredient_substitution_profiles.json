@@ -1,0 +1,15 @@
+{
+  "ingredient_substitution_profiles": [
+    {
+      "description": "Conservative placeholder; no automatic substitutions enabled by pilot recipes.",
+      "id": "starter_material_substitutions",
+      "name": "Starter material substitutions",
+      "plugin_data": {},
+      "rules": [],
+      "tags": [
+        "phase7c"
+      ],
+      "version": 1
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+# Recipe Knowledge
+
+Phase 7C introduces the canonical `engine.crafting.CraftingService` for deterministic recipes, input reservation, workstation validation, world-time production jobs, quality resolution, item provenance, profession experience, recipe knowledge, salvage, refining, and production-order foundations.
+
+## Ownership and flow
+
+Actor or production owner -> recipe definition -> profession and requirement validation -> workstation validation -> deterministic ingredient selection -> exact item reservation -> EconomyService cost transaction -> world-time job -> deterministic quality -> input consumption -> RewardService output delivery -> profession progression and audit events. Crafting code must not directly grant XP, mutate currency dictionaries, copy templates into inventory, or bypass canonical RewardService/EconomyService APIs.
+
+## Runtime authority
+
+SQLite tables include `crafting_jobs`, `crafting_input_reservations`, `crafting_input_reservation_entries`, `workstation_runtime_state`, `actor_profession_state`, `actor_recipe_knowledge`, and immutable `craft_previews`. Jobs are restart-safe and idempotent: completed jobs keep one reward packet and repeat completion returns the existing completed state.
+
+## Builder and content
+
+World packages and Builder drafts support `recipe_definitions`, `workstation_profiles`, `production_profiles`, `item_quality_profiles`, `crafting_quality_profiles`, `ingredient_substitution_profiles`, `crafting_message_profiles`, `profession_experience_curves`, and `profession_growth_profiles`. Pilot Shattered Realms content includes blacksmith, herbalist, cook, and salvager examples.
+
+## Manual acceptance commands
+
+Builder: `builder on`, `recipelist`, `recipestat iron_sword_recipe`, `workstationlist`, `professionlist`, `qualitylist`, `recipepreview iron_sword_recipe self 1`.
+
+Player: `recipes`, `recipe iron_sword`, `craft preview iron_sword`, `craft iron_sword`, `crafting jobs`, `crafttick <required duration>`, `crafting cancel <job>`, and `salvage <eligible item>`.
+
+## Boundaries
+
+Quest integration, final trainers, autonomous AI production, random affixes, auction houses, player-to-player work orders, and final enchantment mechanics remain separate future systems.

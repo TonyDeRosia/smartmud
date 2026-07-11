@@ -20,6 +20,11 @@ from smart_mud.world_registry import WorldRegistry
 from smart_mud.builder import BuilderWorkspace
 from smart_mud.event_bus import EventBus
 from engine.plugin_system import HookRegistry, PluginRegistry
+from engine.living_world import LivingWorldService, init_living_schema
+from engine.abilities import AbilityExecutionService, init_ability_schema
+from engine.crafting import init_crafting_schema
+from engine.environment import EnvironmentService, init_environment_schema
+from engine.survival_needs import SurvivalNeedsService, init_survival_schema
 
 VALID_ROLES = {"player", "helper", "builder", "admin", "owner"}
 BUILDER_ROLES = {"builder", "admin", "owner"}
@@ -101,6 +106,7 @@ class MudCharacter:
     last_edited_target: str = ""
     builder_desc_editor_room_id: str = ""
     builder_desc_editor_lines: list[str] = field(default_factory=list)
+    actor_data: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -252,6 +258,22 @@ class MudStateStore:
                     destroy_reason TEXT
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS actor_effect_instances (
+                    effect_instance_id TEXT PRIMARY KEY, world_id TEXT, effect_template_id TEXT,
+                    target_actor_type TEXT, target_actor_id TEXT, source_actor_type TEXT, source_actor_id TEXT,
+                    source_ability_id TEXT, source_item_instance_id TEXT, category TEXT, disposition TEXT,
+                    visibility TEXT, stack_group TEXT, stack_count INTEGER, maximum_stacks INTEGER,
+                    started_world_time INTEGER, expires_world_time INTEGER, remaining_duration INTEGER,
+                    next_tick_world_time INTEGER, active INTEGER, suspended INTEGER, removal_reason TEXT,
+                    created_at TEXT, updated_at TEXT, metadata_json TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_actor_effect_target ON actor_effect_instances(target_actor_type,target_actor_id,active)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_actor_effect_source ON actor_effect_instances(source_actor_type,source_actor_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_actor_effect_template ON actor_effect_instances(effect_template_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_actor_effect_expire ON actor_effect_instances(world_id,expires_world_time,active)")
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS room_item_seeds (
                     world_id TEXT,
@@ -427,6 +449,9 @@ class MudStateStore:
                 if name not in existing:
                     conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} {ddl}")
 
+            init_living_schema(self.db_path)
+            init_ability_schema(self.db_path)
+            init_crafting_schema(self.db_path)
             conn.commit()
 
     def save_character(self, char: MudCharacter, world_id: str) -> None:
@@ -557,11 +582,43 @@ class MudRuntime:
         self.entity_templates: dict[str, MappingProxyType] = {}
         self.sessions: dict[str, MudSession] = {}
         self.command_engine = MudCommandEngine(self.state_store, event_bus=self.event_bus)
+        self.abilities = None
         self.builder = BuilderWorkspace(event_bus=self.event_bus)
         self.command_engine.runtime = self
+        self.living_world = LivingWorldService(self)
+        init_survival_schema(self.state_store.db_path)
+        self.survival_needs = SurvivalNeedsService(self.state_store.db_path, root / "worlds" / "shattered_realms", "shattered_realms", self.event_bus, self)
+        init_environment_schema(self.state_store.db_path)
+        self.environment = EnvironmentService(self.state_store.db_path, root / "worlds" / "shattered_realms", "shattered_realms", self.event_bus)
         self.sqlite_ready = (user_data_dir / "mud_state.db").exists()
         self.event_bus.publish("runtime_ready", {"sqlite_ready": self.sqlite_ready}, source_system="runtime")
         print("[mud-runtime] Smart MUD runtime initialized")
+
+
+    # Phase 5B living-world facade APIs.
+    def get_world_time(self, world_id: str | None = None) -> dict[str, Any]: return self.living_world.ensure_world_time(world_id or self.active_world_id or "")
+    def set_world_time(self, world_id: str, day: int, hhmm: str | None = None, hour: int | None = None, minute: int | None = None) -> dict[str, Any]: return self.living_world.set_world_time(world_id, day, hhmm, hour, minute)
+    def advance_world_time(self, world_id: str, minutes: int) -> dict[str, Any]:
+        wt = self.living_world.advance_world_time(world_id, minutes)
+        if getattr(self, "survival_needs", None): self.survival_needs.process_world_needs(world_id, wt)
+        return wt
+    def pause_world_time(self, world_id: str) -> dict[str, Any]: return self.living_world.pause_world_time(world_id)
+    def resume_world_time(self, world_id: str) -> dict[str, Any]: return self.living_world.resume_world_time(world_id)
+    def get_entity_profile(self, instance_id: str) -> dict[str, Any]: return self.living_world.get_entity_profile(instance_id)
+    def get_entity_context(self, instance_id: str) -> dict[str, Any]: return self.living_world.get_context(instance_id)
+    def evaluate_entity_schedule(self, instance_id: str, world_time: dict[str, Any] | None = None) -> dict[str, Any]: return self.living_world.evaluate_schedule(instance_id, world_time)
+    def apply_entity_schedule(self, instance_id: str, world_time: dict[str, Any] | None = None) -> dict[str, Any]: return self.living_world.apply_schedule(instance_id, world_time)
+    def find_room_path(self, start_room_id: str, target_room_id: str, max_depth: int = 20) -> dict[str, Any]: return self.living_world.find_room_path(start_room_id, target_room_id, max_depth)
+    def move_entity_along_path(self, instance_id: str, path: list[str], steps: int = 1) -> dict[str, Any]: return self.move_entity(instance_id, path[min(steps, len(path)-1)]) if path else {}
+    def simulate_world(self, world_id: str, minutes: int) -> dict[str, Any]: return self.living_world.simulate_world(world_id, minutes)
+    def simulate_entity(self, instance_id: str, minutes: int) -> dict[str, Any]: self.living_world.advance_needs(instance_id, minutes); return self.apply_entity_schedule(instance_id)
+    def create_entity_goal(self, *args: Any, **kwargs: Any) -> str: return self.living_world.create_entity_goal(*args, **kwargs)
+    def list_entity_goals(self, instance_id: str, status: str | None = None) -> list[dict[str, Any]]: return self.living_world.list_goals(instance_id, status)
+    def select_deterministic_goal(self, instance_id: str) -> dict[str, Any] | None: return self.living_world.select_goal(instance_id)
+    def record_entity_memory(self, *args: Any, **kwargs: Any) -> str: return self.living_world.record_memory(*args, **kwargs)
+    def query_entity_memories(self, instance_id: str, **kwargs: Any) -> list[dict[str, Any]]: return self.living_world.query_memories(instance_id, **kwargs)
+    def get_recent_memories(self, instance_id: str, limit: int = 10) -> list[dict[str, Any]]: return self.living_world.query_memories(instance_id, limit=limit)
+    def get_memories_about(self, instance_id: str, subject_type: str, subject_id: str) -> list[dict[str, Any]]: return self.living_world.query_memories(instance_id, subject_type, subject_id)
 
     def create_runtime_session(self, transport_type: str, remote_address: str = "") -> MudSession:
         now = datetime.now(timezone.utc).isoformat()
@@ -639,6 +696,12 @@ class MudRuntime:
         self._load_item_templates()
         self._load_entity_templates()
         self.materialize_world_content(world_id)
+        self.living_world.ensure_world_time(world_id)
+        self.abilities = AbilityExecutionService(self.state_store.db_path, self.active_world, self.event_bus, world_id)
+        self.command_engine.ability_service = self.abilities
+        self.command_engine.world_id = world_id
+        self.environment = EnvironmentService(self.state_store.db_path, self.active_world.root, world_id, self.event_bus)
+        self.command_engine.environment_service = self.environment
         self.hooks.emit("world_loaded", world_id=world_id, world=self.active_world)
         self.event_bus.publish("world_loaded", {"world_id": world_id}, source_system="runtime", world_id=world_id)
         return self.active_world
@@ -1168,7 +1231,7 @@ class MudRuntime:
             from engine.mud_commands import CommandResult
             choices = parsed["alias_note"].split(":", 1)[1].strip()
             return CommandResult(f"Which command did you mean? {choices}", ok=False)
-        if raw_cmd in {"rcontents", "istat", "itemstat", "mstat", "estat", "sstat", "seedstat"}:
+        if raw_cmd in {"rcontents", "istat", "itemstat", "mstat", "estat", "sstat", "seedstat", "entityaudit"}:
             from engine.mud_commands import CommandResult
             if not self._builder_visible(char): return CommandResult("You do not have permission for that command.", ok=False)
             return CommandResult(self._builder_content_diagnostic(char, raw_cmd, args))
@@ -1207,6 +1270,8 @@ class MudRuntime:
             if entity_result is not None:
                 from engine.mud_commands import CommandResult
                 return CommandResult(entity_result)
+        if cmd_name in {"use", "cast", "invoke", "perform", "ability", "abilities", "skills", "spells", "cancel", "cooldowns", "abilitylist", "abilitystat", "abilitycreate", "abilityclone", "abilityset", "abilitydelete", "abilityvalidate", "abilitypreview", "abilitytrace", "loadoutlist", "loadoutstat", "loadoutcreate", "loadoutclone", "loadoutset", "loadoutability", "loadoutdelete", "loadoutvalidate", "abilitygrant", "abilityrevoke", "actorabilities", "abilitycooldowns", "abilitycasts"}:
+            return self.command_engine.handle_command(char, command)
         item_result = self._handle_item_command(char, command, cmd_name, args)
         if item_result is not None:
             self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": item_result.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
@@ -1254,14 +1319,21 @@ class MudRuntime:
             with sqlite3.connect(self.state_store.db_path) as conn:
                 for row in conn.execute("SELECT declaration_kind,declaration_id,status,instance_ids_json FROM content_materializations WHERE world_id=? ORDER BY declaration_kind,declaration_id", (self.active_world_id or "",)):
                     mats.append(f"{row[0]} {row[1]} {row[2]} {row[3]}")
+            legacy = self._legacy_room_entity_declarations(rid)
             lines=[f"Room: {rid}", "Resolved source: canonical runtime content", "Features:"]
             lines += [f"- {f.get('id')}: {f.get('name')} portable={f.get('portable', False)} source={f.get('source','')}" for f in contents['features']] or ["- none"]
             lines += ["Runtime item instances:"] + ([f"- {i.get('instance_id')} template={i.get('template_id')} name={i.get('name')} location={i.get('owner_type')}:{i.get('room_id') or i.get('owner_id')} portable={(i.get('template') or {}).get('portable', True)} seed={(i.get('custom_flags') or {}).get('source_seed_id','')}" for i in contents['item_instances']] or ["- none"])
             lines += ["Runtime entity instances:"] + ([f"- {e.get('instance_id')} template={e.get('template_id')} name={e.get('name')} type={e.get('entity_type')} room={e.get('room_id')} spawn={(e.get('state') or {}).get('source_spawn_id','')}" for e in contents['entity_instances']] or ["- none"])
             lines += ["Players:", "- none", "Item placement declarations:"] + ([f"- {p.get('id')} template={p.get('item_template_id')} room={p.get('room_id')} qty={p.get('quantity')} policy={p.get('seed_policy','once')}" for p in contents.get('item_placement_declarations', [])] or ["- none"])
             lines += ["Entity spawn declarations:"] + ([f"- {sp.get('id')} template={sp.get('entity_template_id')} room={sp.get('room_id')} qty={sp.get('quantity')} policy={sp.get('spawn_policy','once')}" for sp in contents.get('entity_spawn_declarations', [])] or ["- none"])
+            lines += ["Legacy room NPC declarations:"] + ([f"- source_file=rooms/rooms.json source_field={d.get('source')} template={d.get('template_id')} name={d.get('name')} room={d.get('room_id')} normalized_spawn={self._legacy_spawn_id(d.get('room_id',''), d.get('template_id',''))} status=superseded_or_normalized" for d in legacy] or ["- none"])
+            lines += ["Builder draft entity declarations:", "- not merged into ordinary runtime rendering"]
             lines += ["Materialization records:"] + (mats or ["- none"])
+            lines += ["Rendering source:", "- runtime entity instances only", "Duplicate risks:", "- none"]
             return "\n".join(lines)
+        if cmd == "entityaudit":
+            target = char.room_id if q in {"", "here"} else q
+            return self.entity_duplication_audit(target)
         if cmd in {"istat", "itemstat"}:
             item = self.find_item(q) or (self.resolve_item_keywords(q, self.get_visible_room_items(char.room_id)).get('item') if q else None)
             if not item: return "Item not found."
@@ -1334,7 +1406,7 @@ class MudRuntime:
         by_id = {str(item.get("id")): item for item in getattr(self.active_world, "items", [])}
         return [by_id.get(str(value), value) if not isinstance(value, dict) else value for value in values]
 
-    EQUIPMENT_SLOTS = ["head","neck","body","back","arms","hands","finger_left","finger_right","waist","legs","feet","main_hand","off_hand","both_hands","ranged","ammo","light"]
+    EQUIPMENT_SLOTS = ["head","face","neck","shoulders","back","chest","arms","wrists","hands","finger_left","finger_right","waist","legs","feet","main_hand","off_hand","accessory_1","accessory_2","light"]
     HAND_SLOTS = {"main_hand", "off_hand", "both_hands", "light"}
     ARTICLES = {"a", "an", "the"}
 
@@ -1357,7 +1429,11 @@ class MudRuntime:
                 "long_description": str(raw.get("long_description") or raw.get("description") or raw.get("short_description") or raw.get("name") or tid),
                 "item_type": str(raw.get("item_type") or raw.get("type") or "misc"),
                 "weight": raw.get("weight", 0), "value": raw.get("value", 0),
-                "wear_slots": [str(v) for v in wear_slots if str(v) in self.EQUIPMENT_SLOTS],
+                "wear_slots": [str(v) for v in (raw.get("occupies_slots") or raw.get("equipment_slots") or wear_slots) if str(v) in self.EQUIPMENT_SLOTS],
+                "equipment_slots": [str(v) for v in (raw.get("occupies_slots") or raw.get("equipment_slots") or wear_slots) if str(v) in self.EQUIPMENT_SLOTS],
+                "occupies_slots": [str(v) for v in (raw.get("occupies_slots") or raw.get("equipment_slots") or wear_slots) if str(v) in self.EQUIPMENT_SLOTS],
+                "requires_item_tag": raw.get("requires_item_tag") or raw.get("requires_item_tags") or [],
+                "modifiers": list(raw.get("modifiers") or []),
                 "weapon_flags": raw.get("weapon_flags") or raw.get("flags") or [],
                 "armor_values": raw.get("armor_values") or raw.get("stats") or {},
                 "stackable": bool(raw.get("stackable", False)), "max_stack": int(raw.get("max_stack", 1) or 1),
@@ -1438,12 +1514,23 @@ class MudRuntime:
         if len(partial) == 1: return {"status":"ok", "item": partial[0], "matches": partial}
         return {"status":"ambiguous" if partial else "missing", "matches": partial}
 
+    def _normalize_equipment_slot(self, slot: str | None) -> str:
+        aliases = {"body": "chest", "shield": "off_hand", "primary_weapon": "main_hand", "secondary_weapon": "off_hand"}
+        return aliases.get(str(slot or "").strip(), str(slot or "").strip())
+
     def validate_equipment(self, character_id: str, item_instance: dict[str, Any], slot: str | None = None) -> dict[str, Any]:
-        allowed = list((item_instance.get("template") or {}).get("wear_slots") or [])
+        tmpl = item_instance.get("template") or {}
+        raw_allowed = list(tmpl.get("wear_slots") if "both_hands" in (tmpl.get("wear_slots") or []) else (tmpl.get("occupies_slots") or tmpl.get("wear_slots") or []))
+        legacy_both_hands = "both_hands" in raw_allowed
+        if legacy_both_hands:
+            raw_allowed = ["main_hand", "off_hand"]
+        allowed = [self._normalize_equipment_slot(s) for s in raw_allowed]
+        slot = self._normalize_equipment_slot(slot) if slot else None
         if slot and slot not in self.EQUIPMENT_SLOTS: return {"ok": False, "message": "That is not a valid equipment slot."}
         if slot and slot not in allowed: return {"ok": False, "message": f"You can't equip {item_instance['name']} there."}
         if not allowed: return {"ok": False, "message": f"You can't equip {item_instance['name']}."}
-        return {"ok": True, "slot": slot or allowed[0]}
+        store_slot = "both_hands" if legacy_both_hands else ",".join(allowed)
+        return {"ok": True, "slot": store_slot, "occupies_slots": allowed}
 
     def pickup_item(self, character_id: str, room_id: str, query: str) -> str:
         res = self.resolve_item_keywords(query, self.get_visible_room_items(room_id))
@@ -1464,20 +1551,22 @@ class MudRuntime:
     def equip_item(self, character_id: str, query: str, preferred_slot: str | None = None) -> str:
         res=self.resolve_item_keywords(query, self.find_inventory_items(character_id))
         if res["status"] != "ok": return self._resolve_message(res, "You aren't carrying that.")
-        item=res["item"]; allowed=list(item["template"].get("wear_slots") or []); slot=preferred_slot if preferred_slot in allowed else (next((s for s in ([preferred_slot] if preferred_slot else [])+allowed if s in allowed), None))
+        item=res["item"]; raw_allowed=list(item["template"].get("wear_slots") if "both_hands" in (item["template"].get("wear_slots") or []) else (item["template"].get("occupies_slots") or item["template"].get("wear_slots") or [])); raw_allowed=["main_hand","off_hand"] if "both_hands" in raw_allowed else raw_allowed; allowed=[self._normalize_equipment_slot(s) for s in raw_allowed]; pref=self._normalize_equipment_slot(preferred_slot) if preferred_slot else None; slot=pref if pref in allowed else (next((s for s in ([pref] if pref else [])+allowed if s in allowed), None))
         valid=self.validate_equipment(character_id,item,slot)
         if not valid["ok"]: return valid["message"]
         slot=valid["slot"]; self._publish_item_event("before_item_equip", item, character_id=character_id, equipped_slot=slot)
-        conflicts=[slot] + (["main_hand","off_hand"] if slot=="both_hands" else ["both_hands"] if slot in {"main_hand","off_hand"} else [])
+        conflicts=set(valid.get("occupies_slots") or [slot])
         for eq in self.find_equipped_items(character_id):
-            if eq.get("equipped_slot") in conflicts: self.move_item(eq["instance_id"], "character", character_id)
-        moved=self.move_item(item["instance_id"], "equipment", character_id, equipped_slot=slot); self._publish_item_event("item_equipped", moved, character_id=character_id, equipped_slot=slot); self._publish_item_event("equipment_changed", moved, character_id=character_id); self._publish_item_event("inventory_changed", moved, character_id=character_id); self._publish_item_event("after_item_equip", moved, character_id=character_id, equipped_slot=slot); return f"You equip {moved['name']} on {slot.replace('_',' ')}."
+            eq_slots=set(str(eq.get("equipped_slot") or "").split(","))
+            if "both_hands" in eq_slots: eq_slots.update({"main_hand","off_hand"})
+            if eq_slots & conflicts: self.move_item(eq["instance_id"], "character", character_id)
+        moved=self.move_item(item["instance_id"], "equipment", character_id, equipped_slot=slot); self._publish_item_event("actor_equipment_modifiers_invalidated", moved, character_id=character_id, equipped_slot=slot); self._publish_item_event("item_equipped", moved, character_id=character_id, equipped_slot=slot); self._publish_item_event("equipment_changed", moved, character_id=character_id); self._publish_item_event("inventory_changed", moved, character_id=character_id); self._publish_item_event("after_item_equip", moved, character_id=character_id, equipped_slot=slot); return f"You equip {moved['name']} on {slot.replace('_',' ')}."
 
     def unequip_item(self, character_id: str, query_or_slot: str) -> str:
         equipped=self.find_equipped_items(character_id); q=query_or_slot.lower().strip(); matches=[i for i in equipped if i.get("equipped_slot")==q]
         res={"status":"ok","item":matches[0]} if len(matches)==1 else self.resolve_item_keywords(query_or_slot, equipped)
         if res["status"] != "ok": return self._resolve_message(res, "You aren't using that.")
-        item=res["item"]; self._publish_item_event("before_item_remove", item, character_id=character_id); moved=self.move_item(item["instance_id"], "character", character_id); self._publish_item_event("item_removed", moved, character_id=character_id); self._publish_item_event("equipment_changed", moved, character_id=character_id); self._publish_item_event("inventory_changed", moved, character_id=character_id); self._publish_item_event("after_item_remove", moved, character_id=character_id); return f"You remove {moved['name']}."
+        item=res["item"]; self._publish_item_event("before_item_remove", item, character_id=character_id); moved=self.move_item(item["instance_id"], "character", character_id); self._publish_item_event("actor_equipment_modifiers_invalidated", moved, character_id=character_id); self._publish_item_event("item_removed", moved, character_id=character_id); self._publish_item_event("equipment_changed", moved, character_id=character_id); self._publish_item_event("inventory_changed", moved, character_id=character_id); self._publish_item_event("after_item_remove", moved, character_id=character_id); return f"You remove {moved['name']}."
 
     def _handle_item_command(self, char: MudCharacter, command: str, cmd: str, args: list[str]):
         from engine.mud_commands import CommandResult
@@ -1571,7 +1660,12 @@ class MudRuntime:
 
     def _render_equipment(self, character_id: str) -> str:
         equipped = self.find_equipped_items(character_id)
-        by={i.get("equipped_slot"): i for i in equipped}
+        by={}
+        for i in equipped:
+            slots=str(i.get("equipped_slot") or "").split(",")
+            if "both_hands" in slots: slots += ["main_hand", "off_hand"]
+            for slot in slots:
+                if slot: by[slot]=i
         prefix = "" if equipped else semantic("system", "You are not wearing anything.") + "\n"
         return prefix + semantic("system", "Equipment:") + "\n" + "\n".join(f"  {semantic('equipment_slot', s.replace('_',' ').title())}: {semantic('equipment_item' if s in by else 'system', by[s]['name'] if s in by else 'nothing')}" for s in self.EQUIPMENT_SLOTS)
 
@@ -1696,8 +1790,27 @@ class MudRuntime:
     def materialize_world_content(self, world_id: str | None = None) -> dict[str, Any]:
         self.event_bus.publish("content_materialization_started", {"world_id": world_id or self.active_world_id or ""}, source_system="runtime", world_id=world_id or self.active_world_id or "")
         item_ids=[]; ent_ids=[]
-        for pid in sorted(self._live_item_placements()): item_ids += self.materialize_item_seed(pid).get("instance_ids", [])
-        for sid in sorted(self._live_entity_spawns()): ent_ids += self.materialize_entity_spawn(sid).get("instance_ids", [])
+        placements = self._live_item_placements(); spawns = self._live_entity_spawns()
+        existing_rows = {sid: self._materialization_row("entity_spawn", sid) for sid in spawns}
+        legacy_decls = sum(len(self._legacy_room_entity_declarations(str(r.get("id") or ""))) for r in getattr(self.active_world, "rooms", []) or [])
+        for pid in sorted(placements): item_ids += self.materialize_item_seed(pid).get("instance_ids", [])
+        adopted = created = duplicates = 0
+        for sid in sorted(spawns):
+            before = existing_rows.get(sid)
+            row = self.materialize_entity_spawn(sid)
+            ent_ids += row.get("instance_ids", [])
+            if not before:
+                meta = (self._materialization_row("entity_spawn", sid) or {}).get("metadata", {})
+                adopted += int(meta.get("adopted_existing") or 0)
+                created += max(0, int(meta.get("quantity") or 0) - int(meta.get("adopted_existing") or 0))
+                duplicates += len(meta.get("duplicate_candidates") or [])
+        print(f"[entity-materialization] templates={len(self.entity_templates)}")
+        print(f"[entity-materialization] canonical_spawns={len([s for s in spawns.values() if not (s.get('plugin_data') or {}).get('legacy_source')])}")
+        print(f"[entity-materialization] legacy_declarations={legacy_decls}")
+        print(f"[entity-materialization] normalized_legacy_spawns={len([s for s in spawns.values() if (s.get('plugin_data') or {}).get('legacy_source')])}")
+        print(f"[entity-materialization] adopted_instances={adopted}")
+        print(f"[entity-materialization] created_instances={created}")
+        print(f"[entity-materialization] duplicate_candidates={duplicates}")
         self.event_bus.publish("content_materialization_completed", {"world_id": world_id or self.active_world_id or "", "item_instance_ids": item_ids, "entity_instance_ids": ent_ids}, source_system="runtime", world_id=world_id or self.active_world_id or "")
         return {"item_instance_ids": item_ids, "entity_instance_ids": ent_ids}
 
@@ -1817,11 +1930,19 @@ class MudRuntime:
     def find_room_entities(self, room_id: str) -> list[dict[str, Any]]: return self._fetch_entities("owner_type='room' AND current_room_id=?", (room_id,))
     def get_room_contents(self, room_id: str, viewer: Any = None, include_builder_metadata: bool = False) -> dict[str, Any]:
         groups = {"features": self._resolved_room_features(room_id, viewer), "item_instances": self.get_visible_room_items(room_id), "entity_instances": [], "players": [], "exits": []}
+        seen_instance_ids: set[str] = set()
         for ent in self.find_room_entities(room_id):
-            if self.is_entity_visible(ent, viewer): groups["entity_instances"].append(ent)
+            if not self.is_entity_visible(ent, viewer):
+                continue
+            iid = str(ent.get("instance_id") or ent.get("entity_id") or "")
+            if iid in seen_instance_ids:
+                raise RuntimeError(f"Duplicate runtime entity instance in room-content query: {iid}")
+            seen_instance_ids.add(iid)
+            groups["entity_instances"].append(ent)
         if include_builder_metadata:
             groups["item_placement_declarations"] = [p for p in self._live_item_placements().values() if str(p.get("room_id")) == str(room_id)]
             groups["entity_spawn_declarations"] = [s for s in self._live_entity_spawns().values() if str(s.get("room_id")) == str(room_id)]
+            groups["legacy_npc_declarations"] = self._legacy_room_entity_declarations(room_id)
         return groups
 
     def find_visible_entities(self, room_id: str, viewer: Any = None) -> dict[str, list[dict[str, Any]]]:
@@ -1885,13 +2006,36 @@ class MudRuntime:
                 out.append(rec); seen.add(oid)
         return out
 
+    def _legacy_spawn_id(self, room_id: str, template_id: str) -> str:
+        safe_room = re.sub(r"[^a-z0-9_]+", "_", str(room_id).strip().lower()).strip("_")
+        safe_template = re.sub(r"[^a-z0-9_]+", "_", str(template_id).strip().lower()).strip("_")
+        return f"legacy_{safe_room}_{safe_template}"
+
     def _live_entity_spawns(self) -> dict[str, dict[str, Any]]:
-        spawns={}
+        spawns: dict[str, dict[str, Any]] = {}
+        canonical_keys: set[tuple[str, str, int]] = set()
         for raw in getattr(self.active_world, "spawns", []) or []:
-            if isinstance(raw, dict) and raw.get("id"): spawns[str(raw["id"])] = dict(raw)
+            if isinstance(raw, dict) and raw.get("id"):
+                rec = dict(raw)
+                spawns[str(raw["id"])] = rec
+                canonical_keys.add((str(rec.get("room_id") or ""), str(rec.get("entity_template_id") or rec.get("template_id") or ""), int(rec.get("quantity") or 1)))
+        legacy_sources: list[tuple[str, str, str]] = []
+        for room in getattr(self.active_world, "rooms", []) or []:
+            rid = str(room.get("id") or "")
+            for raw in (room.get("npcs", []) or []) + (room.get("mobs", []) or []) + (room.get("entities", []) or []):
+                tid = str(raw.get("template_id") or raw.get("id") if isinstance(raw, dict) else raw)
+                legacy_sources.append((rid, tid, "room.npcs"))
         for tid, tmpl in self.entity_templates.items():
-            rid=str(tmpl.get("default_room_id") or "")
-            if rid: spawns.setdefault(f"legacy_{rid}_{tid}", {"id": f"legacy_{rid}_{tid}", "entity_template_id": tid, "room_id": rid, "zone_id": "", "quantity": 1, "spawn_policy": "once", "flags": ["legacy_default_room"], "tags": [], "plugin_data": {}})
+            rid = str(tmpl.get("default_room_id") or "")
+            if rid:
+                legacy_sources.append((rid, tid, "entity_template.default_room_id"))
+        for rid, tid, source in legacy_sources:
+            if not rid or tid not in self.entity_templates:
+                continue
+            if (rid, tid, 1) in canonical_keys:
+                continue
+            sid = self._legacy_spawn_id(rid, tid)
+            spawns.setdefault(sid, {"id": sid, "entity_template_id": tid, "room_id": rid, "zone_id": "", "quantity": 1, "spawn_policy": "once", "flags": ["legacy_room_npc" if source == "room.npcs" else "legacy_default_room"], "tags": [], "plugin_data": {"legacy_source": {"source_file": "rooms/rooms.json" if source == "room.npcs" else "npcs", "source_room_id": rid, "source_field": source, "normalized": True}}})
         return spawns
 
     def materialize_entity_spawn(self, spawn_id: str) -> dict[str, Any]:
@@ -1900,11 +2044,63 @@ class MudRuntime:
         sp=self._live_entity_spawns().get(spawn_id); ids=[]; now=datetime.now(timezone.utc).isoformat()
         if not sp or sp.get("spawn_policy", "once") == "disabled": return {"instance_ids": [], "status": "disabled"}
         tid=str(sp.get("entity_template_id") or sp.get("template_id") or ""); rid=str(sp.get("room_id") or ""); qty=max(0, int(sp.get("quantity") or 1))
-        for _ in range(qty):
+        existing = [e for e in self.find_room_entities(rid) if e.get("template_id") == tid and ((e.get("state") or {}).get("source_spawn_id") in {None, "", spawn_id})]
+        for ent in existing[:qty]:
+            ids.append(ent.get("entity_id") or ent.get("instance_id"))
+        for _ in range(max(0, qty - len(ids))):
             ent=self.spawn_entity(tid, room_id=rid, state={"current_state":"idle", "spawn_origin": rid, "source_spawn_id": spawn_id, "custom_state": {}}, source_system="materializer"); ids.append(ent.get("entity_id") or ent.get("instance_id"))
-        with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("INSERT INTO content_materializations(world_id,declaration_kind,declaration_id,materialized_at,instance_ids_json,status,metadata_json) VALUES(?,?,?,?,?,?,?)", (self.active_world_id or "","entity_spawn",spawn_id,now,json.dumps(ids),"materialized",json.dumps({"template_id": tid, "room_id": rid, "quantity": qty})))
+        with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("INSERT INTO content_materializations(world_id,declaration_kind,declaration_id,materialized_at,instance_ids_json,status,metadata_json) VALUES(?,?,?,?,?,?,?)", (self.active_world_id or "","entity_spawn",spawn_id,now,json.dumps(ids),"materialized",json.dumps({"template_id": tid, "room_id": rid, "quantity": qty, "adopted_existing": len(existing[:qty]), "duplicate_candidates": [e.get("instance_id") for e in existing[qty:]]})))
         self.event_bus.publish("entity_spawn_materialized", {"world_id": self.active_world_id or "", "declaration_id": spawn_id, "template_id": tid, "room_id": rid, "instance_ids": ids, "quantity": qty, "policy": sp.get("spawn_policy", "once")}, source_system="runtime", world_id=self.active_world_id or "", room_id=rid)
         return {"instance_ids": ids, "status":"materialized", "materialized_at": now}
+
+    def _legacy_room_entity_declarations(self, room_id: str) -> list[dict[str, Any]]:
+        out=[]
+        for room in getattr(self.active_world, "rooms", []) or []:
+            if str(room.get("id") or "") != str(room_id):
+                continue
+            for raw in room.get("npcs", []) or room.get("entities", []) or []:
+                tid = str(raw.get("template_id") or raw.get("id") if isinstance(raw, dict) else raw)
+                tmpl = self.entity_templates.get(tid, {})
+                out.append({"source":"room.npcs", "template_id":tid, "name": tmpl.get("name", tid), "room_id": room_id})
+        for tid, tmpl in self.entity_templates.items():
+            if str(tmpl.get("default_room_id") or "") == str(room_id):
+                out.append({"source":"entity_template.default_room_id", "template_id":tid, "name": tmpl.get("name", tid), "room_id": room_id})
+        return out
+
+    def entity_duplication_audit(self, target: str) -> str:
+        room_id = target
+        if target in self.entity_templates:
+            ents = self.find_entities(template_id=target)
+            room_id = ents[0].get("room_id", "") if ents else ""
+        elif self.find_entity(target):
+            ent = self.find_entity(target) or {}
+            room_id = ent.get("room_id", "")
+        contents = self.get_room_contents(room_id, include_builder_metadata=True) if room_id else {"entity_instances": [], "entity_spawn_declarations": []}
+        mats=[]
+        with sqlite3.connect(self.state_store.db_path) as conn:
+            for row in conn.execute("SELECT declaration_id,instance_ids_json,metadata_json FROM content_materializations WHERE world_id=? AND declaration_kind='entity_spawn'", (self.active_world_id or "",)):
+                meta=json.loads(row[2] or "{}")
+                if not room_id or str(meta.get("room_id")) == str(room_id): mats.append((row[0], row[1], meta))
+        groups={}
+        for e in contents.get("entity_instances", []):
+            groups.setdefault((e.get("template_id"), e.get("room_id")), []).append(e)
+        risks=[f"duplicate runtime instances template={k[0]} room={k[1]} ids={[e.get('instance_id') for e in v]}" for k,v in groups.items() if len(v)>1]
+        lines=[f"Room: {room_id or target}", "Runtime instances:"]
+        lines += [f"- {e.get('instance_id')} template={e.get('template_id')} name={e.get('name')} room={e.get('room_id')} spawn={(e.get('state') or {}).get('source_spawn_id','')} alive={e.get('is_alive')} visible={e.get('is_visible')} created={e.get('created_at')}" for e in contents.get("entity_instances", [])] or ["- none"]
+        lines += ["Spawn declarations:"] + ([f"- {s.get('id')} template={s.get('entity_template_id')} room={s.get('room_id')} qty={s.get('quantity',1)}" for s in contents.get("entity_spawn_declarations", [])] or ["- none"])
+        lines += ["Legacy declarations:"] + ([f"- {d.get('source')} template={d.get('template_id')} name={d.get('name')}" for d in self._legacy_room_entity_declarations(room_id)] or ["- none"])
+        lines += ["Materialization records:"] + ([f"- {m[0]} ids={m[1]} meta={json.dumps(m[2], sort_keys=True)}" for m in mats] or ["- none"])
+        lines += ["Expected runtime quantity:", f"- {sum(int(s.get('quantity') or 1) for s in contents.get('entity_spawn_declarations', []))}"]
+        lines += ["Actual runtime instance count:", f"- {len(contents.get('entity_instances', []))}"]
+        lines += ["Canonical spawn count:", f"- {len(contents.get('entity_spawn_declarations', []))}"]
+        lines += ["Legacy declaration count:", f"- {len(self._legacy_room_entity_declarations(room_id))}"]
+        lines += ["Legacy declarations contributing to gameplay:", "- no"]
+        lines += ["Renderer instance IDs:"] + ([f"- {e.get('instance_id')}" for e in contents.get('entity_instances', [])] or ["- none"])
+        lines += ["Duplicate risks:"] + (risks or ["- none"])
+        lines += ["Duplicate risk classification:", "- runtime_duplicate" if risks else "- none"]
+        lines += ["Entity runtime source integrity: " + ("FAIL" if risks else "PASS")]
+        lines += ["Recommended repair:", "- prevent new duplicates by materialization adoption; inspect duplicate risks before manual cleanup"]
+        return "\n".join(lines)
 
     def _publish_entity_event(self, name: str, ent: dict[str, Any], source_system: str = "runtime", **extra: Any) -> None:
         payload = {"entity_id": ent.get("entity_id"), "entity_type": ent.get("entity_type"), "world_id": ent.get("world_id", self.active_world_id or ""), "room_id": ent.get("current_room_id", ""), "template_id": ent.get("template_id"), "source_system": source_system, "timestamp": datetime.now(timezone.utc).isoformat(), **extra}

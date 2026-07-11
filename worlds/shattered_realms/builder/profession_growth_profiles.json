@@ -1,0 +1,15 @@
+{
+  "profession_growth_profiles": [
+    {
+      "experience_curve_id": "starter_profession_curve",
+      "id": "starter_profession_growth",
+      "name": "Starter profession growth",
+      "plugin_data": {},
+      "rank_cap": 4,
+      "tags": [
+        "phase7c"
+      ],
+      "version": 1
+    }
+  ]
+}

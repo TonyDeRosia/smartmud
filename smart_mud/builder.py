@@ -11,13 +11,47 @@ from typing import Any
 from smart_mud.world_registry import WORLDS_DIR, _records
 
 BUILDER_ROLES = {"builder", "admin", "owner"}
-VALID_WEAR_SLOTS = {"head","neck","body","torso","legs","feet","hands","arms","finger","wrist","waist","back","mainhand","offhand","held","wield","shield"}
+VALID_WEAR_SLOTS = {"head","face","neck","shoulders","back","chest","body","torso","arms","wrists","hands","finger","wrist","finger_left","finger_right","waist","legs","feet","mainhand","main_hand","primary_weapon","offhand","off_hand","secondary_weapon","held","wield","shield","quiver","ammo","ranged","light","accessory_1","accessory_2"}
 VALID_ENTITY_TYPES = {"npc", "mob", "merchant", "trainer", "banker", "healer", "critter", "object"}
 
 DRAFT_FILES = {
     "areas": "areas.json", "zones": "zones.json", "rooms": "rooms.json",
-    "features": "features.json", "items": "item_templates.json", "item_placements": "item_placements.json", "entities": "entity_templates.json", "spawns": "spawns.json"
+    "features": "features.json", "items": "item_templates.json", "item_placements": "item_placements.json", "entities": "entity_templates.json", "spawns": "spawns.json", "schedules": "schedules.json", "relationship_seeds": "relationship_seeds.json", "memory_seeds": "memory_seeds.json", "need_profiles": "need_profiles.json", "goal_profiles": "goal_profiles.json", "formulas": "formulas.json", "modifier_types": "modifier_types.json", "future_formula_templates": "future_formula_templates.json", "abilities": "abilities.json", "ability_loadouts": "ability_loadouts.json", "ability_schools": "ability_schools.json", "ability_categories": "ability_categories.json", "cooldown_groups": "cooldown_groups.json", "targeting_profiles": "targeting_profiles.json", "healing_profiles": "healing_profiles.json", "casting_profiles": "casting_profiles.json", "combat_behavior_profiles": "combat_behavior_profiles.json", "threat_profiles": "threat_profiles.json", "aggression_profiles": "aggression_profiles.json", "assist_profiles": "assist_profiles.json", "flee_profiles": "flee_profiles.json", "surrender_profiles": "surrender_profiles.json", "pursuit_profiles": "pursuit_profiles.json", "combat_groups": "combat_groups.json", "combat_action_rules": "combat_action_rules.json", "recipe_definitions": "recipe_definitions.json", "workstation_profiles": "workstation_profiles.json", "production_profiles": "production_profiles.json", "item_quality_profiles": "item_quality_profiles.json", "crafting_quality_profiles": "crafting_quality_profiles.json", "ingredient_substitution_profiles": "ingredient_substitution_profiles.json", "crafting_message_profiles": "crafting_message_profiles.json", "profession_experience_curves": "profession_experience_curves.json", "profession_growth_profiles": "profession_growth_profiles.json", "quest_definitions": "quest_definitions.json", "quest_series": "quest_series.json", "quest_chapters": "quest_chapters.json", "quest_stages": "quest_stages.json", "quest_objectives": "quest_objectives.json", "quest_availability_profiles": "quest_availability_profiles.json", "quest_acceptance_profiles": "quest_acceptance_profiles.json", "quest_repeat_policies": "quest_repeat_policies.json", "quest_failure_profiles": "quest_failure_profiles.json", "quest_abandon_profiles": "quest_abandon_profiles.json", "quest_sharing_profiles": "quest_sharing_profiles.json", "quest_action_definitions": "quest_action_definitions.json", "conversation_definitions": "conversation_definitions.json", "conversation_nodes": "conversation_nodes.json", "conversation_choices": "conversation_choices.json", "conversation_conditions": "conversation_conditions.json", "conversation_actions": "conversation_actions.json", "quest_message_profiles": "quest_message_profiles.json", "quest_time_limit_profiles": "quest_time_limit_profiles.json", "world_state_definitions": "world_state_definitions.json", "organization_definitions": "organization_definitions.json", "organization_roles": "organization_roles.json", "organization_membership_policies": "organization_membership_policies.json", "organization_invitation_policies": "organization_invitation_policies.json", "organization_application_policies": "organization_application_policies.json", "organization_leadership_policies": "organization_leadership_policies.json", "organization_permission_profiles": "organization_permission_profiles.json", "organization_communication_profiles": "organization_communication_profiles.json", "organization_group_combat_profiles": "organization_group_combat_profiles.json", "organization_shared_quest_profiles": "organization_shared_quest_profiles.json", "organization_reward_profiles": "organization_reward_profiles.json", "organization_relationship_profiles": "organization_relationship_profiles.json", "organization_seeds": "organization_seeds.json", "organization_message_profiles": "organization_message_profiles.json", "faction_definitions": "faction_definitions.json", "faction_reputation_profiles": "faction_reputation_profiles.json", "faction_standing_tier_profiles": "faction_standing_tier_profiles.json", "faction_membership_reputation_policies": "faction_membership_reputation_policies.json", "faction_diplomacy_profiles": "faction_diplomacy_profiles.json", "faction_hostility_profiles": "faction_hostility_profiles.json", "faction_access_profiles": "faction_access_profiles.json", "faction_guard_response_profiles": "faction_guard_response_profiles.json", "faction_economy_modifier_profiles": "faction_economy_modifier_profiles.json", "faction_reward_profiles": "faction_reward_profiles.json", "faction_reputation_decay_profiles": "faction_reputation_decay_profiles.json", "faction_combat_reputation_profiles": "faction_combat_reputation_profiles.json", "faction_title_profiles": "faction_title_profiles.json", "faction_message_profiles": "faction_message_profiles.json", "trainer_definitions": "trainer_definitions.json", "training_offer_definitions": "training_offer_definitions.json", "training_requirement_profiles": "training_requirement_profiles.json", "training_cost_profiles": "training_cost_profiles.json", "training_result_profiles": "training_result_profiles.json", "trainer_availability_profiles": "trainer_availability_profiles.json", "class_track_training_profiles": "class_track_training_profiles.json", "advancement_conversion_profiles": "advancement_conversion_profiles.json", "respec_profiles": "respec_profiles.json", "training_refund_profiles": "training_refund_profiles.json", "training_cooldown_profiles": "training_cooldown_profiles.json", "training_message_profiles": "training_message_profiles.json", "written_document_definitions": "written_document_definitions.json", "written_content_profiles": "written_content_profiles.json", "written_content_pages": "written_content_pages.json", "written_access_profiles": "written_access_profiles.json", "written_retention_profiles": "written_retention_profiles.json", "written_render_profiles": "written_render_profiles.json", "written_sanitization_profiles": "written_sanitization_profiles.json", "mail_service_profiles": "mail_service_profiles.json", "bulletin_board_definitions": "bulletin_board_definitions.json", "bulletin_posting_profiles": "bulletin_posting_profiles.json", "written_moderation_profiles": "written_moderation_profiles.json", "written_message_profiles": "written_message_profiles.json", "readable_item_profiles": "readable_item_profiles.json", "journal_profiles": "journal_profiles.json", "book_profiles": "book_profiles.json"
 }
+
+COOKING_COLLECTION_FILES = {
+    "cooking_ingredient_profiles": "cooking_ingredient_profiles.json",
+    "cooking_substitution_profiles": "cooking_substitution_profiles.json",
+    "ingredient_preparation_profiles": "ingredient_preparation_profiles.json",
+    "cooking_serving_yield_profiles": "cooking_serving_yield_profiles.json",
+    "cooking_consumable_output_profiles": "cooking_consumable_output_profiles.json",
+    "food_nutrition_profiles": "food_nutrition_profiles.json",
+    "food_preservation_profiles": "food_preservation_profiles.json",
+    "cooking_heat_profiles": "cooking_heat_profiles.json",
+    "cooking_failure_profiles": "cooking_failure_profiles.json",
+    "cooking_message_profiles": "cooking_message_profiles.json",
+    "cooking_render_profiles": "cooking_render_profiles.json",
+}
+DRAFT_FILES.update(COOKING_COLLECTION_FILES)
+
+# Phase 11D1 canonical survival needs Builder collections.
+for _survival_key in (
+    "actor_need_definitions", "actor_needs_profiles", "needs_offline_policies",
+    "need_threshold_profiles", "consumable_profiles", "consumable_portion_profiles",
+    "food_freshness_profiles", "consumption_requirement_profiles",
+    "consumption_interruption_profiles", "survival_message_profiles", "survival_render_profiles",
+):
+    DRAFT_FILES.setdefault(_survival_key, f"{_survival_key}.json")
+
+# Phase 11C1 canonical gathering Builder collections.
+for _gathering_key in (
+    "resource_definitions", "resource_node_definitions", "resource_capacity_profiles",
+    "resource_regeneration_profiles", "resource_availability_profiles", "resource_environment_profiles",
+    "gathering_profiles", "gathering_tool_profiles", "resource_yield_profiles",
+    "gathering_resource_cost_profiles", "gathering_interruption_profiles", "gathering_cooldown_profiles",
+    "gathering_profession_xp_profiles", "gathering_message_profiles", "gathering_render_profiles", "gathering_access_profiles",
+):
+    DRAFT_FILES.setdefault(_gathering_key, f"{_gathering_key}.json")
 
 @dataclass
 class BuilderResult:
@@ -170,7 +204,7 @@ class BuilderWorkspace:
         future_keys = [str(k) for k in data.keys() if k not in DRAFT_FILES]
         if any(k in data for k in DRAFT_FILES):
             return {k: data.get(k, {}) for k in DRAFT_FILES}, "", future_keys
-        return None, "Import bundle must contain areas, zones, rooms, features, items, entities, or spawns.", future_keys
+        return None, "Import bundle must contain Builder collections such as areas, zones, rooms, recipes, workstations, production profiles, quality profiles, features, items, entities, spawns, schedules, relationship seeds, memory seeds, need profiles, or goal profiles.", future_keys
 
     def import_validate(self, actor: Any, filename: str) -> BuilderResult:
         if not self.can_build(actor):
@@ -178,7 +212,9 @@ class BuilderWorkspace:
         bundle, err, future_keys = self._load_import_bundle(self.world_id(actor), filename)
         if err: return BuilderResult(False, 'Import validation failed.\n\nErrors:\n- '+err+'\n\nWarnings:\n- none')
         merged = self.load(self.world_id(actor));
-        for k,v in bundle.items(): merged.setdefault(k, {}).update(v if isinstance(v,dict) else {})
+        for k,v in bundle.items():
+            if not isinstance(merged.get(k), dict): merged[k] = {}
+            merged.setdefault(k, {}).update(v if isinstance(v,dict) else {})
         errors=[]; warnings=[f"Future top-level collection {key} is not applied by this version." for key in future_keys]; self._validate_bundle_refs(merged, errors, warnings)
         ok=not errors
         return BuilderResult(ok, ('Import validation passed.' if ok else 'Import validation failed.')+'\n\nErrors:\n'+('\n'.join('- '+e for e in errors) if errors else '- none')+'\n\nWarnings:\n'+('\n'.join('- '+w for w in warnings) if warnings else '- none'))
@@ -188,11 +224,15 @@ class BuilderWorkspace:
             return BuilderResult(False, "You do not have permission for that command.")
         bundle, err, future_keys = self._load_import_bundle(self.world_id(actor), filename)
         if err: return BuilderResult(False, err)
-        drafts=self.load(self.world_id(actor)); names=[('areas','Areas'),('zones','Zones'),('rooms','Rooms'),('features','Features'),('items','Items'),('item_placements','Item placements'),('entities','Entities'),('spawns','Spawns')]
+        drafts=self.load(self.world_id(actor)); names=[('areas','Areas'),('zones','Zones'),('rooms','Rooms'),('features','Features'),('items','Items'),('item_placements','Item placements'),('entities','Entities'),('spawns','Spawns'),('schedules','Schedules'),('relationship_seeds','Relationship seeds'),('memory_seeds','Memory seeds'),('need_profiles','Need profiles'),('goal_profiles','Goal profiles'),('formulas','Formulas'),('modifier_types','Modifier types'),('future_formula_templates','Future formula templates'),('abilities','Abilities'),('ability_loadouts','Ability loadouts'),('ability_schools','Ability schools'),('ability_categories','Ability categories'),('cooldown_groups','Cooldown groups'),('targeting_profiles','Targeting profiles'),('healing_profiles','Healing profiles'),('casting_profiles','Casting profiles'),('recipe_definitions','Recipes'),('workstation_profiles','Workstations'),('production_profiles','Production profiles'),('item_quality_profiles','Item quality profiles'),('crafting_quality_profiles','Crafting quality profiles'),('ingredient_substitution_profiles','Ingredient substitution profiles'),('crafting_message_profiles','Crafting message profiles'),('profession_experience_curves','Profession experience curves'),('profession_growth_profiles','Profession growth profiles'),('resource_definitions','Resource definitions'),('resource_node_definitions','Resource node definitions'),('resource_capacity_profiles','Resource capacity profiles'),('resource_regeneration_profiles','Resource regeneration profiles'),('resource_availability_profiles','Resource availability profiles'),('resource_environment_profiles','Resource environment profiles'),('gathering_profiles','Gathering profiles'),('gathering_tool_profiles','Gathering tool profiles'),('resource_yield_profiles','Resource yield profiles'),('gathering_resource_cost_profiles','Gathering resource cost profiles'),('gathering_interruption_profiles','Gathering interruption profiles'),('gathering_cooldown_profiles','Gathering cooldown profiles'),('gathering_profession_xp_profiles','Gathering profession XP profiles'),('gathering_message_profiles','Gathering message profiles'),('gathering_render_profiles','Gathering render profiles'),('gathering_access_profiles','Gathering access profiles')]
         lines=[]
         for k,label in names:
             b=bundle.get(k,{}) if isinstance(bundle.get(k,{}),dict) else {}; add=sum(1 for x in b if x not in drafts.get(k,{})); upd=len(b)-add; lines.append(f'{label} to add/update: {add}/{upd}')
-        errors=[]; warnings=[f"Future top-level collection {key} is not applied by this version." for key in future_keys]; merged=deepcopy(drafts); [merged.setdefault(k,{}).update(v if isinstance(v,dict) else {}) for k,v in bundle.items()]; self._validate_bundle_refs(merged,errors,warnings)
+        errors=[]; warnings=[f"Future top-level collection {key} is not applied by this version." for key in future_keys]; merged=deepcopy(drafts)
+        for k,v in bundle.items():
+            if not isinstance(merged.get(k), dict): merged[k] = {}
+            merged.setdefault(k,{}).update(v if isinstance(v,dict) else {})
+        self._validate_bundle_refs(merged,errors,warnings)
         lines += ['', 'Conflicts:', '- none', 'Legacy/unassigned warnings:', *(('- '+w for w in warnings if 'legacy' in w.lower()) or ['- none']), 'Broken references:', *(('- '+e for e in errors) or ['- none']), '', 'No files changed.']
         return BuilderResult(True, '\n'.join(lines))
 
@@ -203,7 +243,9 @@ class BuilderWorkspace:
         if err: return BuilderResult(False, err)
         if replace: self.snapshot(actor); drafts={k:{} for k in DRAFT_FILES}
         else: drafts=self.load(self.world_id(actor))
-        for k,v in bundle.items(): drafts.setdefault(k,{}).update(v if isinstance(v,dict) else {})
+        for k,v in bundle.items():
+            if not isinstance(drafts.get(k), dict): drafts[k] = {}
+            drafts.setdefault(k,{}).update(v if isinstance(v,dict) else {})
         self.save_drafts(self.world_id(actor), drafts); self.audit(actor,self.world_id(actor),'builder import apply','import',filename,None,{'replace':replace})
         return BuilderResult(True, f'Builder import applied: {filename}\nMode: {"replace-drafts" if replace else "merge"}')
 
@@ -238,6 +280,19 @@ class BuilderWorkspace:
             if not safe.fullmatch(str(pid)): errors.append(f'item placement ID unsafe: {pid}')
             if pl.get('item_template_id') not in drafts.get('items', {}) and pl.get('item_template_id') not in live_items: errors.append(f'item placement {pid} references missing item template {pl.get("item_template_id")}')
             if pl.get('room_id') not in rooms: errors.append(f'item placement {pid} references missing room {pl.get("room_id")}')
+        from engine.formulas import FormulaDefinition, FormulaRegistry, ModifierRegistry
+        freg = FormulaRegistry()
+        for fid, raw in drafts.get("formulas", {}).items():
+            if not isinstance(raw, dict): errors.append(f"formula {fid} must be an object"); continue
+            try:
+                freg.register(FormulaDefinition(id=str(raw.get("id") or fid), display_name=str(raw.get("display_name") or ""), description=str(raw.get("description") or ""), version=str(raw.get("version") or "1.0.0"), dependencies=list(raw.get("dependencies") or []), inputs=list(raw.get("inputs") or []), outputs=list(raw.get("outputs") or []), validation=dict(raw.get("validation") or {}), plugin_owner=raw.get("plugin_owner"), builder_owner=raw.get("builder_owner"), world_overrides=dict(raw.get("world_overrides") or {}), plugin_data=dict(raw.get("plugin_data") or {})))
+            except ValueError as exc: errors.append(str(exc))
+        fv = freg.validate(); errors.extend(fv.errors); warnings.extend(fv.warnings)
+        known = ModifierRegistry().modifier_types
+        for mid, raw in drafts.get("modifier_types", {}).items():
+            if not isinstance(raw, dict): warnings.append(f"unknown modifier type {mid} must be an object"); continue
+            op = str(raw.get("operation") or raw.get("id") or mid)
+            if op not in known: warnings.append(f"unknown modifier type {mid}")
 
     def can_build(self, actor: Any) -> bool:
         roles = {str(getattr(actor, "role", "player")).lower(), str(getattr(actor, "account_role", "player")).lower()}
@@ -247,10 +302,15 @@ class BuilderWorkspace:
         root = self.worlds_dir / world_id / "builder"
         for name in ("audit", "history", "snapshots", "exports", "imports", "templates", "examples"):
             (root / name).mkdir(parents=True, exist_ok=True)
+        starters = {
+            "formulas": {"attack_rating": {"id": "attack_rating", "display_name": "Attack Rating", "description": "Starter placeholder; Builders may replace this formula later.", "version": "1.0.0", "dependencies": [], "inputs": [], "outputs": ["attack_rating"], "validation": {"placeholder": True}, "plugin_owner": None, "builder_owner": None, "world_overrides": {}, "plugin_data": {}}},
+            "modifier_types": {"add": {"id": "add", "operation": "add", "description": "Adds a contributed value without defining gameplay math."}, "custom": {"id": "custom", "operation": "custom", "description": "Reserved for future plugin or Builder-defined modifier handling."}},
+            "future_formula_templates": {"derived_stat_template": {"id": "builder_defined_stat", "display_name": "Builder Defined Stat", "description": "Copy this shape when authoring a future formula.", "version": "1.0.0", "dependencies": [], "inputs": ["future_variable"], "outputs": ["builder_defined_stat"], "validation": {}, "plugin_owner": None, "builder_owner": "builder", "world_overrides": {}, "plugin_data": {}}},
+        }
         for key, filename in DRAFT_FILES.items():
             path = root / filename
             if not path.exists():
-                path.write_text("{}\n", encoding="utf-8")
+                path.write_text(json.dumps(starters.get(key, {}), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return root
 
     def load(self, world_id: str) -> dict[str, Any]:
@@ -496,6 +556,28 @@ class BuilderWorkspace:
         for sid, sp in drafts["spawns"].items():
             if sp.get("entity_template_id") not in drafts["entities"]: errors.append(f"spawn {sid} references missing entity template {sp.get('entity_template_id')}")
             if sp.get("room_id") and sp.get("room_id") not in all_rooms: errors.append(f"spawn {sid} references missing room {sp.get('room_id')}")
+        # Formula/modifier diagnostics collections are accepted now and validated conservatively.
+        from engine.formulas import FormulaDefinition, FormulaRegistry, Modifier, ModifierRegistry
+        freg = FormulaRegistry()
+        for fid, raw in drafts.get("formulas", {}).items():
+            if not isinstance(raw, dict): errors.append(f"formula {fid} must be an object"); continue
+            try: freg.register(FormulaDefinition(id=str(raw.get("id") or fid), display_name=str(raw.get("display_name") or ""), description=str(raw.get("description") or ""), version=str(raw.get("version") or "1.0.0"), dependencies=list(raw.get("dependencies") or []), inputs=list(raw.get("inputs") or []), outputs=list(raw.get("outputs") or []), validation=dict(raw.get("validation") or {}), plugin_owner=raw.get("plugin_owner"), builder_owner=raw.get("builder_owner"), world_overrides=dict(raw.get("world_overrides") or {}), plugin_data=dict(raw.get("plugin_data") or {})))
+            except ValueError as exc: errors.append(str(exc))
+        fv = freg.validate(); errors.extend(fv.errors); warnings.extend(fv.warnings)
+        mreg = ModifierRegistry()
+        for mid, raw in drafts.get("modifier_types", {}).items():
+            if not isinstance(raw, dict): warnings.append(f"unknown modifier type {mid} must be an object"); continue
+            op = str(raw.get("operation") or raw.get("id") or mid)
+            if op not in mreg.modifier_types: warnings.append(f"unknown modifier type {mid}")
+
+        # Phase 11C1 gathering foundation validation is delegated to the canonical service.
+        try:
+            from engine.gathering import GatheringService
+            gs = GatheringService(Path(":memory:"), self.worlds_dir / world_id)
+            gs.records.update({k: {str((v or {}).get("id") or dk): v for dk, v in (drafts.get(k, {}) or {}).items() if isinstance(v, dict)} for k in getattr(__import__("engine.gathering", fromlist=["GATHERING_COLLECTIONS"]), "GATHERING_COLLECTIONS")})
+            gv = gs.validate_content(); errors.extend(gv.get("errors", [])); warnings.extend(gv.get("warnings", []))
+        except Exception as exc:
+            warnings.append(f"gathering validation unavailable: {exc}")
         current = str(getattr(actor, "edit_room_id", "") or getattr(actor, "last_edited_target", ""))
         if current and current not in all_rooms: errors.append(f"builder current target missing: {current}")
         if current: info.append(f"builder current target: {current}")

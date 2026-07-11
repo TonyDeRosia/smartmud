@@ -1,0 +1,14 @@
+{
+  "sound_propagation_profiles": [
+    {
+      "id": "standard_sound_propagation",
+      "name": "Standard Sound Propagation Profiles",
+      "description": "Phase 11B starter profile.",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

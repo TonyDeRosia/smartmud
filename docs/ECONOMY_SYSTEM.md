@@ -1,0 +1,70 @@
+# Smart MUD Phase 7B Economy Foundation
+
+Phase 7B introduces `engine.economy.EconomyService` as the canonical authority for carried currency balances, immutable ledger rows, price quotes, transactions, shop runtime state, buyback records, service payments, repair foundations, bank accounts, and currency conversion. Currency values are stored as integer minor units in SQLite; world data defines immutable profiles and runtime rows record all mutation history.
+
+## Canonical Flow
+
+Buyer actor/account → shop or service provider → offer definition → eligibility/availability checks → immutable quote → funds and inventory validation → SQLite transaction boundary → item/currency/service delivery → ledger entries → EventBus events → player, Builder, and Admin presentation.
+
+Commands and future gameplay systems must call EconomyService APIs instead of directly editing character currency dictionaries, item ownership, shop stock, bank balances, service records, progression state, or Actor resources.
+
+## World Data Collections
+
+Implemented Builder/world collections are `currency_profiles`, `shop_definitions`, `shop_stock_profiles`, `shop_buy_policies`, `shop_sell_policies`, `pricing_profiles`, `service_definitions`, `repair_profiles`, `bank_profiles`, `shop_restock_profiles`, `economy_message_profiles`, and `economy_eligibility_profiles`. Old bundles remain valid because omitted collections load as empty.
+
+## SQLite Runtime Tables
+
+`actor_currency_balances`, `economy_ledger_entries`, `economy_transactions`, `economy_price_quotes`, `shop_runtime_state`, `shop_stock_entries`, `shop_buyback_entries`, `bank_accounts`, `bank_account_balances`, and `bank_transactions` are created idempotently by `init_economy_schema`.
+
+## Atomicity and Idempotency
+
+Transaction IDs, balance IDs, stock IDs, bank account IDs, and ledger IDs are stable hashes where practical. Completed transactions are persisted and ledger rows are append-only with idempotency indexes. Retries must reuse the canonical quote/transaction APIs so debit, credit, delivery, and stock release can be traced.
+
+## Manual Acceptance Smoke
+
+Currency: `currency`, `score currencies`, `currencybalance self`, `ledger self`.
+
+Shop: go to Blacksmith Harl and run `list`, `shop info`, `value iron sword`, `buy iron sword`, `inventory`, `transactions`.
+
+Insufficient funds: attempt a purchase without enough currency; expected no debit, no item, a clear failure, and released reservation.
+
+Sale and buyback: `sell training sword`, `buyback`, `buyback 1`; expected sale quote, item transfer to shop, one currency credit, and buyback preserving the same item instance.
+
+Repair: damage fixture item condition with an Admin test fixture and run `repair iron sword`; expected quote by missing condition, payment, condition restoration, ledger, and service event.
+
+Bank: `balance`, `deposit 10 gold`, `balance`, `withdraw 5 gold`, `bank history`; expected carried and banked balances adjust without duplicated funds.
+
+Restart: expected stock, balances, bank state, buybacks, transactions, and ledger rows persist without replaying completed delivery.
+
+## Deferred Systems
+
+Crafting, trainers, quest shops, auctions, player trading, mail, autonomous AI economics, dynamic supply/demand, interest, loans, taxes, gambling, premium currencies, and final balance are intentionally separate future systems.
+
+## Phase 7C crafting integration
+
+Phase 7C adds `engine.crafting.CraftingService` as the single canonical crafting and production service. Recipes are Builder/world-package data; exact runtime item instances are selected and reserved; jobs persist in SQLite and advance by world time; costs use EconomyService; outputs use RewardService; profession rewards use canonical profession/progression state; and crafted item instances retain quality and provenance without mutating item templates. Salvaging and refining are normal recipe types, while quests, final trainers, autonomous AI production, random affixes, auction houses, and final enchantment remain outside this phase.
+
+
+## Phase 8A Quest Integration
+
+Phase 8A introduces `engine.quests.QuestService`, `QuestEventRouter`, `ConversationService`, and `WorldStateService` as the canonical quest and authored narrative-state foundation. Quests are Builder/world-package data, consume canonical EventBus-style events idempotently, branch deterministically, persist runtime state in SQLite, and hand rewards to RewardService instead of mutating items, XP, currencies, abilities, progression, Actor stats, or world records directly. Future AI may propose text or actions, but QuestService validates all outcomes; unrestricted scripts remain forbidden.
+
+
+## Phase 8C faction integration note
+
+Phase 8C adds `FactionService` as the canonical owner of faction reputation, standing, diplomacy interpretation, access decisions, faction reward eligibility, and reputation history. Factions link to `OrganizationService` identities; organization membership, roles, permissions, group combat attribution, quests, rewards, economy, combat, and world state remain owned by their existing canonical services. Subsystems must call `FactionService` rather than mutating faction reputation directly. Faction warfare, laws, territory conquest, elections, autonomous politics, and PvP faction rules remain outside this foundation.
+
+## Phase 9A training integration
+
+Canonical trainer and advancement interactions now route through `engine.training.TrainingService`. Builder/world-package collections include `trainer_definitions`, `training_offer_definitions`, `training_requirement_profiles`, `training_cost_profiles`, `training_result_profiles`, `trainer_availability_profiles`, `class_track_training_profiles`, `advancement_conversion_profiles`, `respec_profiles`, `training_refund_profiles`, `training_cooldown_profiles`, and `training_message_profiles`. Training uses immutable SQLite quotes and transactions, delegates money to `EconomyService`, delegates ability and advancement-currency state to `ProgressionService`, records restart-safe history, and publishes training EventBus events.
+
+
+## Phase 10A Written Content Integration
+
+Written communication and readable content now route through `engine.written_content.WrittenContentService`. The canonical model is document instance -> immutable content version -> owner/placement/access -> delivery or publication -> read state -> audit. Integrations should call the service instead of writing mail, board, book, note, journal, or sign rows directly. Postage and service fees are quoted/settled through `EconomyService`; organization and faction decisions remain delegated to their canonical services; quest and achievement progress consumes written-content events.
+
+Builder/world packages may include written document, content, access, retention, render, sanitization, mail service, board, posting, moderation, readable item, book, and journal profile collections. External messaging, unrestricted markup, executable links, arbitrary file attachments, AI-generated authoritative mail, and cross-server messaging remain forbidden.
+
+## Phase 10B Property Integration
+
+Smart MUD now includes the canonical `PropertyService` (`engine.property`) for Builder-authored property definitions, SQLite property instances, leases, access grants, property storage containers, actor home locations, and immutable property audit events. Related systems should integrate by service boundary: EconomyService for money, OrganizationService/FactionService for membership and reputation checks, WrittenContentService for notices, Quest/Achievement systems via property events, and canonical item instances for storage.

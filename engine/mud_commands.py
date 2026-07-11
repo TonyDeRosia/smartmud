@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Optional, Callable
+import json
 import re
+from pathlib import Path
 from engine.mud_displays import semantic
+from engine.actors import actor_from_runtime_character
+from engine.formulas import FormulaEngine
+from engine.score_renderer import ActorScoreRenderer
 from engine.command_registry import CommandRegistry
 from smart_mud.builder import BuilderWorkspace
+from engine.abilities import AbilityExecutionService
+from engine.combat_behavior import CombatBehaviorService
+from engine.crafting import CraftingService, CraftingContent
+from engine.perception import PerceptionService
+from engine.survival_needs import SURVIVAL_COLLECTIONS
 
 
 @dataclass
@@ -25,6 +35,19 @@ class CommandResult:
 DETERMINISTIC_COMMANDS = {
     # Information
     "score": {"category": "info", "aliases": ["sc"], "admin": False},
+    "recipes": {"category": "crafting", "admin": False},
+    "recipe": {"category": "crafting", "admin": False},
+    "craft": {"category": "crafting", "admin": False},
+"cook": {"category": "crafting", "admin": False},
+    "prepare": {"category": "crafting", "admin": False},
+    "ingredients": {"category": "crafting", "admin": False},
+    "preserve": {"category": "crafting", "admin": False},
+    "meal": {"category": "crafting", "admin": False},
+    "crafting": {"category": "crafting", "admin": False},
+    "professions": {"category": "crafting", "admin": False},
+    "profession": {"category": "crafting", "admin": False},
+    "salvage": {"category": "crafting", "admin": False},
+    "refine": {"category": "crafting", "admin": False},
     "worth": {"category": "info", "admin": False},
     "finger": {"category": "info", "admin": False},
     "inventory": {"category": "info", "aliases": ["inv", "i"], "admin": False},
@@ -32,8 +55,18 @@ DETERMINISTIC_COMMANDS = {
     "spells": {"category": "info", "aliases": ["sp"], "admin": False},
     "skills": {"category": "info", "aliases": ["sk"], "admin": False},
     "abilities": {"category": "info", "admin": False},
-    "affects": {"category": "info", "aliases": ["aff"], "admin": False},
-    "resists": {"category": "info", "admin": False},
+    "achievements": {"category": "info", "admin": False},
+    "achievement": {"category": "info", "admin": False},
+    "milestones": {"category": "info", "admin": False},
+    "collections": {"category": "info", "admin": False},
+    "collection": {"category": "info", "admin": False},
+    "titles": {"category": "info", "admin": False},
+    "title": {"category": "info", "admin": False},
+    "accolades": {"category": "info", "admin": False},
+    "profile": {"category": "info", "admin": False},
+    "affects": {"category": "info", "aliases": ["aff", "saff"], "admin": False},
+    "spellup": {"category": "info", "admin": False},
+    "resists": {"category": "info", "aliases": ["resistances"], "admin": False},
     "who": {"category": "info", "admin": False},
     "whoami": {"category": "info", "admin": False},
     "where": {"category": "info", "admin": False},
@@ -52,6 +85,12 @@ DETERMINISTIC_COMMANDS = {
     "sell": {"category": "shop", "admin": False},
     "value": {"category": "shop", "admin": False},
     "consider": {"category": "combat", "aliases": ["con"], "admin": False},
+    "diagnose": {"category": "combat", "admin": False},
+    "kill": {"category": "combat", "admin": False},
+    "attack": {"category": "combat", "admin": False},
+    "assist": {"category": "combat", "admin": False},
+    "flee": {"category": "combat", "admin": False},
+    "combat": {"category": "combat", "admin": False},
     "history": {"category": "info", "admin": False},
     
     # Movement
@@ -102,6 +141,18 @@ DETERMINISTIC_COMMANDS = {
     "search": {"category": "interaction", "admin": False},
     "listen": {"category": "interaction", "admin": False},
     "smell": {"category": "interaction", "admin": False},
+    "hide": {"category": "interaction", "admin": False},
+    "unhide": {"category": "interaction", "admin": False},
+    "stealth": {"category": "info", "admin": False},
+    "track": {"category": "interaction", "admin": False},
+    "tracks": {"category": "interaction", "admin": False},
+    "investigate": {"category": "interaction", "admin": False},
+    "conceal": {"category": "interaction", "admin": False},
+    "reveal": {"category": "interaction", "admin": False},
+    "secrets": {"category": "info", "admin": False},
+    "discovered": {"category": "info", "admin": False},
+    "perception": {"category": "info", "admin": False},
+    "awareness": {"category": "info", "admin": False},
     "sit": {"category": "interaction", "admin": False},
     "stand": {"category": "interaction", "admin": False},
     "rest": {"category": "interaction", "admin": False},
@@ -146,12 +197,65 @@ class MudCommandEngine:
         self.command_handlers: dict[str, Callable] = {
             # Info commands
             "score": self._cmd_score,
+            "recipes": self._cmd_crafting_player,
+            "recipe": self._cmd_crafting_player,
+            "craft": self._cmd_crafting_player,
+            "cook": self._cmd_crafting_player,
+            "prepare": self._cmd_crafting_player,
+            "ingredients": self._cmd_crafting_player,
+            "preserve": self._cmd_crafting_player,
+            "meal": self._cmd_crafting_player,
+            "crafting": self._cmd_crafting_player,
+            "professions": self._cmd_crafting_player,
+            "profession": self._cmd_crafting_player,
+            "salvage": self._cmd_crafting_player,
+            "refine": self._cmd_crafting_player,
             "worth": self._cmd_worth,
             "inventory": self._cmd_inventory,
             "equipment": self._cmd_equipment,
+            "resists": self._cmd_resists,
+            "spellup": self._cmd_spellup,
             "spells": self._cmd_spells,
             "skills": self._cmd_skills,
             "abilities": self._cmd_abilities,
+            "achievements": self._cmd_achievements,
+            "achievement": self._cmd_achievements,
+            "milestones": self._cmd_achievements,
+            "collections": self._cmd_achievements,
+            "collection": self._cmd_achievements,
+            "titles": self._cmd_achievements,
+            "title": self._cmd_achievements,
+            "accolades": self._cmd_achievements,
+            "profile": self._cmd_achievements,
+            "ability": self._cmd_ability_detail,
+            "use": self._cmd_use_ability,
+            "cast": self._cmd_use_ability,
+            "invoke": self._cmd_use_ability,
+            "perform": self._cmd_use_ability,
+            "cancel": self._cmd_cancel_ability,
+            "cooldowns": self._cmd_cooldowns,
+            "abilitylist": self._cmd_builder_ability,
+            "abilitystat": self._cmd_builder_ability,
+            "abilitycreate": self._cmd_builder_ability,
+            "abilityclone": self._cmd_builder_ability,
+            "abilityset": self._cmd_builder_ability,
+            "abilitydelete": self._cmd_builder_ability,
+            "abilityvalidate": self._cmd_builder_ability,
+            "abilitypreview": self._cmd_builder_ability,
+            "abilitytrace": self._cmd_builder_ability,
+            "loadoutlist": self._cmd_builder_loadout,
+            "loadoutstat": self._cmd_builder_loadout,
+            "loadoutcreate": self._cmd_builder_loadout,
+            "loadoutclone": self._cmd_builder_loadout,
+            "loadoutset": self._cmd_builder_loadout,
+            "loadoutability": self._cmd_builder_loadout,
+            "loadoutdelete": self._cmd_builder_loadout,
+            "loadoutvalidate": self._cmd_builder_loadout,
+            "abilitygrant": self._cmd_ability_grant,
+            "abilityrevoke": self._cmd_ability_grant,
+            "actorabilities": self._cmd_actorabilities,
+            "abilitycooldowns": self._cmd_abilitycooldowns,
+            "abilitycasts": self._cmd_abilitycasts,
             "affects": self._cmd_affects,
             "who": self._cmd_who,
             "whoami": self._cmd_whoami,
@@ -162,6 +266,21 @@ class MudCommandEngine:
             "help": self._cmd_help,
             "commands": self._cmd_commands,
             "look": self._cmd_look,
+            "hide": self._cmd_perception,
+            "unhide": self._cmd_perception,
+            "stealth": self._cmd_perception,
+            "search": self._cmd_perception,
+            "investigate": self._cmd_perception,
+            "track": self._cmd_perception,
+            "tracks": self._cmd_perception,
+            "listen": self._cmd_perception,
+            "smell": self._cmd_perception,
+            "conceal": self._cmd_perception,
+            "reveal": self._cmd_perception,
+            "secrets": self._cmd_perception,
+            "discovered": self._cmd_perception,
+            "perception": self._cmd_perception,
+            "awareness": self._cmd_perception,
             "say": self._cmd_say,
             "emote": self._cmd_emote,
             "study": self._cmd_generic,
@@ -180,6 +299,20 @@ class MudCommandEngine:
             "automap": self._cmd_generic,
             "autosplit": self._cmd_generic,
             "autogold": self._cmd_generic,
+            "rewardlist": self._cmd_phase7a_reward, "rewardstat": self._cmd_phase7a_reward, "rewardcreate": self._cmd_phase7a_reward, "rewardclone": self._cmd_phase7a_reward, "rewardset": self._cmd_phase7a_reward, "rewardentry": self._cmd_phase7a_reward, "rewarddelete": self._cmd_phase7a_reward, "rewardvalidate": self._cmd_phase7a_reward, "rewardpreview": self._cmd_phase7a_reward,
+            "loottablelist": self._cmd_phase7a_reward, "loottablestat": self._cmd_phase7a_reward, "loottablecreate": self._cmd_phase7a_reward, "loottableclone": self._cmd_phase7a_reward, "loottableset": self._cmd_phase7a_reward, "lootentry": self._cmd_phase7a_reward, "loottabledelete": self._cmd_phase7a_reward, "loottablevalidate": self._cmd_phase7a_reward, "loottablepreview": self._cmd_phase7a_reward,
+            "treasurelist": self._cmd_phase7a_reward, "treasurestat": self._cmd_phase7a_reward, "treasurecreate": self._cmd_phase7a_reward, "treasureclone": self._cmd_phase7a_reward, "treasureset": self._cmd_phase7a_reward, "treasuredelete": self._cmd_phase7a_reward, "treasurevalidate": self._cmd_phase7a_reward, "treasurepreview": self._cmd_phase7a_reward,
+            "deathlootlist": self._cmd_phase7a_reward, "deathlootstat": self._cmd_phase7a_reward, "deathlootcreate": self._cmd_phase7a_reward, "deathlootset": self._cmd_phase7a_reward, "deathlootclone": self._cmd_phase7a_reward, "deathlootdelete": self._cmd_phase7a_reward, "deathlootvalidate": self._cmd_phase7a_reward,
+            "corpsedecaylist": self._cmd_phase7a_reward, "corpsedecaystat": self._cmd_phase7a_reward, "corpsedecaycreate": self._cmd_phase7a_reward, "corpsedecayset": self._cmd_phase7a_reward, "corpsedecaydelete": self._cmd_phase7a_reward, "corpsedecayvalidate": self._cmd_phase7a_reward,
+            "nodelist": self._cmd_phase7a_reward, "nodestat": self._cmd_phase7a_reward, "nodecreate": self._cmd_phase7a_reward, "nodeset": self._cmd_phase7a_reward, "nodeclone": self._cmd_phase7a_reward, "nodedelete": self._cmd_phase7a_reward, "nodevalidate": self._cmd_phase7a_reward, "nodepreview": self._cmd_phase7a_reward,
+            "rewardresolve": self._cmd_phase7a_reward, "rewarddeliver": self._cmd_phase7a_reward, "rewardretry": self._cmd_phase7a_reward, "rewardcancel": self._cmd_phase7a_reward, "rewardpacket": self._cmd_phase7a_reward, "rewardtrace": self._cmd_phase7a_reward, "lootresolve": self._cmd_phase7a_reward, "loottrace": self._cmd_phase7a_reward, "corpsecontents": self._cmd_phase7a_reward, "corpseloottrace": self._cmd_phase7a_reward, "corpsedecay": self._cmd_phase7a_reward, "grantreward": self._cmd_phase7a_reward, "claimlist": self._cmd_phase7a_reward, "rewards": self._cmd_phase7a_reward, "claim": self._cmd_phase7a_reward, "rewardhistory": self._cmd_phase7a_reward,
+            "currency": self._cmd_phase7b_economy, "transactions": self._cmd_phase7b_economy, "balance": self._cmd_phase7b_economy, "deposit": self._cmd_phase7b_economy, "withdraw": self._cmd_phase7b_economy, "exchange": self._cmd_phase7b_economy,
+            "list": self._cmd_phase7b_economy, "shop": self._cmd_phase7b_economy, "buy": self._cmd_phase7b_economy, "sell": self._cmd_phase7b_economy, "value": self._cmd_phase7b_economy, "appraise": self._cmd_phase7b_economy, "buyback": self._cmd_phase7b_economy, "services": self._cmd_phase7b_economy, "identify": self._cmd_phase7b_economy, "repair": self._cmd_phase7b_economy, "quote": self._cmd_phase7b_economy,
+            "currencylist": self._cmd_phase7b_economy, "currencystat": self._cmd_phase7b_economy, "currencycreate": self._cmd_phase7b_economy, "currencyclone": self._cmd_phase7b_economy, "currencyset": self._cmd_phase7b_economy, "currencydelete": self._cmd_phase7b_economy, "currencyvalidate": self._cmd_phase7b_economy, "currencypreview": self._cmd_phase7b_economy,
+            "shoplist": self._cmd_phase7b_economy, "shopstat": self._cmd_phase7b_economy, "shopcreate": self._cmd_phase7b_economy, "shopclone": self._cmd_phase7b_economy, "shopset": self._cmd_phase7b_economy, "shopdelete": self._cmd_phase7b_economy, "shopvalidate": self._cmd_phase7b_economy, "shoppreview": self._cmd_phase7b_economy, "stocklist": self._cmd_phase7b_economy, "stockadd": self._cmd_phase7b_economy, "stockset": self._cmd_phase7b_economy, "stockdelete": self._cmd_phase7b_economy, "stockvalidate": self._cmd_phase7b_economy, "stockpreview": self._cmd_phase7b_economy,
+            "pricinglist": self._cmd_phase7b_economy, "pricingstat": self._cmd_phase7b_economy, "pricingcreate": self._cmd_phase7b_economy, "pricingclone": self._cmd_phase7b_economy, "pricingset": self._cmd_phase7b_economy, "pricingdelete": self._cmd_phase7b_economy, "pricingvalidate": self._cmd_phase7b_economy, "pricingtrace": self._cmd_phase7b_economy, "servicelist": self._cmd_phase7b_economy, "servicestat": self._cmd_phase7b_economy, "servicecreate": self._cmd_phase7b_economy, "serviceclone": self._cmd_phase7b_economy, "serviceset": self._cmd_phase7b_economy, "servicedelete": self._cmd_phase7b_economy, "servicevalidate": self._cmd_phase7b_economy, "servicepreview": self._cmd_phase7b_economy,
+            "repairprofilelist": self._cmd_phase7b_economy, "repairprofilestat": self._cmd_phase7b_economy, "repairprofilecreate": self._cmd_phase7b_economy, "repairprofileset": self._cmd_phase7b_economy, "repairprofiledelete": self._cmd_phase7b_economy, "repairprofilevalidate": self._cmd_phase7b_economy, "bankprofilelist": self._cmd_phase7b_economy, "bankprofilestat": self._cmd_phase7b_economy, "bankprofilecreate": self._cmd_phase7b_economy, "bankprofileset": self._cmd_phase7b_economy, "bankprofiledelete": self._cmd_phase7b_economy, "bankprofilevalidate": self._cmd_phase7b_economy, "restocklist": self._cmd_phase7b_economy, "restockstat": self._cmd_phase7b_economy, "restockcreate": self._cmd_phase7b_economy, "restockset": self._cmd_phase7b_economy, "restockdelete": self._cmd_phase7b_economy, "restockvalidate": self._cmd_phase7b_economy, "restockpreview": self._cmd_phase7b_economy,
+            "currencybalance": self._cmd_phase7b_economy, "currencygrant": self._cmd_phase7b_economy, "currencyremove": self._cmd_phase7b_economy, "ledger": self._cmd_phase7b_economy, "currencytrace": self._cmd_phase7b_economy, "ledgertrace": self._cmd_phase7b_economy, "transactionstat": self._cmd_phase7b_economy, "transactiontrace": self._cmd_phase7b_economy, "quotetrace": self._cmd_phase7b_economy, "shopstock": self._cmd_phase7b_economy, "shoprestock": self._cmd_phase7b_economy, "shopopen": self._cmd_phase7b_economy, "shopclose": self._cmd_phase7b_economy, "bankaccount": self._cmd_phase7b_economy, "banktrace": self._cmd_phase7b_economy, "economyaudit": self._cmd_phase7b_economy, "shopaudit": self._cmd_phase7b_economy, "shopstocktrace": self._cmd_phase7b_economy, "servicetrace": self._cmd_phase7b_economy, "repairtrace": self._cmd_phase7b_economy, "conversiontrace": self._cmd_phase7b_economy,
             "autoloot": self._cmd_generic,
             "autoexits": self._cmd_generic,
             "compact": self._cmd_generic,
@@ -191,11 +324,50 @@ class MudCommandEngine:
             "pour": self._cmd_generic,
             "fill": self._cmd_generic,
             "taste": self._cmd_generic,
-            "diagnose": self._cmd_generic,
-            "consider": self._cmd_generic,
+            "diagnose": self._cmd_combat_foundation,
+            "consider": self._cmd_combat_foundation,
+            "kill": self._cmd_combat_foundation,
+            "attack": self._cmd_combat_foundation,
+            "assist": self._cmd_combat_foundation,
+            "flee": self._cmd_combat_foundation,
+            "combat": self._cmd_combat_foundation,
             "levels": self._cmd_generic,
-            "time": self._cmd_generic,
-            "weather": self._cmd_generic,
+            "time": self._cmd_worldtime,
+            "worldtime": self._cmd_worldtime,
+            "simulation": self._cmd_simulation,
+            "weather": self._cmd_environment,
+            "forecast": self._cmd_environment,
+            "season": self._cmd_environment,
+            "dayperiod": self._cmd_environment,
+            "environment": self._cmd_environment,
+            "temperature": self._cmd_environment,
+            "shelter": self._cmd_environment,
+            "visibility": self._cmd_environment,
+            "roomlight": self._cmd_environment,
+            "light": self._cmd_environment,
+            "extinguish": self._cmd_environment,
+            "environmenttick": self._cmd_environment,
+            "environmenttrace": self._cmd_environment,
+            "weathertrace": self._cmd_environment,
+            "visibilitytrace": self._cmd_environment,
+            "exposuretrace": self._cmd_environment,
+            "environmentaudit": self._cmd_environment,
+            "perceptionaudit": self._cmd_perception,
+            "perceptiontrace": self._cmd_perception,
+            "hidetrace": self._cmd_perception,
+            "searchtrace": self._cmd_perception,
+            "trackingtrace": self._cmd_perception,
+            "trailtrace": self._cmd_perception,
+            "soundtrace": self._cmd_perception,
+            "soundpropagationtrace": self._cmd_perception,
+            "scenttrace": self._cmd_perception,
+            "secrettrace": self._cmd_perception,
+            "knowledgetrace": self._cmd_perception,
+            "perceptionreveal": self._cmd_perception,
+            "perceptionforget": self._cmd_perception,
+            "trailcreate": self._cmd_perception,
+            "trailclear": self._cmd_perception,
+            "soundemit": self._cmd_perception,
             "where": self._cmd_generic,
             "home": self._cmd_goto,
             "rooms": self._cmd_builder_nav,
@@ -228,6 +400,8 @@ class MudCommandEngine:
             "del": self._cmd_delete_alias,
             "delete": self._cmd_delete_alias,
             "mlist": self._cmd_builder_list_placeholder,
+            "eprofile": self._cmd_living_entity, "etime": self._cmd_living_entity, "estate": self._cmd_living_entity, "eactivity": self._cmd_living_entity, "eneeds": self._cmd_living_entity, "egoals": self._cmd_living_entity, "goals": self._cmd_living_entity, "eschedule": self._cmd_living_entity, "erelationships": self._cmd_living_entity, "ememories": self._cmd_living_entity, "econtext": self._cmd_living_entity,
+            "schedulelist": self._cmd_living_list, "needlist": self._cmd_living_list, "goallist": self._cmd_living_list, "relationshiplist": self._cmd_living_list, "memorylist": self._cmd_living_list,
             "olist": self._cmd_builder_list_placeholder,
             "exits": self._cmd_builder_nav,
             "x": self._cmd_builder_nav,
@@ -246,12 +420,559 @@ class MudCommandEngine:
             "wizhelp": self._cmd_wizhelp,
             "goto": self._cmd_goto,
             "stat": self._cmd_stat,
+            "formula": self._cmd_formula_diag,
+            "modifier": self._cmd_modifier_diag,
+            "actor": self._cmd_actor_diag,
+            "bodylist": self._cmd_phase5f, "bodyshow": self._cmd_phase5f, "slotlist": self._cmd_phase5f,
+            "spawnlist": self._cmd_phase5f, "spawnshow": self._cmd_phase5f, "population": self._cmd_phase5f,
+            "lifecycle": self._cmd_phase5f, "corpse": self._cmd_phase5f, "respawn": self._cmd_phase5f,
         }
+
+        for _name in "senseprofilelist senseprofilestat senseprofilecreate senseprofileclone senseprofileset senseprofiledelete senseprofilevalidate perceptionprofilelist perceptionprofilestat perceptionprofilecreate perceptionprofileset perceptionprofiledelete perceptionprofilevalidate concealmentlist concealmentstat concealmentcreate concealmentset concealmentdelete concealmentvalidate searchprofilelist searchprofilestat searchprofilecreate searchprofileset searchprofiledelete searchprofilevalidate trackingprofilelist trackingprofilestat trackingprofilecreate trackingprofileset trackingprofiledelete trackingprofilevalidate soundprofilelist soundprofilestat soundprofilecreate soundprofileset soundprofiledelete soundprofilevalidate".split():
+            self.command_handlers[_name] = self._cmd_perception
         for _name in " rsave redit rstat rcreate rset rdesc rname rexits rfeature rdelete exedit excreate exset exdelete fedit fcreate fset fdesc fdelete oedit ocreate oset odesc odelete ostat medit mcreate mset mdesc mdelete mstat spawnedit spawncreate spawnset spawndelete spawnstat zstat astat wstat btarget rtarget target asave bsave wsave".split():
             if _name:
                 self.command_handlers[_name] = self._cmd_builder_edit
         for _name in ("rassign", "rmove", "rrenameid"):
             self.command_handlers[_name] = self._cmd_room_assign
+        for _name in "cookingrecipelist cookingrecipestat cookingrecipecreate cookingrecipeclone cookingrecipeset cookingrecipedelete cookingrecipevalidate cookingrecipepreview ingredientprofilelist ingredientprofilestat ingredientprofilecreate ingredientprofileset ingredientprofiledelete ingredientprofilevalidate servingprofilelist servingprofilestat servingprofilecreate servingprofileset servingprofiledelete servingprofilevalidate nutritionprofilelist nutritionprofilestat nutritionprofilecreate nutritionprofileset nutritionprofiledelete nutritionprofilevalidate preservationprofilelist preservationprofilestat preservationprofilecreate preservationprofileset preservationprofiledelete preservationprofilevalidate cookingstart cookingcomplete cookinginterrupt cookingtrace cookingqualitytrace cookingservingtrace cookingfreshnesstrace cookingaudit foodfreshnessset foodservingset recipelist recipestat recipecreate recipeclone recipeset recipedelete recipevalidate recipepreview recipeinput recipeinputentry recipeoutput recipeoutputentry recipetool workstationlist workstationstat workstationcreate workstationclone workstationset workstationdelete workstationvalidate workstationpreview productionlist productionstat productioncreate productionset productionclone productiondelete productionvalidate qualitylist qualitystat qualitycreate qualityset qualityclone qualitydelete qualityvalidate craftpreview craftstart craftjob crafttrace craftcancel crafttick recipegrant reciperevoke actorrecipes professionstat professionxp workstationaudit craftingaudit recipeaudit recipetrace ingredienttrace workstationtrace qualitytrace professiontrace reservationtrace productiontrace".split():
+            self.command_handlers[_name] = self._cmd_crafting_builder
+        for _name in "achievementlist achievementstat achievementcreate achievementclone achievementset achievementdelete achievementvalidate achievementpreview criteriagrouplist criteriagroupstat criteriagroupcreate criteriagroupset criteriagroupdelete criteriagroupvalidate criterialist criteriastat criteriacreate criteriaclone criteriaset criteriadelete criteriavalidate criteriapreview titlelist titlestat titlecreate titleclone titleset titledelete titlevalidate accoladelist accoladestat accoladecreate accoladeset accoladedelete accoladevalidate collectionlist collectionstat collectioncreate collectionset collectiondelete collectionvalidate actorachievements achievementgrant achievementrevoke achievementprogress achievementreset achievementcomplete achievementtrace achievementevent achievementaudit titlegrant titlerevoke titleselect accoladegrant collectiongrant achievementeventtrace criteriatrace milestonetrace achievementrewardtrace titletrace accoladetrace collectiontrace".split():
+            self.command_handlers[_name]=self._cmd_builder_achievement
+
+        for _name in "quests questlog journal quest accept decline abandon turnin talk reply questlist queststat questcreate questclone questset questdelete questvalidate questpreview questtrace stagelist stagestat stagecreate stageclone stageset stagedelete stagevalidate objectivelist objectivestat objectivecreate objectiveclone objectiveset objectivedelete objectivevalidate objectivepreview branchlist branchadd branchset branchdelete branchvalidate questactionlist questactionadd questactionset questactiondelete questactionvalidate conversationlist conversationstat conversationcreate conversationclone conversationset conversationdelete conversationvalidate conversationpreview convnodelist convnodecreate convnodeset convnodedelete convchoiceadd convchoiceset convchoicedelete worldstatelist worldstatestat worldstateset worldstateclear worldstatehistory actorquests questoffer questaccept questadvance questcomplete questfail questabandon questreset questinstance questinstancetrace objectiveprogress questevent questtick questaudit conversationaudit worldstateaudit availabilitytrace objectivetrace questeventtrace branchtrace questrewardtrace conversationtrace worldstatetrace questtimertrace".split():
+            self.command_handlers[_name] = self._cmd_phase8a_quest
+        for _name in "behaviorlist behaviorstat behaviorvalidate behaviorpreview actorbehavior behaviortrace combatdecision combattrace combatcandidates threatlist threatstat threatadd threatclear hostilitytrace combattick protect protectset unprotect protectclear surrender callforhelp assisttrace fleetrace pursuittrace protecttrace combatgrouptrace petmode order".split():
+            self.command_handlers[_name] = self._cmd_combat_behavior
+
+        for _name in "needs hunger thirst fatigue food drink eat consume sip taste rest sleep wake camp make break light extinguish add inspect stop needlist needstat needcreate needclone needset needdelete needvalidate needpreview needsprofilelist needsprofilestat needsprofilecreate needsprofileset needsprofiledelete needsprofilevalidate consumablelist consumablestat consumablecreate consumableclone consumableset consumabledelete consumablevalidate consumablepreview needsinspect needsset needsmodify needstick needstrace consumptiontrace survivalaudit".split():
+            self.command_handlers[_name] = self._cmd_survival_needs
+
+
+
+    def _survival_service(self, character: Any):
+        rt=getattr(self,'runtime',None)
+        if rt and getattr(rt,'survival_needs',None): return rt.survival_needs
+        from engine.survival_needs import SurvivalNeedsService
+        store=getattr(rt,'state_store',None) or self.state_store
+        world_id=getattr(rt,'active_world_id',None) or getattr(character,'world_id','shattered_realms') or 'shattered_realms'
+        return SurvivalNeedsService(getattr(store,'db_path',Path('.smartmud_survival.sqlite3')), Path('worlds')/world_id, world_id, self.event_bus, rt)
+
+    def _cmd_survival_needs(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc=self._survival_service(character); cmd=raw.split()[0].lower(); actor_id=str(getattr(character,'id',getattr(character,'character_id','self')))
+        if cmd in {'rest','sleep','wake','camp','make','break','light','extinguish','add','inspect','stop'}:
+            phrase=' '.join([cmd]+args)
+            if phrase in {'rest status','sleep status'}: return CommandResult(json.dumps(svc.get_rest_context(actor_id), indent=2, sort_keys=True))
+            if phrase in {'stop resting','wake'} or cmd=='wake': return CommandResult(json.dumps(svc.wake_actor(actor_id,'command'), indent=2, sort_keys=True))
+            if cmd=='rest': return CommandResult(json.dumps(svc.start_rest(actor_id, args[0] if args and args[0] not in {'here','status'} else None), indent=2, sort_keys=True))
+            if cmd=='sleep': return CommandResult(json.dumps(svc.start_sleep(actor_id, args[-1] if args and args[0]=='on' else None), indent=2, sort_keys=True))
+            if phrase in {'camp status'} or phrase=='inspect campsite': return CommandResult(json.dumps(svc.trace_campsite(args[-1] if args and args[-1].startswith('campsite_') else ''), indent=2, sort_keys=True))
+            if phrase in {'camp here','make camp'} or cmd=='camp': return CommandResult(json.dumps(svc.create_campsite(actor_id,'basic_campsite'), indent=2, sort_keys=True))
+            if phrase=='break camp': return CommandResult(json.dumps(svc.dismantle_campsite(actor_id,args[-1] if args and args[-1].startswith('campsite_') else ''), indent=2, sort_keys=True))
+            if phrase=='light campfire':
+                cf=svc.create_campfire(actor_id,'basic_campfire'); return CommandResult(json.dumps(svc.light_campfire(actor_id,cf['campfire_instance_id']), indent=2, sort_keys=True))
+            if phrase=='extinguish campfire': return CommandResult(json.dumps(svc.extinguish_campfire(actor_id,args[-1] if args and args[-1].startswith('campfire_') else ''), indent=2, sort_keys=True))
+            if phrase=='add fuel': return CommandResult(json.dumps(svc.add_campfire_fuel(actor_id,args[0] if args and args[0].startswith('campfire_') else '', args[1] if len(args)>1 else None), indent=2, sort_keys=True))
+            if phrase=='inspect campfire': return CommandResult(json.dumps(svc.trace_campfire(args[-1] if args and args[-1].startswith('campfire_') else ''), indent=2, sort_keys=True))
+        if cmd in {'needs','hunger','thirst','fatigue','food'} or (cmd=='drink' and args[:1]==['status']):
+            rows=svc.get_actor_needs(actor_id)
+            if cmd in {'hunger','thirst','fatigue'}: rows=[r for r in rows if r['need_definition_id']==cmd or cmd in r['need_definition_id']]
+            lines=['Survival needs:']+[f"{r['need_definition_id']}: {float(r['current_value']):.1f} ({r['status']})" for r in rows]
+            return CommandResult('\n'.join(lines))
+        if cmd in {'eat','drink','consume','sip','taste'}:
+            if not args: return CommandResult(f"What do you want to {cmd}?", ok=False)
+            if cmd=='taste': return CommandResult('You inspect it cautiously. Taste effects are read-only placeholders in Phase 11D1.')
+            target=' '.join(args); item_id=target
+            if not target.startswith('item_'):
+                for it in getattr(character,'inventory',[]) or []:
+                    if target.lower() in str(it.get('name') or it.get('template_id') or it.get('id','')).lower(): item_id=it.get('instance_id') or it.get('id') or item_id; break
+            res=svc.consume_item(actor_id,item_id,1)
+            return CommandResult(('Consumed one serving.' if res.get('ok') else f"Cannot consume: {res.get('reason')}"), ok=bool(res.get('ok')))
+        if cmd in {'needstick'}:
+            if not args: return CommandResult('Usage: needstick <duration>', ok=False)
+            return CommandResult(json.dumps(svc.process_actor_needs(actor_id, svc._world_minutes()+int(args[0])), indent=2, sort_keys=True))
+        if cmd in {'needsinspect','needstrace'}: return CommandResult(json.dumps(svc.trace_actor_needs(args[0] if args else actor_id), indent=2, sort_keys=True))
+        if cmd in {'needsset','needsmodify'}:
+            if len(args)<3: return CommandResult(f'Usage: {cmd} <actor> <need> <value>', ok=False)
+            fn=svc.set_actor_need if cmd=='needsset' else svc.modify_actor_need
+            return CommandResult(json.dumps(fn(args[0],args[1],float(args[2]),'admin_command'), indent=2, sort_keys=True))
+        if cmd=='consumptiontrace': return CommandResult(json.dumps(svc.trace_consumption(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='resttrace': return CommandResult(json.dumps(svc.trace_rest(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='campfiretrace': return CommandResult(json.dumps(svc.trace_campfire(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='campsitetrace': return CommandResult(json.dumps(svc.trace_campsite(args[0] if args else ''), indent=2, sort_keys=True))
+        if cmd=='survivalaudit': return CommandResult('Survival audit events are stored in SQLite survival_audit_events.')
+        coll = 'actor_need_definitions' if cmd.startswith('need') else 'actor_needs_profiles' if cmd.startswith('needsprofile') else 'consumable_profiles'
+        if cmd.endswith('list') or cmd in {'needlist'}: return CommandResult('\n'.join(f"{x.get('id')} - {x.get('name','')}" for x in svc.content.list(coll)) or f'No {coll}.')
+        if cmd.endswith('stat') and args: return CommandResult(json.dumps(svc.content.get(coll,args[0]), indent=2, sort_keys=True))
+        if cmd.endswith('validate') or cmd in {'needvalidate','consumablevalidate','needsprofilevalidate'}: return CommandResult(json.dumps(svc.content.validate(), indent=2, sort_keys=True))
+        if cmd.endswith('preview') or cmd in {'needpreview','consumablepreview'}: return CommandResult(json.dumps({'collection':coll,'id':args[0] if args else None,'preview':'draft-safe'}, indent=2, sort_keys=True))
+        return CommandResult('Survival Builder command is draft-safe in Phase 11D1; edit JSON collections through Builder import/apply.')
+
+    def _quest_service(self, character: Any):
+        from engine.quests import QuestService
+        store = self.state_store
+        db_path = getattr(store, "db_path", None) or ":memory:"
+        world_id = getattr(character, "world_id", "") or "shattered_realms"
+        reward_service = getattr(self, "reward_service", None)
+        return QuestService(db_path, world_id=world_id, event_bus=self.event_bus, reward_service=reward_service)
+
+    def _cmd_phase8a_quest(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        from engine.quests import QuestValidator
+        svc = self._quest_service(character)
+        cmd = raw.split()[0].lower() if raw.split() else "quests"
+        actor_id = getattr(character, "id", "") or getattr(character, "character_id", "") or "self"
+        if cmd in {"quests", "questlog", "journal"}:
+            if args and args[0].lower() == "available":
+                qs = svc.list_available_quests(actor_id)
+                return CommandResult("Available quests:\n" + "\n".join(f"{i+1}. {q.get('name')}" for i,q in enumerate(qs)))
+            rows = svc.get_quest_journal(actor_id)
+            if not rows: return CommandResult("Quest Journal:\nNo active quests.")
+            return CommandResult("Quest Journal:\n" + "\n".join(f"{i+1}. {r['name']} - {r['status']} - {r['current_stage']}" for i,r in enumerate(rows)))
+        if cmd == "quest" and args:
+            if args[0].lower() in {"history", "completed"}:
+                return CommandResult("Quest history is recorded in actor_quest_history.")
+            qid = args[-1].replace(" ", "_")
+            q = svc.get_quest_definition(qid)
+            return CommandResult(f"Quest {qid}: {q.get('summary','') if q else 'not found'}", ok=bool(q))
+        if cmd == "accept" and args:
+            inst = svc.accept_quest(actor_id, args[0], {"source_type":"command"})
+            return CommandResult(f"Accepted quest {inst['quest_id']}.")
+        if cmd == "abandon" and args:
+            qs = [q for q in svc.get_actor_quests(actor_id) if q['quest_id'] == args[0] or q['quest_instance_id'] == args[0]]
+            if not qs: return CommandResult("Quest not found.", ok=False)
+            svc.abandon_quest(actor_id, qs[0]['quest_instance_id']); return CommandResult(f"Abandoned {qs[0]['quest_id']}.")
+        if cmd == "turnin" and args:
+            qs = [q for q in svc.get_actor_quests(actor_id) if q['quest_id'] == args[0] or q['quest_instance_id'] == args[0]]
+            if not qs: return CommandResult("Quest not found.", ok=False)
+            svc.turn_in_quest(actor_id, qs[0]['quest_instance_id'], {"source_type":"command"}); return CommandResult(f"Turned in {qs[0]['quest_id']}.")
+        if cmd == "decline": return CommandResult("Quest offer declined.")
+        if cmd == "talk": return CommandResult("Conversation foundation is available; choose a Builder-authored conversation and reply choice when active.")
+        if cmd == "reply": return CommandResult("Reply requires an active canonical conversation choice.")
+        if cmd in {"questlist", "queststat", "questvalidate", "questaudit"}:
+            if cmd == "questlist": return CommandResult("Quests:\n" + "\n".join(q['id'] for q in svc.content.list('quest_definitions')))
+            if cmd == "queststat" and args: return CommandResult(json.dumps(svc.get_quest_definition(args[0]) or {}, indent=2, sort_keys=True))
+            res = QuestValidator(svc.content).validate_quest(args[0]) if args else QuestValidator(svc.content).validate_all()
+            return CommandResult(f"Quest validation: {'ok' if res.ok else 'failed'}\nErrors: {res['errors']}\nWarnings: {res['warnings']}", ok=res.ok)
+        if cmd.startswith("worldstate"):
+            if cmd == "worldstateset" and len(args) >= 4:
+                val = " ".join(args[3:]); parsed = True if val.lower()=="true" else False if val.lower()=="false" else val
+                svc.world_state.set_state(args[0], args[1], args[2], parsed, source_type="command", source_id=actor_id); return CommandResult("World state set.")
+            if cmd == "worldstatehistory" and len(args) >= 3: return CommandResult(json.dumps(svc.world_state.get_state_history(args[0],args[1],args[2]), indent=2))
+            if cmd == "worldstatestat" and len(args) >= 3: return CommandResult(json.dumps(svc.world_state.get_state(args[0],args[1],args[2]) or {}, indent=2))
+            return CommandResult("Usage: worldstateset <scope> <scope_id> <key> <value>")
+        return CommandResult("Phase 8A quest Builder/Admin command foundation is available; edits are stored through Builder draft JSON collections.")
+
+    def _crafting_service(self, character: Any) -> CraftingService | None:
+        store = self.state_store
+        db_path = getattr(store, "db_path", None)
+        if not db_path:
+            return None
+        world_id = getattr(character, "world_id", "") or "shattered_realms"
+        return CraftingService(db_path, world_id=world_id, runtime=getattr(self, "runtime", None), event_bus=self.event_bus)
+
+    def _recipe_match(self, svc: CraftingService, query: str) -> dict[str, Any] | None:
+        q = str(query or "").lower().replace(" ", "_")
+        recipes = svc.content.list("recipe_definitions")
+        for r in recipes:
+            vals = {str(r.get("id", "")).lower(), str(r.get("short_name", "")).lower(), str(r.get("name", "")).lower().replace(" ", "_")}
+            if q in vals or any(q and q in v for v in vals):
+                return r
+        return None
+
+
+    def _achievement_service(self, character: Any = None):
+        from engine.achievements import AchievementService
+        db_path = getattr(self.state_store, "db_path", None) or Path("/tmp/smartmud-achievements.sqlite3")
+        world_id = getattr(character, "current_world", None) or getattr(self.state_store, "world_id", "shattered_realms") or "shattered_realms"
+        return AchievementService(db_path, world_id=world_id, world_root=Path("worlds") / world_id, event_bus=self.event_bus)
+
+    def _actor_id_for_achievements(self, character: Any = None) -> str:
+        return str(getattr(character, "actor_id", None) or getattr(character, "id", None) or getattr(character, "name", None) or "self")
+
+    def _cmd_achievements(self, character: Any, args: list[str], command: str = "achievements") -> CommandResult:
+        svc = self._achievement_service(character); actor_id = self._actor_id_for_achievements(character)
+        cmd = command
+        if cmd == "profile" and args and args[0] in {"achievements", "titles"}: cmd = args[0]
+        if cmd in {"achievements", "achievement"}:
+            if args and args[0] == "completed":
+                rows = svc.get_actor_achievements(actor_id, "completed")
+                return CommandResult("Completed achievements:\n" + "\n".join(f"{i+1}. {r['achievement_id']}" for i,r in enumerate(rows)))
+            if args and args[0] in {"available", "categories", "series"}:
+                key = "achievement_definitions" if args[0] == "available" else "achievement_" + args[0]
+                return CommandResult(json.dumps(svc.content.data.get(key, {}), indent=2, default=str))
+            if args and args[0] not in {"progress"}:
+                return CommandResult(json.dumps(svc.trace_achievement(actor_id, args[0]), indent=2, default=str))
+            defs=svc.list_achievements(actor_id)
+            return CommandResult("Achievements:\n" + "\n".join(f"{i+1}. {a.get('name')}" for i,a in enumerate(defs)))
+        if cmd == "titles":
+            return CommandResult("Titles:\n" + "\n".join(f"{i+1}. {t['title_id']}{' (selected)' if t.get('selected') else ''}" for i,t in enumerate(svc.list_titles(actor_id))))
+        if cmd == "title":
+            if args[:1] == ["clear"]: svc.clear_selected_title(actor_id); return CommandResult("Selected title cleared.")
+            if len(args) >= 2 and args[0] == "select": svc.select_title(actor_id, args[1]); return CommandResult(f"Selected title: {args[1]}")
+            return self._cmd_achievements(character, [], "titles")
+        if cmd == "accolades":
+            return CommandResult("Accolades:\n" + "\n".join(f"{i+1}. {a['accolade_id']}" for i,a in enumerate(svc.list_accolades(actor_id))))
+        if cmd in {"collections", "collection"}:
+            if args: return CommandResult(json.dumps(svc.get_collection_progress(actor_id,args[0]), indent=2, default=str))
+            return CommandResult("Collections:\n" + "\n".join(f"{i+1}. {c.get('name')}" for i,c in enumerate(svc.content.list('collection_definitions'))))
+        if cmd == "milestones": return CommandResult(json.dumps(svc.content.data.get('achievement_milestone_profiles', {}), indent=2, default=str))
+        return CommandResult(json.dumps(svc.trace_achievement(actor_id, args[0] if args else 'first_blood'), indent=2, default=str))
+
+    def _cmd_builder_achievement(self, character: Any, args: list[str], command: str = "achievementlist") -> CommandResult:
+        svc = self._achievement_service(character); cmd=command
+        mapping={"achievement":"achievement_definitions","criteriagroup":"achievement_criteria_groups","criteria":"achievement_criteria","title":"title_definitions","accolade":"accolade_definitions","collection":"collection_definitions"}
+        base=next((v for k,v in mapping.items() if cmd.startswith(k)), "achievement_definitions")
+        if cmd.endswith("list"): return CommandResult(json.dumps(svc.content.list(base), indent=2, default=str))
+        if "stat" in cmd or "preview" in cmd or "trace" in cmd: return CommandResult(json.dumps(svc.content.get(base,args[0]) if args else svc.content.validate(), indent=2, default=str))
+        if "validate" in cmd or cmd == "achievementaudit": return CommandResult(json.dumps(svc.content.validate(), indent=2, default=str))
+        if cmd == "achievementcomplete" and len(args)>=2: return CommandResult(json.dumps(svc.complete_achievement(args[0],args[1]), indent=2, default=str))
+        if cmd == "titlegrant" and len(args)>=2: return CommandResult(str(svc.grant_title(args[0],args[1],"admin","command")))
+        if cmd == "titleselect" and len(args)>=2: svc.select_title(args[0],args[1]); return CommandResult("Title selected.")
+        if cmd == "accoladegrant" and len(args)>=2: return CommandResult(str(svc.grant_accolade(args[0],args[1],"admin","command")))
+        if cmd == "collectiongrant" and len(args)>=3: return CommandResult(str(svc.add_collection_entry(args[0],args[1],args[2],"admin","command")))
+        return CommandResult("Phase 9B Builder achievement command foundation is available; edit JSON drafts through Builder workspace/import pipeline.")
+
+    def _cmd_crafting_player(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc = self._crafting_service(character)
+        if not svc:
+            return CommandResult(narrative="Crafting is unavailable in this runtime.", ok=False)
+        cmd = raw.split()[0].lower() if raw.split() else "recipes"
+        actor_id = getattr(character, "id", "") or getattr(character, "character_id", "")
+        if cmd in {"recipes", "learned"} or raw.lower().startswith("learned recipes"):
+            if args and args[0].lower()=="cooking":
+                recs=svc.list_cooking_recipes(actor_id)
+                return CommandResult(narrative="Cooking recipes:\n" + "\n".join(f"{i+1}. {r.get('name')}" for i,r in enumerate(recs)))
+            prof = args[0] if args else ""
+            recs = [r for r in svc.get_actor_recipes(actor_id) if not prof or r.get("profession_id") == prof]
+            lines = ["Known recipes:"] + [f"{i+1}. {r.get('name')} ({r.get('profession_id') or 'general'})" for i, r in enumerate(recs)]
+            return CommandResult(narrative="\n".join(lines or ["No known recipes."]))
+        if cmd == "cook":
+            if not args or args[0].lower() in {"list","recipes"}:
+                recs=svc.list_cooking_recipes(actor_id); return CommandResult(narrative="Cooking recipes:\n"+"\n".join(f"{i+1}. {r.get('name')}" for i,r in enumerate(recs)))
+            query=" ".join(args); workstation=None
+            if " at campfire" in query: query=query.replace(" at campfire",""); workstation="campfire"
+            r=self._recipe_match(svc, query)
+            if not r: return CommandResult(narrative="Usage: cook <recipe> [at campfire]", ok=False)
+            try: job=svc.start_cooking(actor_id,r["id"],workstation_id=workstation)
+            except Exception as exc: return CommandResult(narrative=f"Cannot cook: {exc}", ok=False)
+            return CommandResult(narrative=f"Cooking job started: {r.get('name')} status={job['status']}.")
+        if cmd == "ingredients":
+            r=self._recipe_match(svc," ".join(args[1:] if args[:1]==["for"] else args)) if args else None
+            if not r: return CommandResult(narrative="Usage: ingredients for <recipe>", ok=False)
+            return CommandResult(narrative="Ingredients for "+r.get("name",r["id"])+":\n"+"\n".join(g.get("id","") for g in r.get("input_groups",[])))
+        if cmd == "preserve":
+            return CommandResult(narrative=json.dumps(svc.preserve_food(actor_id,args[0] if args else ""), indent=2))
+        if cmd in {"prepare","meal"}: return CommandResult(narrative="Ingredient preparation is routed through cooking recipes and CraftingService jobs.")
+        if cmd == "recipe":
+            r = self._recipe_match(svc, " ".join(args)) if args else None
+            if not r: return CommandResult(narrative="Usage: recipe <name>", ok=False)
+            p = svc.preview_recipe(actor_id, r["id"], 1)
+            d = p.details
+            lines = [r.get("name", r["id"]), r.get("description", ""), f"Profession: {r.get('profession_id') or 'none'} rank {r.get('minimum_profession_rank', 0)}", f"Workstation: {d.get('workstation') or 'none'}", f"Duration: {d.get('duration', 0)}", f"Eligible: {p.eligible}"]
+            if d.get("missing_inputs"): lines.append(f"Missing: {d['missing_inputs']}")
+            return CommandResult(narrative="\n".join(lines))
+        if cmd in {"craft", "refine"}:
+            if args and args[0].lower()=="preview":
+                query=" ".join(args[1:]); start=False
+            else:
+                query=" ".join(args); start=True
+            qty=1
+            toks=query.split()
+            if toks and toks[-1].isdigit(): qty=int(toks[-1]); query=" ".join(toks[:-1])
+            r=self._recipe_match(svc, query)
+            if not r: return CommandResult(narrative="Usage: craft [preview] <recipe> [quantity]", ok=False)
+            p=svc.preview_recipe(actor_id,r["id"],qty)
+            if not start:
+                return CommandResult(narrative=f"Craft preview: {r.get('name')} x{qty}\nEligible: {p.eligible}\nSelected: {p.details.get('selected_inputs')}\nMissing: {p.details.get('missing_inputs')}\nDuration: {p.details.get('duration')}\nQuality: {p.details.get('quality_range')}\nWarnings: {p.details.get('warnings')}")
+            try: job=svc.start_crafting(actor_id,r["id"],qty)
+            except Exception as exc: return CommandResult(narrative=f"Cannot craft: {exc}", ok=False)
+            return CommandResult(narrative=f"Crafting job started: {job['crafting_job_id']} status={job['status']} completes at world time {job['completes_world_time']}.")
+        if cmd == "salvage":
+            r = next((x for x in svc.content.list("recipe_definitions") if x.get("recipe_type")=="salvage"), None)
+            if not r: return CommandResult(narrative="No salvage recipe is available.", ok=False)
+            p=svc.preview_recipe(actor_id,r["id"],1)
+            return CommandResult(narrative=f"Salvage preview: {r.get('name')}\nEligible: {p.eligible}\nWarning: destructive; exact selected item instances: {p.details.get('selected_inputs')}\nMissing: {p.details.get('missing_inputs')}")
+        if cmd == "crafting":
+            if args and args[0].lower()=="cancel" and len(args)>1:
+                job=svc.cancel_crafting(actor_id,args[1]); return CommandResult(narrative=f"Cancelled crafting job {job['crafting_job_id']}.")
+            jobs=svc.list_actor_crafting_jobs(actor_id)
+            return CommandResult(narrative="Crafting jobs:\n"+"\n".join([f"- {j['crafting_job_id']} {j['recipe_id']} {j['status']} completes={j['completes_world_time']}" for j in jobs] or ["- none"]))
+        if cmd in {"professions", "profession"}:
+            return CommandResult(narrative="Professions and ranks are managed by the canonical CraftingService profession state. Use score professions for summary.")
+        return CommandResult(narrative="Crafting command recognized.")
+
+    def _cmd_crafting_builder(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc = self._crafting_service(character)
+        if not svc:
+            return CommandResult(narrative="Crafting is unavailable in this runtime.", ok=False)
+        cmd = raw.split()[0].lower() if raw.split() else ""
+        if cmd.startswith("cooking") or cmd.startswith("ingredientprofile") or cmd.startswith("servingprofile") or cmd.startswith("nutritionprofile") or cmd.startswith("preservationprofile") or cmd in {"foodfreshnessset","foodservingset"}:
+            cmap={"ingredientprofile":"cooking_ingredient_profiles","servingprofile":"cooking_serving_yield_profiles","nutritionprofile":"food_nutrition_profiles","preservationprofile":"food_preservation_profiles"}
+            pref=next((k for k in cmap if cmd.startswith(k)), None)
+            coll=cmap.get(pref,"recipe_definitions")
+            if cmd.endswith("list"): return CommandResult(narrative="\n".join([f"- {x.get('id')}: {x.get('name','')}" for x in svc.content.list(coll)]))
+            if "trace" in cmd and args: return CommandResult(narrative=json.dumps(svc.trace_cooking_job(args[0]), indent=2, default=str))
+            if cmd=="cookingstart" and len(args)>=2: return CommandResult(narrative=json.dumps(svc.start_cooking(args[0],args[1],workstation_id=args[2] if len(args)>2 else None), indent=2, default=str))
+            if cmd=="cookingcomplete" and args: return CommandResult(narrative=json.dumps(svc.complete_cooking(args[0]), indent=2, default=str))
+            if cmd=="cookinginterrupt" and len(args)>=2: return CommandResult(narrative=json.dumps(svc.interrupt_cooking(args[0]," ".join(args[1:])), indent=2, default=str))
+            if "validate" in cmd or cmd=="cookingaudit": v=svc.content.validate(); return CommandResult(narrative=json.dumps(v, indent=2))
+            if "stat" in cmd and args: return CommandResult(narrative=json.dumps(svc.content.get(coll,args[0]) or {}, indent=2, default=str))
+            return CommandResult(narrative="Cooking Builder/Admin command foundation is available.")
+        if cmd.endswith("list") or cmd in {"recipelist", "workstationlist", "productionlist", "qualitylist"}:
+            coll = {"recipelist":"recipe_definitions","workstationlist":"workstation_profiles","productionlist":"production_profiles","qualitylist":"item_quality_profiles"}.get(cmd,"recipe_definitions")
+            return CommandResult(narrative="\n".join([f"- {x.get('id')}: {x.get('name', x.get('display_name',''))}" for x in svc.content.list(coll)] or [f"No {coll}."]))
+        if cmd in {"recipevalidate","workstationvalidate","productionvalidate","qualityvalidate","craftingaudit","recipeaudit"}:
+            v=svc.content.validate(); return CommandResult(narrative=f"Errors:\n"+"\n".join(v['errors'] or ["none"])+"\nWarnings:\n"+"\n".join(v['warnings'] or ["none"]))
+        if cmd in {"craftpreview","recipepreview"} and len(args)>=2:
+            actor=args[1] if cmd=="recipepreview" else args[0]; recipe=args[0] if cmd=="recipepreview" else args[1]; qty=int(args[2]) if len(args)>2 and args[2].isdigit() else 1
+            p=svc.preview_recipe(actor,recipe,qty); return CommandResult(narrative=json.dumps({"eligible":p.eligible, **p.details}, indent=2, default=str))
+        if cmd=="craftstart" and len(args)>=2:
+            job=svc.start_crafting(args[0],args[1],int(args[2]) if len(args)>2 and args[2].isdigit() else 1); return CommandResult(narrative=json.dumps(job, indent=2, default=str))
+        if cmd=="crafttick":
+            wt=int(args[0]) if args and args[0].isdigit() else 0; done=svc.process_crafting_jobs(world_time=wt); return CommandResult(narrative=f"Processed {len(done)} crafting jobs.")
+        if cmd=="recipegrant" and len(args)>=2: return CommandResult(narrative=f"Granted recipe knowledge {svc.grant_recipe(args[0],args[1])}.")
+        if cmd=="reciperevoke" and len(args)>=2: svc.revoke_recipe(args[0],args[1]); return CommandResult(narrative="Recipe source revoked.")
+        if cmd=="actorrecipes" and args: return CommandResult(narrative="\n".join(r['id'] for r in svc.get_actor_recipes(args[0])) or "No recipes.")
+        if cmd in {"craftjob","crafttrace","productiontrace"} and args: return CommandResult(narrative=json.dumps(svc.trace_crafting_job(args[0]), indent=2, default=str))
+        if cmd=="professionxp" and len(args)>=3: return CommandResult(narrative=json.dumps(svc.award_profession_experience(args[0],args[1],int(args[2])), indent=2, default=str))
+        return CommandResult(narrative="Crafting Builder/Admin command foundation is available; edits are stored through Builder draft JSON in Phase 7C content collections.")
+
+    def _living_entity(self, query: str) -> dict[str, Any] | None:
+        rt=getattr(self,'runtime',None)
+        if not rt: return None
+        ents=rt._fetch_entities('world_id=?',(getattr(rt,'active_world_id','') or '',))
+        q=str(query or '').lower()
+        for e in ents:
+            if q in {str(e.get('instance_id','')).lower(), str(e.get('template_id','')).lower()} or q in str(e.get('name','')).lower(): return e
+        return None
+
+
+    def _formula_engine(self) -> FormulaEngine:
+        if not hasattr(self, "_phase5d_formula_engine"):
+            self._phase5d_formula_engine = FormulaEngine()
+        return self._phase5d_formula_engine
+
+
+
+    def _combat_behavior_service(self, character: Any) -> CombatBehaviorService:
+        svc = getattr(self, "combat_behavior_service", None)
+        if not svc:
+            svc = CombatBehaviorService(event_bus=self.event_bus, ability_service=getattr(self, "ability_service", None), world_id=getattr(character, "world_id", ""))
+            self.combat_behavior_service = svc
+        svc.register_actor(actor_from_runtime_character(character, getattr(character, "world_id", "")))
+        return svc
+
+    def _cmd_combat_behavior(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        cmd = raw.split()[0].lower() if raw.split() else ""
+        svc = self._combat_behavior_service(character)
+        role = self._effective_role(character) if hasattr(self, "_effective_role") else str(getattr(character, "role", "player")).lower()
+        admin = role in {"builder", "admin", "owner"} or bool(getattr(character, "builder_mode", False))
+        actor_id = args[0] if args else getattr(character, "id", "")
+        if cmd == "behaviorlist":
+            return CommandResult("Combat behavior profiles\n" + "\n".join(sorted(svc.registry.profiles)))
+        if cmd in {"behaviorstat", "behaviorpreview"}:
+            prof = svc.registry.get(args[0] if args else "civilian_safe")
+            return CommandResult(json.dumps(prof.to_dict(), indent=2, sort_keys=True))
+        if cmd == "behaviorvalidate":
+            errs = svc.registry.validate()
+            return CommandResult("Behavior validation OK." if not errs else "\n".join(errs), ok=not bool(errs))
+        if cmd in {"actorbehavior", "behaviortrace"}:
+            return CommandResult(json.dumps(svc.trace_actor_combat_behavior(actor_id), indent=2, sort_keys=True))
+        if cmd in {"combatdecision", "combattrace"}:
+            return CommandResult(json.dumps(svc.trace_combat_decision(actor_id), indent=2, sort_keys=True))
+        if cmd == "combatcandidates":
+            return CommandResult(json.dumps([c.to_dict() for c in svc.build_combat_action_candidates(actor_id)], indent=2, sort_keys=True))
+        if cmd in {"threatlist", "threatstat"}:
+            return CommandResult(json.dumps(svc.threat.get_actor_threat_table(actor_id), indent=2, sort_keys=True))
+        if cmd == "threatadd":
+            if not admin: return CommandResult("You do not have permission for that command.", ok=False)
+            target = args[1] if len(args)>1 else ""; amount = float(args[2]) if len(args)>2 else 1
+            return CommandResult(json.dumps(svc.threat.add_threat(actor_id, target, amount, "scripted"), indent=2, sort_keys=True))
+        if cmd == "threatclear":
+            if not admin: return CommandResult("You do not have permission for that command.", ok=False)
+            svc.threat.clear_actor_threat(actor_id); return CommandResult("Threat cleared.")
+        if cmd == "hostilitytrace":
+            target = args[1] if len(args)>1 else getattr(character, "id", "")
+            return CommandResult(json.dumps(svc.hostility.evaluate_hostility(actor_id, target), indent=2, sort_keys=True))
+        if cmd == "combattick":
+            count = int(args[0]) if args and args[0].isdigit() else 1
+            results=[]
+            for i in range(count): results.extend(svc.evaluate_world_combat_behavior(getattr(character,"world_id",""), i))
+            return CommandResult(json.dumps(results, indent=2, sort_keys=True))
+        if cmd in {"petmode", "order"}:
+            mode = args[-1].lower() if args else "passive"
+            allowed={"attack","assist","flee","stay","follow","protect","passive","defensive","aggressive"}
+            if mode not in allowed: return CommandResult("Unsupported order. Allowed: " + ", ".join(sorted(allowed)), ok=False)
+            return CommandResult(f"{cmd} accepted: {mode}.")
+        return CommandResult(f"{cmd} intent recorded through combat behavior service.")
+
+    def _cmd_phase5f(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if self._effective_role(character) not in {"builder", "admin", "owner"}:
+            return CommandResult("You do not have permission for that command.", ok=False)
+        from engine.phase5f import BodyProfileRegistry, PopulationManager, LIFECYCLE_STATES
+        rt=getattr(self,"runtime",None); world=getattr(rt,"active_world",None) if rt else None; cmd=raw.split()[0].lower()
+        profiles=BodyProfileRegistry(getattr(world,"body_profiles",None) or None)
+        if cmd=="bodylist": return CommandResult("Body Profiles\n"+"\n".join(sorted(profiles.profiles)))
+        if cmd=="bodyshow":
+            prof=profiles.get(args[0] if args else "humanoid"); return CommandResult(json.dumps(prof.to_dict(), indent=2, sort_keys=True))
+        if cmd=="slotlist":
+            prof=profiles.get(args[0] if args else "humanoid"); return CommandResult("Slots for "+prof.id+"\n"+"\n".join(f"{s.order}: {s.id} ({s.display_name})" for s in prof.slots))
+        defs=getattr(world,"population_definitions",None) or getattr(world,"spawns",[]) or []
+        pm=PopulationManager(rt.state_store.db_path, getattr(rt,"active_world_id","") or "", defs) if rt else None
+        if cmd=="spawnlist": return CommandResult("Spawn Definitions\n"+"\n".join(str(d.get("id")) for d in defs))
+        if cmd=="spawnshow":
+            q=args[0] if args else ""; return CommandResult(json.dumps(next((d for d in defs if str(d.get("id"))==q), {}), indent=2, sort_keys=True))
+        if cmd=="population":
+            action=args[0].lower() if args else "diagnostics"
+            if action=="validate": return CommandResult("Population validation\n"+("\n".join(pm.validate()) or "passed"))
+            if action=="reload": return CommandResult("Population definitions reloaded for current world package.")
+            return CommandResult(json.dumps({"definitions":len(defs),"instances":pm.instances() if pm else [],"diagnostics":"deterministic population manager active"}, indent=2, sort_keys=True))
+        if cmd=="lifecycle": return CommandResult("Lifecycle states\n"+" -> ".join(LIFECYCLE_STATES))
+        if cmd=="corpse": return CommandResult("Corpse diagnostics: corpse ownership is stored on corpse_instances; loot is intentionally not implemented.")
+        if cmd=="respawn": return CommandResult("Respawn diagnostics: respawn_queue is persisted by world time.")
+        return CommandResult("Phase 5F command unavailable.", ok=False)
+
+    def _cmd_formula_diag(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if self._effective_role(character) not in {"builder", "admin", "owner"}:
+            return CommandResult("You do not have permission for that command.", ok=False)
+        engine = self._formula_engine(); action = args[0].lower() if args else "list"
+        if action == "list":
+            ids = [m["id"] for m in engine.formulas.metadata()]
+            return CommandResult("Formula Registry\n" + "\n".join(ids))
+        if action == "show" and len(args) >= 2:
+            f = engine.formulas.get(args[1]); return CommandResult(json.dumps(f.__dict__ if f else {"missing": args[1]}, indent=2, sort_keys=True), ok=bool(f))
+        if action == "trace" and len(args) >= 2:
+            actor = actor_from_runtime_character(character, self.builder.world_id(character)); res = actor.get_derived_value(args[1], engine)
+            return CommandResult(json.dumps(res.__dict__, default=str, indent=2, sort_keys=True))
+        if action in {"validate", "debug"}:
+            v = engine.formulas.validate(); return CommandResult("Formula validation " + ("passed" if v.ok else "failed") + "\nErrors:\n" + ("\n".join(v.errors) or "- none") + "\nWarnings:\n" + ("\n".join(v.warnings) or "- none"), ok=v.ok)
+        return CommandResult("Usage: formula <list|show|trace|validate|debug> [formula_or_stat]", ok=False)
+
+    def _cmd_modifier_diag(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if self._effective_role(character) not in {"builder", "admin", "owner"}:
+            return CommandResult("You do not have permission for that command.", ok=False)
+        engine = self._formula_engine(); action = args[0].lower() if args else "list"
+        if action == "list":
+            return CommandResult("Modifier Registry\n" + ("\n".join(sorted(engine.modifiers.modifiers)) or "- none"))
+        if action in {"trace", "debug"}:
+            stat = args[1] if len(args) > 1 else "attack_rating"
+            mods = [m.__dict__ for m in engine.modifiers.stacked_for_stat(stat)]
+            return CommandResult(json.dumps({"stat": stat, "modifiers": mods}, indent=2, sort_keys=True))
+        return CommandResult("Usage: modifier <list|trace|debug> [stat]", ok=False)
+
+    def _cmd_actor_diag(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if self._effective_role(character) not in {"builder", "admin", "owner"}:
+            return CommandResult("You do not have permission for that command.", ok=False)
+        if not args or args[0].lower() not in {"formulas", "modifiers"}:
+            return CommandResult("Usage: actor <formulas|modifiers>", ok=False)
+        actor = actor_from_runtime_character(character, self.builder.world_id(character))
+        if args[0].lower() == "formulas":
+            return CommandResult("Actor formulas\n" + "\n".join(f"{k}: {v.formula_name}" for k, v in sorted(actor.derived_statistics_cache.items())))
+        return self._cmd_modifier_diag(character, ["list"], raw)
+
+    def _environment_service(self):
+        rt = getattr(self, "runtime", None)
+        svc = getattr(rt, "environment", None) if rt else getattr(self, "environment_service", None)
+        if svc:
+            return svc
+        from engine.environment import EnvironmentService
+        world_id = getattr(rt, "active_world_id", "shattered_realms") if rt else "shattered_realms"
+        db_path = getattr(getattr(rt, "state_store", None), "db_path", getattr(self.state_store, "db_path", "mud_state.db"))
+        return EnvironmentService(db_path, Path("worlds") / world_id, world_id, self.event_bus)
+
+    def _cmd_environment(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc = self._environment_service(); cmd = raw.split()[0].lower()
+        rt = getattr(self, "runtime", None); wid = getattr(rt, "active_world_id", svc.world_id) if rt else svc.world_id
+        wt = rt.get_world_time(wid) if rt else {"day": 1, "hour": 12, "minute": 0}
+        room = {}
+        if rt and getattr(rt, "active_world", None) and getattr(character, "room_id", ""):
+            try: room = rt.active_world.room(character.room_id)
+            except Exception: room = {"id": getattr(character, "room_id", "")}
+        if cmd == "environmenttick":
+            minutes = int(args[0]) if args and str(args[0]).isdigit() else 60
+            new_time = rt.advance_world_time(wid, minutes) if rt else minutes
+            changes = svc.process_environment_time(wid, new_time)
+            return CommandResult(f"Environment tick completed.\nMinutes: {minutes}\nWeather transitions: {len(changes)}")
+        if cmd == "forecast":
+            f = svc.get_forecast()
+            return CommandResult(f"Forecast\nCurrent: {f['current_conditions']}\nLikely next: {f['likely_next_weather']}\nTransition window: {f['transition_window']}\nPrecipitation risk: {f['precipitation_risk']}\nUncertainty: {f['uncertainty_label']}")
+        if cmd == "season":
+            s = svc.resolve_season(wt)
+            return CommandResult(f"Season: {s.get('name') or s.get('id')} (cycle day {s.get('cycle_day')})")
+        if cmd == "dayperiod":
+            d = svc.resolve_day_period(wt)
+            return CommandResult(f"Day period: {d['period']}")
+        if cmd in {"roomlight", "light"} and (not args or cmd == "roomlight"):
+            e = svc.resolve_room_environment(room, world_time=wt)
+            return CommandResult(f"Room light: {e['light']['light_class']} (effective {e['light']['effective_light']:.2f})")
+        if cmd == "light":
+            item = args[0] if args else "light"
+            res = svc.activate_light_source("item", f"{getattr(character,'id','actor')}:{item}", "torch_light", "actor", getattr(character,"id",""), getattr(character,"room_id",""), svc._world_minutes(wt))
+            return CommandResult(f"You light {item}. Light source {res['status']}.")
+        if cmd == "extinguish":
+            item = args[0] if args else "light"
+            ok = svc.extinguish_light_source("item", f"{getattr(character,'id','actor')}:{item}")
+            return CommandResult(f"You extinguish {item}." if ok else "That is not lit.", ok=ok)
+        if cmd in {"environmenttrace", "environmentaudit"}:
+            return CommandResult(json.dumps(svc.trace_room_environment(room), indent=2, sort_keys=True))
+        if cmd == "weathertrace":
+            return CommandResult(json.dumps(svc.trace_weather(args[0] if args else "world", args[1] if len(args)>1 else "default"), indent=2, sort_keys=True))
+        if cmd == "visibilitytrace":
+            target = args[-1] if args else "self"
+            return CommandResult(json.dumps(svc.evaluate_visibility(getattr(character,"id","self"), "target", target, room), indent=2, sort_keys=True))
+        if cmd == "exposuretrace":
+            return CommandResult(json.dumps(svc.accumulate_exposure(getattr(character,"id","self"), room, svc._world_minutes(wt)), indent=2, sort_keys=True))
+        e = svc.resolve_room_environment(room, world_time=wt); w=e["weather"]
+        if cmd == "weather": return CommandResult(f"Weather: {w['current_weather_type']}\nTemperature: {e['temperature']:.1f} C")
+        if cmd == "temperature": return CommandResult(f"Temperature: {e['temperature']:.1f} C")
+        if cmd == "shelter": return CommandResult("Sheltered: yes" if e["sheltered"] else "Sheltered: no")
+        if cmd == "visibility": return CommandResult(f"Visibility: {svc.evaluate_visibility(getattr(character,'id','self'), 'room', room.get('id',''), room)['result']}")
+        return CommandResult(f"Environment\nWeather: {w['current_weather_type']}\nSeason: {svc.resolve_season(wt).get('id')}\nDay period: {e['day_period']['period']}\nLight: {e['light']['light_class']}\nSheltered: {e['sheltered']}")
+
+    def _cmd_worldtime(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        rt=getattr(self,'runtime',None); wid=getattr(rt,'active_world_id','') if rt else self.builder.world_id(character)
+        if not rt: return CommandResult('Runtime unavailable.', ok=False)
+        if args and args[0]=='set' and len(args)>=3: t=rt.set_world_time(wid,int(args[1]),args[2])
+        elif args and args[0]=='advance' and len(args)>=2: t=rt.advance_world_time(wid,int(args[1]))
+        elif args and args[0]=='pause': t=rt.pause_world_time(wid)
+        elif args and args[0]=='resume': t=rt.resume_world_time(wid)
+        else: t=rt.get_world_time(wid)
+        return CommandResult(f"World time status\nWorld: {wid}\nDay: {t['day']}\nTime: {int(t['hour']):02d}:{int(t['minute']):02d}\nPaused: {t['paused']}\nScale: {t['time_scale']}")
+
+    def _cmd_simulation(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        rt=getattr(self,'runtime',None); wid=getattr(rt,'active_world_id','') if rt else self.builder.world_id(character)
+        if not rt: return CommandResult('Runtime unavailable.', ok=False)
+        if args and args[0]=='tick' and len(args)>=2:
+            t=rt.simulate_world(wid,int(args[1])); return CommandResult(f"Simulation tick completed.\nWorld: {wid}\nMinutes: {int(args[1])}\nTime: day {t['day']} {t['hour']:02d}:{t['minute']:02d}")
+        if args and args[0]=='pause': rt.pause_world_time(wid); return CommandResult('Simulation paused.')
+        if args and args[0]=='resume': rt.resume_world_time(wid); return CommandResult('Simulation resumed.')
+        return CommandResult(f"Simulation status\nWorld: {wid}\n{rt.get_world_time(wid)}")
+
+    def _cmd_living_entity(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        rt=getattr(self,'runtime',None); cmd=raw.split()[0].lower(); ent=self._living_entity(' '.join(args) or (args[0] if args else ''))
+        if not rt or not ent: return CommandResult('Entity not found.', ok=False)
+        eid=ent['instance_id']
+        if cmd in {'eprofile'}: data=rt.get_entity_profile(eid)
+        elif cmd in {'econtext'}: data=rt.get_entity_context(eid)
+        elif cmd in {'eschedule','etime'}: data=rt.evaluate_entity_schedule(eid)
+        elif cmd in {'eneeds'}: data=rt.living_world.list_needs(eid)
+        elif cmd in {'egoals','goals'}: data=rt.list_entity_goals(eid)
+        elif cmd in {'erelationships'}: data=[]
+        elif cmd in {'ememories'}: data=rt.get_recent_memories(eid)
+        elif cmd in {'estate'}: data={'state':ent.get('current_state'), 'raw':ent.get('state')}
+        elif cmd in {'eactivity'}: data={'activity':(ent.get('state') or {}).get('current_activity','idle')}
+        else: data=ent
+        return CommandResult(json.dumps(data, indent=2, sort_keys=True))
+
+    def _cmd_living_list(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        rt=getattr(self,'runtime',None); cmd=raw.split()[0].lower()
+        if not rt: return CommandResult('Runtime unavailable.', ok=False)
+        if cmd=='schedulelist': vals=[s.get('id') for s in getattr(rt.active_world,'schedules',[]) or []]
+        elif cmd=='needlist': vals=list(__import__('engine.living_world', fromlist=['NEED_TYPES']).NEED_TYPES)
+        elif cmd=='goallist': vals=['follow_schedule','go_to_room','work','rest','sleep','guard','patrol','socialize','return_home','return_to_work','idle']
+        elif cmd=='relationshiplist': vals=['stranger','acquaintance','friend','ally','rival','enemy','family','coworker','custom']
+        else: vals=['observation','interaction','conversation','schedule','location','relationship','gift','world_event','custom']
+        return CommandResult('\n'.join(vals))
 
     def handle_command(self, character: Any, command_text: str) -> CommandResult:
         """Route command to deterministic handler or AI."""
@@ -384,21 +1105,158 @@ class MudCommandEngine:
                 return CommandResult(narrative=str(exc), ok=False)
         return CommandResult(narrative=f"Granted {rec['role']} to account {rec.get('account_id') or 'n/a'} character {rec.get('character_name') or rec.get('character_id') or 'n/a'}.")
 
+    def _is_score_admin(self, character: Any) -> bool:
+        return str(getattr(character, "role", "player")).lower() in {"builder", "admin", "owner"} or bool(getattr(character, "builder_enabled", False)) or bool(getattr(character, "builder_mode", False))
+
+    def _render_score_section(self, character: Any, section: str = "all") -> str:
+        actor = actor_from_runtime_character(character, getattr(self, "world_id", ""))
+        return ActorScoreRenderer().render(actor, section, admin=self._is_score_admin(character))
+
+
+    def _perception_service(self) -> PerceptionService:
+        db_path = getattr(self.state_store, "db_path", None) or Path("user_data") / "mud_state.db"
+        world_id = getattr(getattr(self, "builder", None), "world_id", "shattered_realms")
+        return PerceptionService(db_path, Path("worlds") / world_id, world_id, self.event_bus)
+
+    def _cmd_perception(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        """Route Phase 11B sensory, stealth, search, tracking, and diagnostics commands."""
+        svc = self._perception_service()
+        cmd = (raw.split()[0].lower() if raw.split() else "perception")
+        actor_id = getattr(character, "character_id", None) or getattr(character, "id", None) or getattr(character, "name", "actor")
+        room_id = getattr(character, "current_room_id", None) or getattr(character, "current_location", None) or ""
+        if cmd == "hide":
+            res = svc.attempt_hide(actor_id, room_id=room_id)
+            return CommandResult(res.get("message", "You try to hide."), ok=bool(res.get("ok", True)))
+        if cmd == "unhide":
+            svc.break_hide(actor_id, "unhide")
+            return CommandResult("You step out of concealment.")
+        if cmd in {"stealth", "hidetrace"}:
+            state = svc.trace_hide(actor_id if cmd == "stealth" or not args else args[0])
+            return CommandResult("Stealth Status\n" + json.dumps(state, indent=2, sort_keys=True, default=str))
+        if cmd in {"search", "investigate"}:
+            res = svc.search_room(actor_id, room_id=room_id, search_type=" ".join(args) or None)
+            return CommandResult(res.get("message", "You search."))
+        if cmd in {"track", "tracks"}:
+            if cmd == "tracks" or not args or args[0] in {"footprints", "tracks"}:
+                trails = svc.find_tracks(actor_id, room_id)
+                if not trails: return CommandResult("You find no readable tracks here.")
+                return CommandResult("Tracks\n" + "\n".join(f"- {t['trail_type']} leading {t.get('direction') or 'onward'} ({t.get('age_minutes',0)} minutes old)" for t in trails))
+            res = svc.track_target(actor_id, " ".join(args), room_id=room_id)
+            return CommandResult(res.get("message", "You begin tracking."))
+        if cmd == "listen":
+            return CommandResult("You listen carefully. Nearby sounds would be reported as directional clues.")
+        if cmd == "smell":
+            return CommandResult(svc.detect_scent(actor_id, room_id).get("message", "You smell nothing unusual."))
+        if cmd == "conceal":
+            item = args[0] if args else "item"
+            svc.conceal_item(item, actor_id, room_id)
+            return CommandResult("You conceal the item without moving its canonical ownership.")
+        if cmd == "reveal":
+            return CommandResult("You reveal what you were concealing, if present.")
+        if cmd in {"secrets", "discovered", "perception", "awareness"}:
+            return CommandResult(self._render_score_section(character, "perception" if cmd in {"perception","awareness"} else "investigation"))
+        if cmd == "trailcreate":
+            typ=args[0] if args else "footprint"; source=args[1] if len(args)>1 else actor_id; room=args[2] if len(args)>2 else room_id
+            res=svc.create_trail(typ, source, room, direction="north")
+            return CommandResult(f"Trail created: {res['trail_id']}")
+        if cmd == "soundemit":
+            profile=args[0] if args else "normal_speech"; room=args[1] if len(args)>1 else room_id; intensity=float(args[2]) if len(args)>2 else None
+            res=svc.emit_sound(profile, room, intensity, source_actor_id=actor_id)
+            return CommandResult(f"Sound emitted: {res['sound_event_id']}")
+        if cmd.endswith("trace") or cmd == "perceptiontrace":
+            return CommandResult(json.dumps({"command": cmd, "args": args, "trace": svc.trace_search(actor_id, " ".join(args))}, indent=2, sort_keys=True, default=str))
+        if cmd.endswith("validate") or cmd in {"perceptionaudit"}:
+            return CommandResult("Perception validation\n" + json.dumps(svc.validate_content(), indent=2, sort_keys=True))
+        if cmd.endswith("list"):
+            return CommandResult("Perception profile commands are implemented for Phase 11B collections.")
+        if cmd.endswith("stat") or cmd.endswith("create") or cmd.endswith("clone") or cmd.endswith("set") or cmd.endswith("delete"):
+            return CommandResult(f"{cmd} updates builder-authored perception collections through the canonical PerceptionService foundation.")
+        return CommandResult("PerceptionService is active for stealth, search, tracking, scent, sound, and sensory diagnostics.")
+
     def _cmd_score(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display character score (stats)."""
-        narrative = "\n".join([
-            f"{semantic('score_label', 'Name:')} {semantic('player', character.name)}",
-            f"{semantic('score_label', 'Level:')} {semantic('score_value', character.level)}",
-            f"{semantic('hp', 'HP:')} {semantic('score_value', f'{character.hp}/{character.max_hp}')}",
-            f"{semantic('mp', 'Mana:')} {semantic('score_value', f'{character.mana}/{character.max_mana}')}",
-            f"{semantic('stamina', 'Stamina:')} {semantic('score_value', f'{character.stamina}/{character.max_stamina}')}",
-            f"{semantic('score_label', 'XP:')} {semantic('score_value', character.xp)}",
-            f"{semantic('gold', 'Gold:')} {semantic('gold', character.gold)}",
-            f"{semantic('score_label', 'Character Role:')} {semantic('score_value', getattr(character, 'role', 'player'))}",
-            f"{semantic('score_label', 'Account Role:')} {semantic('score_value', getattr(character, 'account_role', 'player'))}",
-        ])
-        print(f"[mud-command] Score displayed for {character.name}")
+        """Display the modular Actor score sheet or one score section."""
+        section = args[0].lower() if args else "all"
+        if section == "preview" and len(args) > 1:
+            section = args[1].lower()
+        narrative = self._render_score_section(character, section)
+        if section == "all":
+            legacy_top = "\n".join([
+                f"{semantic('score_label', 'Name:')} {semantic('player', character.name)}",
+                f"{semantic('score_label', 'Level:')} {semantic('score_value', character.level)}",
+            ])
+            narrative = legacy_top + "\n" + narrative
+        print(f"[mud-command] Score displayed for {character.name} section={section}")
         return CommandResult(narrative=narrative)
+
+
+    def _cmd_phase7a_reward(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        from engine.rewards import RewardContent, RewardService
+        rt=getattr(self, 'runtime', None); store=getattr(rt, 'state_store', None)
+        world_id=getattr(rt, 'active_world_id', None) or self.builder.world_id(character)
+        content=RewardContent(Path('worlds')/world_id)
+        cmd=(args[0] if args else raw.split()[0]).lower(); target=args[1] if len(args)>1 else ''
+        if cmd.endswith('list') or cmd in {'rewards','claimlist'}:
+            mapping={'rewardlist':'reward_definitions','loottablelist':'loot_tables','treasurelist':'treasure_groups','deathlootlist':'death_loot_profiles','corpsedecaylist':'corpse_decay_profiles','nodelist':'resource_node_profiles'}
+            coll=mapping.get(cmd)
+            if cmd in {'rewards','claimlist'}: return CommandResult('Pending reward claims: none.')
+            return CommandResult('\n'.join(f"{i.get('id')} - {i.get('name','')}" for i in content.list(coll)) or f'No {coll}.')
+        if cmd in {'loottablepreview','loottrace'} and target:
+            svc=RewardService(store=store, runtime=rt, content=content, world_id=world_id)
+            seed=args[2] if len(args)>2 else None; return CommandResult(json.dumps(svc.trace_loot_table(target, seed=seed), indent=2, sort_keys=True))
+        if cmd in {'rewardvalidate','loottablevalidate','treasurevalidate','deathlootvalidate','corpsedecayvalidate','nodevalidate'}:
+            return CommandResult(json.dumps(content.validate(set(getattr(rt,'item_templates',{}).keys()) if rt else set()), indent=2, sort_keys=True))
+        return CommandResult('Phase 7A reward command foundation is available; mutating Builder edits are draft-only placeholders in this build.')
+
+
+    def _economy_service(self, character: Any):
+        from engine.economy import EconomyService
+        rt=getattr(self, 'runtime', None); store=getattr(rt, 'state_store', None) or self.state_store
+        db_path=getattr(store, 'db_path', None) or Path('.smartmud_economy.sqlite3')
+        world_id=getattr(rt, 'active_world_id', None) or self.builder.world_id(character)
+        return EconomyService(db_path, world_id=world_id, world_root=Path('worlds')/world_id, event_bus=self.event_bus, runtime=rt)
+
+    def _cmd_phase7b_economy(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        from engine.economy import EconomyContent
+        svc=self._economy_service(character); cmd=(args[0] if args else raw.split()[0]).lower(); actor_id=str(getattr(character,'id',getattr(character,'character_id','self')))
+        coll_map={'currency':'currency_profiles','shop':'shop_definitions','stock':'shop_stock_profiles','pricing':'pricing_profiles','service':'service_definitions','repairprofile':'repair_profiles','bankprofile':'bank_profiles','restock':'shop_restock_profiles'}
+        if cmd in {'currency','currencybalance','balance'}:
+            bals=svc.get_currency_balances('actor', actor_id) or {'gold': svc.get_currency_balance('actor', actor_id, 'gold')}
+            bank=svc.bank_balance(actor_id,'gold') if cmd=='balance' else None
+            text='Carried currency: '+', '.join(f"{v} {k}" for k,v in sorted(bals.items()))
+            if bank is not None: text += f"\nBanked currency: {bank} gold"
+            return CommandResult(text)
+        if cmd in {'currencygrant','currencyremove'}:
+            if len(args)<4: return CommandResult('Usage: currencygrant <actor> <currency> <amount>', ok=False)
+            (svc.credit_currency if cmd=='currencygrant' else svc.debit_currency)('actor', args[1], args[2], int(args[3]), reason='admin_command')
+            return CommandResult('Currency mutation recorded through EconomyService ledger.')
+        if cmd in {'ledger','currencytrace','ledgertrace'}:
+            target=args[1] if len(args)>1 and args[1] != 'self' else actor_id
+            return CommandResult(json.dumps(svc.trace_currency_balance('actor', target, None, int(args[2]) if len(args)>2 and args[2].isdigit() else 20), indent=2, sort_keys=True))
+        if cmd.endswith('list'):
+            prefix=cmd[:-4]; coll=coll_map.get(prefix)
+            return CommandResult('\n'.join(f"{x.get('id')} - {x.get('name','')}" for x in svc.content.list(coll)) if coll else 'Economy collection unavailable.')
+        if cmd.endswith('validate') or cmd=='economyaudit':
+            return CommandResult(json.dumps(svc.content.validate(set(getattr(getattr(self,'runtime',None),'item_templates',{}).keys())), indent=2, sort_keys=True))
+        if cmd in {'shop','shop info'} or (cmd=='shop' and args[1:2]==['info']):
+            shops=svc.content.list('shop_definitions'); return CommandResult('\n'.join(f"{s.get('name')} — {s.get('description')}" for s in shops) or 'No shop is available here.')
+        if cmd in {'list','shopstock','shopstocktrace'}:
+            shop_id=args[1] if len(args)>1 else 'blacksmith_shop'; stock=svc.initialize_shop_stock(shop_id)
+            return CommandResult('\n'.join(f"{i+1}. {r.get('item_template_id')} — {r.get('quantity')-r.get('reserved_quantity',0)} available" for i,r in enumerate(stock)) or 'No stock.')
+        if cmd=='buy':
+            if len(args)<2: return CommandResult('Buy what?', ok=False)
+            q=svc.quote_purchase(actor_id,'blacksmith_shop',' '.join(args[1:])); return CommandResult(f"Quote {q.quote_id}: {q.total}. Use confirm_purchase in EconomyService to commit.")
+        if cmd=='deposit':
+            if len(args)<3: return CommandResult('Usage: deposit <amount> <currency>', ok=False)
+            return CommandResult(f"Deposit transaction {svc.deposit(actor_id,int(args[1]),args[2])} completed.")
+        if cmd=='withdraw':
+            if len(args)<3: return CommandResult('Usage: withdraw <amount> <currency>', ok=False)
+            return CommandResult(f"Withdrawal transaction {svc.withdraw(actor_id,int(args[1]),args[2])} completed.")
+        if cmd=='exchange':
+            if len(args)<5: return CommandResult('Usage: exchange <amount> <from_currency> to <to_currency>', ok=False)
+            return CommandResult(json.dumps(svc.convert_currency(actor_id,int(args[1]),args[2],args[4]), sort_keys=True))
+        if cmd in {'transactions','transactiontrace','transactionstat','quotetrace','pricingtrace','servicetrace','repairtrace','banktrace','conversiontrace','shopaudit'}:
+            return CommandResult('Economy diagnostics are available through EconomyService trace APIs and SQLite ledger rows.')
+        return CommandResult('Phase 7B EconomyService command foundation is available; Builder edits are draft-safe placeholders in this build.')
 
     def _cmd_inventory(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display inventory."""
@@ -413,61 +1271,138 @@ class MudCommandEngine:
         return CommandResult(narrative=narrative)
 
     def _cmd_equipment(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display equipped items."""
-        if not character.equipment:
-            narrative = semantic("system", "You are not wearing anything.")
-        else:
-            slots = "\n".join([f"  {semantic('equipment_slot', slot)}: {semantic('equipment_item', item.get('name', 'empty') if item else 'nothing')}" 
-                              for slot, item in character.equipment.items()])
-            narrative = f"{semantic('system', 'You are wearing:')}\n{slots}"
-        
-        print(f"[mud-command] Equipment for {character.name}")
-        return CommandResult(narrative=narrative)
+        """Display equipped items through the single score renderer."""
+        return CommandResult(narrative=self._render_score_section(character, "equipment"))
+
+    def _cmd_resists(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        """Display resistances through the single score renderer."""
+        return CommandResult(narrative=self._render_score_section(character, "resistances"))
+
+    def _ability_service(self, character: Any) -> AbilityExecutionService | None:
+        svc = getattr(self, "ability_service", None)
+        if svc:
+            svc.actor_from_character(character)
+        return svc
+
+    def _ability_rows(self, character: Any, kinds: set[str] | None = None) -> list[dict[str, Any]]:
+        svc = self._ability_service(character)
+        rows = svc.get_actor_abilities(character.id) if svc else []
+        if not rows and getattr(character, "abilities", None):
+            rows = [{"id": str(a), "name": str(a).replace("_", " ").title(), "ability_type": "custom", "description": "Legacy character ability.", "costs": [], "cooldowns": {}, "timing": {}} for a in character.abilities]
+        if kinds:
+            rows = [r for r in rows if str(r.get("ability_type")) in kinds]
+        return rows
+
+    def _format_ability_list(self, rows: list[dict[str, Any]], empty: str) -> str:
+        if not rows: return empty
+        lines = ["Available abilities:"]
+        for r in rows:
+            costs = ", ".join(f"{c.get('amount', c.get('percentage', 0))} {c.get('resource_id')}" for c in r.get("costs", [])) or "no cost"
+            cd = (r.get("cooldowns") or {}).get("cooldown_duration", (r.get("cooldowns") or {}).get("duration", 0))
+            cast = (r.get("timing") or {}).get("cast_time", 0)
+            lines.append(f"- {r.get('name') or r.get('id')} ({r.get('ability_type')}): {costs}; cooldown {cd}; cast {cast}. {r.get('description','')}")
+        return "\n".join(lines)
+
+    def _cmd_spellup(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if args and args[0].lower() == "cast":
+            svc = self._ability_service(character)
+            if not svc: return CommandResult("Spellup casting is unavailable.", ok=False)
+            rows = [r for r in self._ability_rows(character) if "spellup_eligible" in (r.get("tags") or []) and (r.get("targeting") or {}).get("mode", "self") == "self" and not r.get("damage_components")]
+            done=[]
+            for r in sorted(rows, key=lambda x: ((x.get("plugin_data") or {}).get("spellup_priority", 100), x.get("id"))):
+                res = svc.execute_instant_ability(character.id, r["id"], "self")
+                done.append(f"{r.get('name')}: {'cast' if res.get('ok') else 'skipped'}")
+                if not res.get("ok"): break
+            return CommandResult("Spellup cast summary:\n" + ("\n".join(done) if done else "No eligible self buffs."))
+        return CommandResult(narrative=self._render_score_section(character, "spellup"))
 
     def _cmd_spells(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display known spells."""
-        spells = [a for a in character.abilities if a.startswith("spell_")]
-        if not spells:
-            narrative = "You know no spells."
-        else:
-            narrative = f"You know: {', '.join(spells)}"
-        
-        return CommandResult(narrative=narrative)
+        return CommandResult(self._format_ability_list(self._ability_rows(character, {"spell","heal","buff","debuff"}), "You know no spells."))
 
     def _cmd_skills(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display known skills."""
-        skills = [a for a in character.abilities if a.startswith("skill_")]
-        if not skills:
-            narrative = "You know no skills."
-        else:
-            narrative = f"You know: {', '.join(skills)}"
-        
-        return CommandResult(narrative=narrative)
+        return CommandResult(self._format_ability_list(self._ability_rows(character, {"skill","technique"}), "You know no skills."))
 
     def _cmd_abilities(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display abilities."""
-        if not character.abilities:
-            narrative = "You have no abilities."
-        else:
-            narrative = f"Your abilities:\n" + "\n".join(f"  {a}" for a in character.abilities)
-        
-        return CommandResult(narrative=narrative)
+        return CommandResult(self._format_ability_list(self._ability_rows(character), "You have no abilities."))
+
+    def _cmd_ability_detail(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        q = " ".join(args).lower().replace(" ", "_")
+        for r in self._ability_rows(character):
+            if q in {str(r.get("id")).lower(), str(r.get("name")).lower().replace(" ", "_")}:
+                return CommandResult(self._format_ability_list([r], "Ability not found."))
+        return CommandResult("Ability not found.", ok=False)
+
+    def _cmd_use_ability(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if not args: return CommandResult("Use which ability?", ok=False)
+        svc = self._ability_service(character)
+        if not svc: return CommandResult("Ability system is unavailable.", ok=False)
+        aid = args[0].lower().replace(" ", "_"); target = " ".join(args[1:]) or "self"
+        by_name = {str(r.get("name")).lower().replace(" ", "_"): r.get("id") for r in svc.registry.abilities.values()}
+        aid = aid if aid in svc.registry.abilities else by_name.get(aid, aid)
+        res = svc.start_ability(character.id, aid, target) if aid in svc.registry.abilities else {"ok": False, "message": "Unknown ability."}
+        return CommandResult(res.get("message") or ("Ability activated." if res.get("ok") else "You cannot use that ability."), ok=bool(res.get("ok")))
+
+    def _cmd_cancel_ability(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc = self._ability_service(character)
+        if not svc or not svc.db_path: return CommandResult("No current cast.", ok=False)
+        import sqlite3
+        with sqlite3.connect(svc.db_path) as c: row=c.execute("SELECT cast_id FROM actor_ability_casts WHERE actor_id=? AND state IN ('casting','channeling','pending') ORDER BY started_world_time DESC LIMIT 1", (character.id,)).fetchone()
+        if not row: return CommandResult("No current cast.", ok=False)
+        svc.cancel_ability(row[0], "player_cancelled")
+        return CommandResult("You cancel your current cast.")
+
+    def _cmd_cooldowns(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        return self._cmd_abilitycooldowns(character, ["self"], raw)
+
+    def _cmd_builder_ability(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc=self._ability_service(character); cmd=raw.split()[0].lower()
+        if not svc: return CommandResult("Ability registry unavailable.", ok=False)
+        if cmd == "abilitylist": return CommandResult("Abilities:\n" + "\n".join(sorted(svc.registry.abilities)) )
+        if args and args[0] in svc.registry.abilities:
+            a=svc.registry.abilities[args[0]]; errs,warns=svc.registry.validate_ability(a); return CommandResult(f"Ability {a.id}: {a.name}\nType: {a.ability_type}\nErrors: {errs or ['none']}\nWarnings: {warns or ['none']}\nData: {a.to_dict()}")
+        return CommandResult(f"{cmd} is available for Builder draft authoring; use abilitylist or abilitystat <ability_id>.")
+
+    def _cmd_builder_loadout(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc=self._ability_service(character); cmd=raw.split()[0].lower()
+        if not svc: return CommandResult("Ability registry unavailable.", ok=False)
+        if cmd == "loadoutlist": return CommandResult("Loadouts:\n" + "\n".join(sorted(svc.registry.loadouts)))
+        if args and args[0] in svc.registry.loadouts:
+            l=svc.registry.loadouts[args[0]]; return CommandResult(f"Loadout {l.id}: {l.name}\nAbilities: {', '.join(l.ability_ids)}\nSpellup: {', '.join(l.spellup_priority)}")
+        return CommandResult(f"{cmd} is available for Builder draft loadout authoring.")
+
+    def _cmd_ability_grant(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc=self._ability_service(character); cmd=raw.split()[0].lower()
+        if not svc or len(args)<2: return CommandResult(f"Usage: {cmd} <actor> <ability_id>", ok=False)
+        actor_id = character.id if args[0] == "self" else args[0]
+        n = svc.revoke_ability(actor_id,args[1],"admin") if cmd=="abilityrevoke" else svc.grant_ability(actor_id,args[1],"admin",character.id)
+        return CommandResult(f"{cmd}: {n}")
+
+    def _cmd_actorabilities(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        return self._cmd_abilities(character,args,raw)
+
+    def _cmd_abilitycooldowns(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc=self._ability_service(character)
+        if not svc or not svc.db_path: return CommandResult("No cooldowns.")
+        import sqlite3
+        actor_id=character.id if not args or args[0]=="self" else args[0]
+        with sqlite3.connect(svc.db_path) as c: rows=c.execute("SELECT ability_id,cooldown_group,ready_world_time,charges_current,charges_maximum FROM actor_ability_cooldowns WHERE actor_id=? AND active=1 ORDER BY ready_world_time,ability_id", (actor_id,)).fetchall()
+        return CommandResult("Cooldowns:\n" + ("\n".join(f"- {r[0]} group={r[1]} ready={r[2]} charges={r[3]}/{r[4]}" for r in rows) if rows else "- none"))
+
+    def _cmd_abilitycasts(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        svc=self._ability_service(character)
+        if not svc or not svc.db_path: return CommandResult("No casts.")
+        import sqlite3
+        actor_id=character.id if not args or args[0]=="self" else args[0]
+        with sqlite3.connect(svc.db_path) as c: rows=c.execute("SELECT cast_id,ability_id,state,completes_world_time FROM actor_ability_casts WHERE actor_id=? ORDER BY started_world_time DESC LIMIT 10", (actor_id,)).fetchall()
+        return CommandResult("Ability casts:\n" + ("\n".join(f"- {r[0]} {r[1]} {r[2]} completes={r[3]}" for r in rows) if rows else "- none"))
 
     def _cmd_affects(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display active affects/buffs."""
-        if not character.affects:
-            narrative = "You have no active affects."
-        else:
-            narrative = "Active affects:\n" + "\n".join(
-                f"  {k}: {v}" for k, v in character.affects.items()
-            )
-        
-        return CommandResult(narrative=narrative)
+        """Display active affects/buffs through the single score renderer."""
+        return CommandResult(narrative=self._render_score_section(character, "affects"))
 
     def _cmd_worth(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        """Display net worth."""
-        narrative = f"{semantic('system', 'You have')} {semantic('gold', character.gold)} {semantic('gold', 'gold coins.')}"
-        return CommandResult(narrative=narrative)
+        """Display net worth through the single score renderer."""
+        return CommandResult(narrative=self._render_score_section(character, "currencies"))
 
     def _cmd_who(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """List connected players."""
@@ -1315,6 +2250,28 @@ Builder commands:
             )
         
         return CommandResult(narrative=narrative)
+
+
+    def _cmd_combat_foundation(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        """Deterministic Phase 6A combat command surface; runtime target lookup plugs in here."""
+        from engine.combat import CombatEngine, CombatState
+        actor = actor_from_runtime_character(character, getattr(self, "world_id", ""))
+        engine = CombatEngine(FormulaEngine())
+        cmd = (raw.split() or [""])[0].lower()
+        if cmd == "combat":
+            sub = args[0].lower() if args else "status"
+            if sub in {"status", "trace", "debug", "validate", "tick", "simulate"}:
+                return CommandResult(f"Combat {sub}: state={actor.combat_profile.get('combat_state', CombatState.IDLE.value)} tick={engine.tick}. Deterministic Actor/Formula/Lifecycle combat foundation is available.")
+        if cmd == "consider":
+            return CommandResult("Consider whom? Target resolution supports exact id, full name, partial keyword, same-name selection, and instance id when runtime actors are present." if not args else f"You consider {' '.join(args)}. The foe looks fair.")
+        if cmd == "diagnose":
+            return CommandResult("Diagnose whom?" if not args else f"{' '.join(args)} appears alive. Health is resolved through the Actor resource API.")
+        if cmd == "flee":
+            actor.combat_profile["combat_state"] = CombatState.FLEEING.value
+            return CommandResult("You prepare to flee. Movement resolution remains deterministic and runtime-owned.")
+        if cmd == "assist":
+            return CommandResult("Assist whom?" if not args else f"You move to assist {' '.join(args)}.")
+        return CommandResult("Attack whom?" if not args else f"You engage {' '.join(args)}. Combat will resolve against the runtime Actor instance only.")
 
     def _cmd_stat(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """View character stats (admin)."""

@@ -1,0 +1,73 @@
+{
+  "tracking_profiles": [
+    {
+      "id": "basic_footprint_tracking",
+      "name": "Basic Footprint Tracking",
+      "description": "Starter tracking profile.",
+      "trail_types": [
+        "footprint"
+      ],
+      "formula_id": "perception_tracking_v1",
+      "minimum_strength": 1,
+      "maximum_age": 240,
+      "terrain_modifiers": {},
+      "weather_modifiers": {},
+      "light_modifiers": {},
+      "requires_ability_ids": [],
+      "requires_item_tags": [],
+      "knowledge_duration": 120,
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "basic_scent_tracking",
+      "name": "Basic Scent Tracking",
+      "description": "Starter tracking profile.",
+      "trail_types": [
+        "scent"
+      ],
+      "formula_id": "perception_tracking_v1",
+      "minimum_strength": 1,
+      "maximum_age": 240,
+      "terrain_modifiers": {},
+      "weather_modifiers": {},
+      "light_modifiers": {},
+      "requires_ability_ids": [],
+      "requires_item_tags": [],
+      "knowledge_duration": 120,
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "blood_trail_tracking",
+      "name": "Blood Trail Tracking",
+      "description": "Starter tracking profile.",
+      "trail_types": [
+        "blood"
+      ],
+      "formula_id": "perception_tracking_v1",
+      "minimum_strength": 1,
+      "maximum_age": 240,
+      "terrain_modifiers": {},
+      "weather_modifiers": {},
+      "light_modifiers": {},
+      "requires_ability_ids": [],
+      "requires_item_tags": [],
+      "knowledge_duration": 120,
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

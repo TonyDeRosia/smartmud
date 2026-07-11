@@ -1,0 +1,135 @@
+{
+  "rest_location_profiles": [
+    {
+      "id": "ground_rest",
+      "name": "Ground Rest",
+      "description": "Rest on the ground.",
+      "location_type": "ground",
+      "feature_ids": [],
+      "item_template_ids": [],
+      "property_profile_ids": [],
+      "capacity": 99,
+      "rest_quality_profile_id": "ground_rest",
+      "sleep_allowed": false,
+      "rest_allowed": true,
+      "access_profile_id": "",
+      "privacy_profile_id": "",
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {
+        "duration_minutes": 60
+      },
+      "version": 1
+    },
+    {
+      "id": "basic_bed",
+      "name": "Basic Bed",
+      "description": "A simple accessible bed.",
+      "location_type": "bed",
+      "feature_ids": [
+        "bed"
+      ],
+      "item_template_ids": [],
+      "property_profile_ids": [],
+      "capacity": 1,
+      "rest_quality_profile_id": "ground_rest",
+      "sleep_allowed": true,
+      "rest_allowed": true,
+      "access_profile_id": "",
+      "privacy_profile_id": "",
+      "messages": {},
+      "tags": [
+        "starter",
+        "bed"
+      ],
+      "plugin_data": {
+        "duration_minutes": 480
+      },
+      "version": 1
+    },
+    {
+      "id": "inn_bed",
+      "name": "Inn Bed",
+      "description": "A rented inn bed.",
+      "location_type": "inn_bed",
+      "feature_ids": [
+        "bed"
+      ],
+      "item_template_ids": [],
+      "property_profile_ids": [
+        "inn_room"
+      ],
+      "capacity": 1,
+      "rest_quality_profile_id": "ground_rest",
+      "sleep_allowed": true,
+      "rest_allowed": true,
+      "access_profile_id": "property_or_inn_access",
+      "privacy_profile_id": "private_room",
+      "messages": {},
+      "tags": [
+        "starter",
+        "inn"
+      ],
+      "plugin_data": {
+        "duration_minutes": 480
+      },
+      "version": 1
+    },
+    {
+      "id": "property_bed",
+      "name": "Property Bed",
+      "description": "A private property bed.",
+      "location_type": "property_bed",
+      "feature_ids": [
+        "bed"
+      ],
+      "item_template_ids": [],
+      "property_profile_ids": [
+        "private_home"
+      ],
+      "capacity": 1,
+      "rest_quality_profile_id": "ground_rest",
+      "sleep_allowed": true,
+      "rest_allowed": true,
+      "access_profile_id": "property_access",
+      "privacy_profile_id": "private_room",
+      "messages": {},
+      "tags": [
+        "starter",
+        "property"
+      ],
+      "plugin_data": {
+        "duration_minutes": 480
+      },
+      "version": 1
+    },
+    {
+      "id": "bedroll_rest",
+      "name": "Bedroll Rest",
+      "description": "A portable bedroll.",
+      "location_type": "bedroll",
+      "feature_ids": [],
+      "item_template_ids": [
+        "bedroll"
+      ],
+      "property_profile_ids": [],
+      "capacity": 1,
+      "rest_quality_profile_id": "ground_rest",
+      "sleep_allowed": true,
+      "rest_allowed": true,
+      "access_profile_id": "",
+      "privacy_profile_id": "",
+      "messages": {},
+      "tags": [
+        "starter",
+        "camp"
+      ],
+      "plugin_data": {
+        "duration_minutes": 360
+      },
+      "version": 1
+    }
+  ]
+}

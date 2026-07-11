@@ -1,0 +1,18 @@
+{
+  "crafting_message_profiles": [
+    {
+      "id": "default_crafting_messages",
+      "messages": {
+        "cancel": "You stop crafting and release reserved inputs.",
+        "complete": "You complete the work.",
+        "start": "You begin crafting."
+      },
+      "name": "Default crafting messages",
+      "plugin_data": {},
+      "tags": [
+        "phase7c"
+      ],
+      "version": 1
+    }
+  ]
+}

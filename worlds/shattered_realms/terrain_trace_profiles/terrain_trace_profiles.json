@@ -1,0 +1,124 @@
+{
+  "terrain_trace_profiles": [
+    {
+      "id": "stone_traces",
+      "name": "Stone Traces",
+      "description": "Starter terrain trace profile.",
+      "footprint_retention": 30,
+      "scent_retention": 90,
+      "blood_retention": 180,
+      "sound_modifier": 0.8,
+      "track_visibility": 2,
+      "rain_degradation": 0.5,
+      "snow_enhancement": 1.2,
+      "wind_degradation": 0.3,
+      "indoor_modifier": 1.1,
+      "surface_type": "stone",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "dirt_traces",
+      "name": "Dirt Traces",
+      "description": "Starter terrain trace profile.",
+      "footprint_retention": 180,
+      "scent_retention": 90,
+      "blood_retention": 180,
+      "sound_modifier": 1,
+      "track_visibility": 10,
+      "rain_degradation": 0.5,
+      "snow_enhancement": 1.2,
+      "wind_degradation": 0.3,
+      "indoor_modifier": 1,
+      "surface_type": "dirt",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "mud_traces",
+      "name": "Mud Traces",
+      "description": "Starter terrain trace profile.",
+      "footprint_retention": 240,
+      "scent_retention": 90,
+      "blood_retention": 180,
+      "sound_modifier": 1.1,
+      "track_visibility": 15,
+      "rain_degradation": 0.5,
+      "snow_enhancement": 1.2,
+      "wind_degradation": 0.3,
+      "indoor_modifier": 1,
+      "surface_type": "mud",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "grass_traces",
+      "name": "Grass Traces",
+      "description": "Starter terrain trace profile.",
+      "footprint_retention": 90,
+      "scent_retention": 90,
+      "blood_retention": 180,
+      "sound_modifier": 0.9,
+      "track_visibility": 6,
+      "rain_degradation": 0.5,
+      "snow_enhancement": 1.2,
+      "wind_degradation": 0.3,
+      "indoor_modifier": 1,
+      "surface_type": "grass",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "snow_traces",
+      "name": "Snow Traces",
+      "description": "Starter terrain trace profile.",
+      "footprint_retention": 240,
+      "scent_retention": 90,
+      "blood_retention": 180,
+      "sound_modifier": 0.8,
+      "track_visibility": 14,
+      "rain_degradation": 0.5,
+      "snow_enhancement": 1.2,
+      "wind_degradation": 0.3,
+      "indoor_modifier": 1,
+      "surface_type": "snow",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    },
+    {
+      "id": "wood_floor_traces",
+      "name": "Wood Floor Traces",
+      "description": "Starter terrain trace profile.",
+      "footprint_retention": 45,
+      "scent_retention": 90,
+      "blood_retention": 180,
+      "sound_modifier": 1.2,
+      "track_visibility": 4,
+      "rain_degradation": 0.5,
+      "snow_enhancement": 1.2,
+      "wind_degradation": 0.3,
+      "indoor_modifier": 1.2,
+      "surface_type": "wood",
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "campsite_profiles": [
+    {
+      "id": "basic_campsite",
+      "name": "Basic Campsite",
+      "description": "A temporary room-bound campsite.",
+      "required_item_tags": [
+        "camp_gear"
+      ],
+      "required_resource_ids": [],
+      "maximum_occupants": 4,
+      "rest_location_profile_id": "bedroll_rest",
+      "shelter_modifier": 5,
+      "rest_quality_modifier": 5,
+      "allowed_environment_types": [
+        "outdoor",
+        "indoor"
+      ],
+      "forbidden_room_tags": [
+        "no_camp"
+      ],
+      "duration_minutes": 480,
+      "cleanup_policy": "expire_or_dismantle",
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "food_freshness_profiles": [
+    {
+      "aging_minutes": 480,
+      "fresh_minutes": 240,
+      "id": "fresh_cooked_food",
+      "name": "Fresh cooked food",
+      "plugin_data": {},
+      "spoiled_minutes": 1440,
+      "stale_minutes": 720,
+      "states": [
+        "fresh",
+        "aging",
+        "stale",
+        "spoiled"
+      ],
+      "tags": [
+        "cooking"
+      ],
+      "version": 1
+    },
+    {
+      "aging_minutes": 2880,
+      "fresh_minutes": 1440,
+      "id": "preserved_food",
+      "name": "Preserved food",
+      "plugin_data": {},
+      "spoiled_minutes": 7200,
+      "stale_minutes": 4320,
+      "states": [
+        "preserved",
+        "dried",
+        "smoked",
+        "stale",
+        "spoiled"
+      ],
+      "tags": [
+        "cooking",
+        "preserved"
+      ],
+      "version": 1
+    }
+  ]
+}

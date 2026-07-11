@@ -1,0 +1,76 @@
+{
+  "currency_profiles": [
+    {
+      "allow_negative": false,
+      "bankable": true,
+      "conversion_group": "standard_coin",
+      "conversion_rate": 10000,
+      "currency_type": "coin",
+      "description": "Primary coin.",
+      "droppable": true,
+      "id": "gold",
+      "maximum_balance": "",
+      "minimum_balance": 0,
+      "name": "Gold",
+      "plugin_data": {},
+      "plural_name": "gold",
+      "precision": 0,
+      "sort_order": 1,
+      "symbol": "gp",
+      "tags": [
+        "phase7b"
+      ],
+      "transferable": true,
+      "version": 1,
+      "visible": true
+    },
+    {
+      "allow_negative": false,
+      "bankable": true,
+      "conversion_group": "standard_coin",
+      "conversion_rate": 100,
+      "currency_type": "coin",
+      "description": "Secondary coin.",
+      "droppable": true,
+      "id": "silver",
+      "maximum_balance": "",
+      "minimum_balance": 0,
+      "name": "Silver",
+      "plugin_data": {},
+      "plural_name": "silver",
+      "precision": 0,
+      "sort_order": 2,
+      "symbol": "sp",
+      "tags": [
+        "phase7b"
+      ],
+      "transferable": true,
+      "version": 1,
+      "visible": true
+    },
+    {
+      "allow_negative": false,
+      "bankable": true,
+      "conversion_group": "standard_coin",
+      "conversion_rate": 1,
+      "currency_type": "coin",
+      "description": "Minor coin.",
+      "droppable": true,
+      "id": "copper",
+      "maximum_balance": "",
+      "minimum_balance": 0,
+      "name": "Copper",
+      "plugin_data": {},
+      "plural_name": "copper",
+      "precision": 0,
+      "sort_order": 3,
+      "symbol": "cp",
+      "tags": [
+        "phase7b"
+      ],
+      "transferable": true,
+      "version": 1,
+      "visible": true
+    }
+  ]
+}

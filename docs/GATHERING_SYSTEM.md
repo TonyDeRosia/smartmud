@@ -1,0 +1,23 @@
+# Phase 11C2 Gathering Gameplay
+
+Phase 11C2 keeps one canonical `engine.gathering.GatheringService` for harvesting, foraging, mining, lumberjacking, fishing, skinning/butchering, world-node scavenging, and excavation. Gameplay verbs are adapters over the same runtime node, capacity, session, deterministic yield, quality, regeneration, profession-XP, EventBus, and diagnostics pipeline; no separate gathering engines are introduced.
+
+Builder/world collections define `resource_definitions`, `resource_node_definitions`, `resource_capacity_profiles`, `resource_regeneration_profiles`, `resource_availability_profiles`, `resource_environment_profiles`, `gathering_profiles`, `gathering_tool_profiles`, `resource_yield_profiles`, `gathering_resource_cost_profiles`, `gathering_interruption_profiles`, `gathering_cooldown_profiles`, `gathering_profession_xp_profiles`, `gathering_message_profiles`, `gathering_render_profiles`, and `gathering_access_profiles`.
+
+Runtime node instances, sessions, session results, node history, regeneration events, personal node state, corpse extraction state, event consumption, and audit rows are SQLite-authoritative. Capacity is decremented atomically during completion and repeated completion returns the persisted result rather than granting duplicate yield.
+
+Player commands route through room context: `gather`, `harvest`, `forage`, `mine`, `chop`, `fish`, `skin`, `butcher`, `salvage`, `dig`, `excavate`, `resources here`, `survey resources`, `resource <name or number>`, `gathering status`, `gathering cancel`, `inspect node`, `tools`, and `gathering history`. Normal player listings show names, status, and capacity presentation only; Builder/Admin traces may show node-instance IDs, seeds, result IDs, reward packet IDs, and event-consumption IDs.
+
+Builder/Admin commands use canonical Builder collections: resource/resource-node/gather-profile/tool/yield/regen list/stat/create/clone/set/delete/validate/preview commands plus runtime `gatheringnodes`, `gatheringnode`, `gatheringmaterialize`, `gatheringstart`, `gatheringcomplete`, `gatheringinterrupt`, `gatheringregenerate`, `gatheringdeplete`, `gatheringreset`, `gatheringtick`, and trace/audit commands. Runtime mutations require staff authority unless reached through normal gameplay.
+
+Pilot content is intentionally conservative and placed at existing `guildhall_crossing_square`: common herbs, mushrooms, oak wood, iron ore, common stone, river fish, small beast hide, scrap metal, and clay placeholder; nodes include herb patch, mushroom cluster, oak tree, iron vein, stone outcrop, fishing spot, scrap pile, rat corpse skinning, and clay site. Tool profiles include basic pickaxe, hatchet, sickle, fishing rod, skinning knife, shovel, and salvage tools.
+
+Manual acceptance: run `resources here` and `survey resources`; `harvest herb patch` with `basic_sickle`; `mine iron vein` first with a wrong tool then `basic_pickaxe`; `chop oak tree` with `basic_hatchet`; `fish` or `fish fishing spot` with `basic_fishing_rod`; create/kill a compatible rat corpse and `skin corpse`; start a session then move/enter combat to interrupt; deplete a node then `gatheringtick 240`; restart and verify capacity, regeneration schedule, session result, corpse extraction, rewards, and profession XP are not duplicated.
+
+## Phase 11D2 survival extension
+
+Rest, sleep, rest-location profiles, rest quality, campfire profiles, campsite profiles, shelter context, runtime rest sessions, campfire instances, and campsite instances are routed through the canonical `engine.survival_needs.SurvivalNeedsService`. This preserves the existing EnvironmentService, PropertyService, GatheringService, CraftingService, QuestService, AchievementService, EventBus, item, and score boundaries while adding conservative starter content and diagnostics.
+
+## Phase 11E Cooking Integration
+
+Cooking is a canonical CraftingService specialization. The runtime uses recipe definitions, exact item-instance input reservations, crafting jobs, workstation profiles, production profiles, item quality, profession XP, and reward delivery for cooked outputs. SurvivalNeedsService remains authoritative for consumable profiles, portions, servings, freshness interpretation, spoilage, and need mutation. GatheringService remains authoritative for raw gathered materials. Builder/world-package content now includes cooking ingredient, substitution, preparation, serving-yield, consumable-output, nutrition, preservation, heat, failure, message, and render profile collections.

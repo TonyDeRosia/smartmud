@@ -1,0 +1,903 @@
+{
+  "recipe_definitions": [
+    {
+      "byproduct_groups": [],
+      "currency_costs": {},
+      "description": "Phase 7C pilot Iron Sword Recipe.",
+      "discoverable": false,
+      "enabled": true,
+      "experience_reward_profile_id": "",
+      "failure_outputs": [],
+      "forbidden_item_tags": [
+        "protected"
+      ],
+      "id": "iron_sword_recipe",
+      "input_groups": [
+        {
+          "allow_substitutions": false,
+          "conditions": {},
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_damaged": true,
+              "allow_equipped": false,
+              "catalyst": false,
+              "consume_quantity": 1,
+              "id": "primary_entry",
+              "item_tag": "",
+              "item_template_id": "iron_ore",
+              "item_type": "",
+              "material_profile_id": "",
+              "maximum_quantity": 1,
+              "metadata": {},
+              "minimum_condition": 0,
+              "minimum_quality": "poor",
+              "minimum_quantity": 1,
+              "priority": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "metadata": {},
+          "minimum_entries": 1,
+          "quantity": 1,
+          "return_on_failure": false,
+          "selection_mode": "all_required",
+          "sort_order": 1,
+          "substitution_profile_id": ""
+        }
+      ],
+      "messages": {},
+      "minimum_profession_rank": 1,
+      "name": "Iron Sword Recipe",
+      "output_groups": [
+        {
+          "conditions": {},
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "iron_sword",
+              "id": "main_output_entry",
+              "item_template_id": "iron_sword",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "metadata": {},
+          "quality_inheritance_policy": "crafted_quality",
+          "quantity_formula_id": "",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "practice_reward": 0,
+      "production_profile_id": "short_timed_crafting",
+      "profession_experience": 25,
+      "profession_id": "blacksmith",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_type": "forge",
+      "repeat_policy": "repeatable",
+      "required_ability_ids": [],
+      "required_effect_ids": [],
+      "required_item_tags": [],
+      "resource_costs": {},
+      "short_name": "iron_sword",
+      "tags": [
+        "phase7c",
+        "pilot"
+      ],
+      "tool_requirements": [],
+      "training_reward": 0,
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "guild_blacksmith_anvil"
+    },
+    {
+      "byproduct_groups": [],
+      "currency_costs": {},
+      "description": "Phase 7C pilot Training Sword Recipe.",
+      "discoverable": false,
+      "enabled": true,
+      "experience_reward_profile_id": "",
+      "failure_outputs": [],
+      "forbidden_item_tags": [
+        "protected"
+      ],
+      "id": "training_sword_recipe",
+      "input_groups": [
+        {
+          "allow_substitutions": false,
+          "conditions": {},
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_damaged": true,
+              "allow_equipped": false,
+              "catalyst": false,
+              "consume_quantity": 1,
+              "id": "primary_entry",
+              "item_tag": "",
+              "item_template_id": "iron_ore",
+              "item_type": "",
+              "material_profile_id": "",
+              "maximum_quantity": 1,
+              "metadata": {},
+              "minimum_condition": 0,
+              "minimum_quality": "poor",
+              "minimum_quantity": 1,
+              "priority": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "metadata": {},
+          "minimum_entries": 1,
+          "quantity": 1,
+          "return_on_failure": false,
+          "selection_mode": "all_required",
+          "sort_order": 1,
+          "substitution_profile_id": ""
+        }
+      ],
+      "messages": {},
+      "minimum_profession_rank": 1,
+      "name": "Training Sword Recipe",
+      "output_groups": [
+        {
+          "conditions": {},
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "training_sword",
+              "id": "main_output_entry",
+              "item_template_id": "training_sword",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "metadata": {},
+          "quality_inheritance_policy": "crafted_quality",
+          "quantity_formula_id": "",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "practice_reward": 0,
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 10,
+      "profession_id": "blacksmith",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_type": "forge",
+      "repeat_policy": "repeatable",
+      "required_ability_ids": [],
+      "required_effect_ids": [],
+      "required_item_tags": [],
+      "resource_costs": {},
+      "short_name": "training_sword",
+      "tags": [
+        "phase7c",
+        "pilot"
+      ],
+      "tool_requirements": [],
+      "training_reward": 0,
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "guild_blacksmith_anvil"
+    },
+    {
+      "byproduct_groups": [],
+      "currency_costs": {},
+      "description": "Phase 7C pilot Basic Armor Repair Material.",
+      "discoverable": false,
+      "enabled": true,
+      "experience_reward_profile_id": "",
+      "failure_outputs": [],
+      "forbidden_item_tags": [
+        "protected"
+      ],
+      "id": "basic_armor_repair_material",
+      "input_groups": [
+        {
+          "allow_substitutions": false,
+          "conditions": {},
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_damaged": true,
+              "allow_equipped": false,
+              "catalyst": false,
+              "consume_quantity": 1,
+              "id": "primary_entry",
+              "item_tag": "",
+              "item_template_id": "scrap_metal",
+              "item_type": "",
+              "material_profile_id": "",
+              "maximum_quantity": 1,
+              "metadata": {},
+              "minimum_condition": 0,
+              "minimum_quality": "poor",
+              "minimum_quantity": 1,
+              "priority": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "metadata": {},
+          "minimum_entries": 1,
+          "quantity": 1,
+          "return_on_failure": false,
+          "selection_mode": "all_required",
+          "sort_order": 1,
+          "substitution_profile_id": ""
+        }
+      ],
+      "messages": {},
+      "minimum_profession_rank": 1,
+      "name": "Basic Armor Repair Material",
+      "output_groups": [
+        {
+          "conditions": {},
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "armor_repair_patch",
+              "id": "main_output_entry",
+              "item_template_id": "armor_repair_patch",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "metadata": {},
+          "quality_inheritance_policy": "crafted_quality",
+          "quantity_formula_id": "",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "practice_reward": 0,
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 8,
+      "profession_id": "blacksmith",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_type": "repair_material",
+      "repeat_policy": "repeatable",
+      "required_ability_ids": [],
+      "required_effect_ids": [],
+      "required_item_tags": [],
+      "resource_costs": {},
+      "short_name": "basic_armor_repair_material",
+      "tags": [
+        "phase7c",
+        "pilot"
+      ],
+      "tool_requirements": [],
+      "training_reward": 0,
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "guild_blacksmith_anvil"
+    },
+    {
+      "byproduct_groups": [],
+      "currency_costs": {},
+      "description": "Phase 7C pilot Herb Extract Recipe.",
+      "discoverable": false,
+      "enabled": true,
+      "experience_reward_profile_id": "",
+      "failure_outputs": [],
+      "forbidden_item_tags": [
+        "protected"
+      ],
+      "id": "herb_extract_recipe",
+      "input_groups": [
+        {
+          "allow_substitutions": false,
+          "conditions": {},
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_damaged": true,
+              "allow_equipped": false,
+              "catalyst": false,
+              "consume_quantity": 1,
+              "id": "primary_entry",
+              "item_tag": "",
+              "item_template_id": "starter_herb",
+              "item_type": "",
+              "material_profile_id": "",
+              "maximum_quantity": 1,
+              "metadata": {},
+              "minimum_condition": 0,
+              "minimum_quality": "poor",
+              "minimum_quantity": 1,
+              "priority": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "metadata": {},
+          "minimum_entries": 1,
+          "quantity": 1,
+          "return_on_failure": false,
+          "selection_mode": "all_required",
+          "sort_order": 1,
+          "substitution_profile_id": ""
+        }
+      ],
+      "messages": {},
+      "minimum_profession_rank": 1,
+      "name": "Herb Extract Recipe",
+      "output_groups": [
+        {
+          "conditions": {},
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "herb_extract",
+              "id": "main_output_entry",
+              "item_template_id": "herb_extract",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "metadata": {},
+          "quality_inheritance_policy": "crafted_quality",
+          "quantity_formula_id": "",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "practice_reward": 0,
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 8,
+      "profession_id": "herbalist",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_type": "refine",
+      "repeat_policy": "repeatable",
+      "required_ability_ids": [],
+      "required_effect_ids": [],
+      "required_item_tags": [],
+      "resource_costs": {},
+      "short_name": "herb_extract",
+      "tags": [
+        "phase7c",
+        "pilot"
+      ],
+      "tool_requirements": [],
+      "training_reward": 0,
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "starter_alchemy_table_placeholder"
+    },
+    {
+      "byproduct_groups": [],
+      "currency_costs": {},
+      "description": "Phase 7C pilot Simple Food Recipe.",
+      "discoverable": false,
+      "enabled": true,
+      "experience_reward_profile_id": "",
+      "failure_outputs": [],
+      "forbidden_item_tags": [
+        "protected"
+      ],
+      "id": "simple_food_recipe",
+      "input_groups": [
+        {
+          "allow_substitutions": false,
+          "conditions": {},
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_damaged": true,
+              "allow_equipped": false,
+              "catalyst": false,
+              "consume_quantity": 1,
+              "id": "primary_entry",
+              "item_tag": "",
+              "item_template_id": "starter_herb",
+              "item_type": "",
+              "material_profile_id": "",
+              "maximum_quantity": 1,
+              "metadata": {},
+              "minimum_condition": 0,
+              "minimum_quality": "poor",
+              "minimum_quantity": 1,
+              "priority": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "metadata": {},
+          "minimum_entries": 1,
+          "quantity": 1,
+          "return_on_failure": false,
+          "selection_mode": "all_required",
+          "sort_order": 1,
+          "substitution_profile_id": ""
+        }
+      ],
+      "messages": {},
+      "minimum_profession_rank": 1,
+      "name": "Simple Food Recipe",
+      "output_groups": [
+        {
+          "conditions": {},
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "simple_ration",
+              "id": "main_output_entry",
+              "item_template_id": "simple_ration",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "metadata": {},
+          "quality_inheritance_policy": "crafted_quality",
+          "quantity_formula_id": "",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "practice_reward": 0,
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 5,
+      "profession_id": "cook",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_type": "cook",
+      "repeat_policy": "repeatable",
+      "required_ability_ids": [],
+      "required_effect_ids": [],
+      "required_item_tags": [],
+      "resource_costs": {},
+      "short_name": "simple_food",
+      "tags": [
+        "phase7c",
+        "pilot"
+      ],
+      "tool_requirements": [],
+      "training_reward": 0,
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "starter_cooking_fire"
+    },
+    {
+      "byproduct_groups": [],
+      "currency_costs": {},
+      "description": "Phase 7C pilot Scrap Salvage Recipe.",
+      "discoverable": false,
+      "enabled": true,
+      "experience_reward_profile_id": "",
+      "failure_outputs": [],
+      "forbidden_item_tags": [
+        "protected"
+      ],
+      "id": "scrap_salvage_recipe",
+      "input_groups": [
+        {
+          "allow_substitutions": false,
+          "conditions": {},
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_damaged": true,
+              "allow_equipped": false,
+              "catalyst": false,
+              "consume_quantity": 1,
+              "id": "primary_entry",
+              "item_tag": "",
+              "item_template_id": "training_sword",
+              "item_type": "",
+              "material_profile_id": "",
+              "maximum_quantity": 1,
+              "metadata": {},
+              "minimum_condition": 0,
+              "minimum_quality": "poor",
+              "minimum_quantity": 1,
+              "priority": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "metadata": {},
+          "minimum_entries": 1,
+          "quantity": 1,
+          "return_on_failure": false,
+          "selection_mode": "all_required",
+          "sort_order": 1,
+          "substitution_profile_id": ""
+        }
+      ],
+      "messages": {},
+      "minimum_profession_rank": 1,
+      "name": "Scrap Salvage Recipe",
+      "output_groups": [
+        {
+          "conditions": {},
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "scrap_metal",
+              "id": "main_output_entry",
+              "item_template_id": "scrap_metal",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "metadata": {},
+          "quality_inheritance_policy": "crafted_quality",
+          "quantity_formula_id": "",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "practice_reward": 0,
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 6,
+      "profession_id": "salvager",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_type": "salvage",
+      "repeat_policy": "repeatable",
+      "required_ability_ids": [],
+      "required_effect_ids": [],
+      "required_item_tags": [],
+      "resource_costs": {},
+      "short_name": "scrap_salvage",
+      "tags": [
+        "phase7c",
+        "pilot"
+      ],
+      "tool_requirements": [],
+      "training_reward": 0,
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "starter_salvage_bench"
+    },
+    {
+      "consumable_output_profile_id": "cooked_fish_consumable",
+      "cooking_failure_profile_id": "basic_cooking_failure",
+      "cooking_method": "basic_roasting",
+      "description": "Roasted River Fish",
+      "enabled": true,
+      "freshness_output_profile_id": "fresh_cooked_food",
+      "id": "roasted_river_fish",
+      "ingredient_substitution_profile_id": "basic_wild_substitutions",
+      "input_groups": [
+        {
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_equipped": false,
+              "catalyst": false,
+              "id": "primary_entry",
+              "item_template_id": "river_fish",
+              "maximum_quantity": 1,
+              "minimum_quantity": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "minimum_entries": 1,
+          "quantity": 1,
+          "selection_mode": "all_required"
+        }
+      ],
+      "minimum_profession_rank": 0,
+      "name": "Roasted River Fish",
+      "nutrition_profile_id": "modest_cooked_food",
+      "output_groups": [
+        {
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "cooked_river_fish",
+              "id": "main_output_entry",
+              "item_template_id": "cooked_river_fish",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 5,
+      "profession_id": "cooking",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_category": "cooking",
+      "recipe_type": "cook",
+      "required_heat_profile_id": "basic_campfire_heat",
+      "serving_yield_profile_id": "single_serving_food",
+      "short_name": "roasted_river_fish",
+      "tags": [
+        "phase11e",
+        "starter"
+      ],
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "lit_campfire_cooking"
+    },
+    {
+      "consumable_output_profile_id": "cooked_meat_consumable",
+      "cooking_failure_profile_id": "basic_cooking_failure",
+      "cooking_method": "basic_roasting",
+      "description": "Cooked Small Meat",
+      "enabled": true,
+      "freshness_output_profile_id": "fresh_cooked_food",
+      "id": "cooked_small_meat",
+      "ingredient_substitution_profile_id": "basic_wild_substitutions",
+      "input_groups": [
+        {
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_equipped": false,
+              "catalyst": false,
+              "id": "primary_entry",
+              "item_template_id": "small_meat",
+              "maximum_quantity": 1,
+              "minimum_quantity": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "minimum_entries": 1,
+          "quantity": 1,
+          "selection_mode": "all_required"
+        }
+      ],
+      "minimum_profession_rank": 0,
+      "name": "Cooked Small Meat",
+      "nutrition_profile_id": "modest_cooked_food",
+      "output_groups": [
+        {
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "cooked_small_meat",
+              "id": "main_output_entry",
+              "item_template_id": "cooked_small_meat",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 5,
+      "profession_id": "cooking",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_category": "cooking",
+      "recipe_type": "cook",
+      "required_heat_profile_id": "basic_campfire_heat",
+      "serving_yield_profile_id": "single_serving_food",
+      "short_name": "cooked_small_meat",
+      "tags": [
+        "phase11e",
+        "starter"
+      ],
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "lit_campfire_cooking"
+    },
+    {
+      "consumable_output_profile_id": "mushroom_stew_consumable",
+      "cooking_failure_profile_id": "basic_cooking_failure",
+      "cooking_method": "basic_stewing",
+      "description": "Wild Mushroom Stew",
+      "enabled": true,
+      "freshness_output_profile_id": "fresh_cooked_food",
+      "id": "wild_mushroom_stew",
+      "ingredient_substitution_profile_id": "basic_wild_substitutions",
+      "input_groups": [
+        {
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_equipped": false,
+              "catalyst": false,
+              "id": "primary_entry",
+              "item_template_id": "wild_mushroom",
+              "maximum_quantity": 1,
+              "minimum_quantity": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "minimum_entries": 1,
+          "quantity": 1,
+          "selection_mode": "all_required"
+        }
+      ],
+      "minimum_profession_rank": 0,
+      "name": "Wild Mushroom Stew",
+      "nutrition_profile_id": "modest_cooked_food",
+      "output_groups": [
+        {
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "wild_mushroom_stew_item",
+              "id": "main_output_entry",
+              "item_template_id": "wild_mushroom_stew_item",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 5,
+      "profession_id": "cooking",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_category": "cooking",
+      "recipe_type": "cook",
+      "required_heat_profile_id": "basic_campfire_heat",
+      "serving_yield_profile_id": "multi_serving_meal",
+      "short_name": "wild_mushroom_stew",
+      "tags": [
+        "phase11e",
+        "starter"
+      ],
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "lit_campfire_cooking"
+    },
+    {
+      "consumable_output_profile_id": "herbal_drink_consumable",
+      "cooking_failure_profile_id": "basic_cooking_failure",
+      "cooking_method": "basic_boiling",
+      "description": "Simple Herbal Tea",
+      "enabled": true,
+      "freshness_output_profile_id": "fresh_cooked_food",
+      "id": "simple_herbal_tea",
+      "ingredient_substitution_profile_id": "basic_wild_substitutions",
+      "input_groups": [
+        {
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_equipped": false,
+              "catalyst": false,
+              "id": "primary_entry",
+              "item_template_id": "starter_herb",
+              "maximum_quantity": 1,
+              "minimum_quantity": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "minimum_entries": 1,
+          "quantity": 1,
+          "selection_mode": "all_required"
+        }
+      ],
+      "minimum_profession_rank": 0,
+      "name": "Simple Herbal Tea",
+      "nutrition_profile_id": "modest_cooked_food",
+      "output_groups": [
+        {
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "herbal_tea_item",
+              "id": "main_output_entry",
+              "item_template_id": "herbal_tea_item",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 5,
+      "profession_id": "cooking",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_category": "cooking",
+      "recipe_type": "cook",
+      "required_heat_profile_id": "basic_campfire_heat",
+      "serving_yield_profile_id": "drink_container_servings",
+      "short_name": "simple_herbal_tea",
+      "tags": [
+        "phase11e",
+        "starter"
+      ],
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "lit_campfire_cooking"
+    },
+    {
+      "consumable_output_profile_id": "cooked_fish_consumable",
+      "cooking_failure_profile_id": "basic_cooking_failure",
+      "cooking_method": "basic_drying_or_smoking",
+      "description": "Dried Fish",
+      "enabled": true,
+      "freshness_output_profile_id": "fresh_cooked_food",
+      "id": "dried_fish",
+      "ingredient_substitution_profile_id": "basic_wild_substitutions",
+      "input_groups": [
+        {
+          "consume": true,
+          "entries": [
+            {
+              "allow_bound": false,
+              "allow_equipped": false,
+              "catalyst": false,
+              "id": "primary_entry",
+              "item_template_id": "river_fish",
+              "maximum_quantity": 1,
+              "minimum_quantity": 1
+            }
+          ],
+          "id": "primary",
+          "maximum_entries": 1,
+          "minimum_entries": 1,
+          "quantity": 1,
+          "selection_mode": "all_required"
+        }
+      ],
+      "minimum_profession_rank": 0,
+      "name": "Dried Fish",
+      "nutrition_profile_id": "modest_cooked_food",
+      "output_groups": [
+        {
+          "destination_policy": "actor_inventory",
+          "entries": [
+            {
+              "definition_id": "dried_fish",
+              "id": "main_output_entry",
+              "item_template_id": "dried_fish",
+              "quantity": 1,
+              "reward_type": "item"
+            }
+          ],
+          "id": "main_output",
+          "selection_mode": "all"
+        }
+      ],
+      "plugin_data": {},
+      "production_profile_id": "instant_crafting",
+      "profession_experience": 5,
+      "profession_id": "cooking",
+      "quality_profile_id": "standard_crafting_quality",
+      "recipe_category": "cooking",
+      "recipe_type": "cook",
+      "required_heat_profile_id": "basic_campfire_heat",
+      "serving_yield_profile_id": "preserved_food_servings",
+      "short_name": "dried_fish",
+      "tags": [
+        "phase11e",
+        "starter"
+      ],
+      "version": 1,
+      "visibility": "public",
+      "workstation_profile_id": "lit_campfire_cooking"
+    }
+  ]
+}

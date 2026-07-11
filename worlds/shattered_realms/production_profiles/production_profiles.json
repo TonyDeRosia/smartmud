@@ -1,0 +1,50 @@
+{
+  "production_profiles": [
+    {
+      "actor_presence_required": true,
+      "base_duration": 0,
+      "cancellation_policy": "release_inputs",
+      "consume_inputs_on": "completion",
+      "create_outputs_on": "completion",
+      "description": "Immediate deterministic production.",
+      "failure_policy": "no_failure",
+      "id": "instant_crafting",
+      "interruptible": false,
+      "maximum_catchup_cycles": 1,
+      "name": "Instant crafting",
+      "offline_progress_policy": "none",
+      "plugin_data": {},
+      "production_mode": "instant",
+      "restart_policy": "resume",
+      "tags": [
+        "phase7c"
+      ],
+      "tick_interval": 0,
+      "version": 1,
+      "workstation_presence_required": false
+    },
+    {
+      "actor_presence_required": true,
+      "base_duration": 10,
+      "cancellation_policy": "release_inputs",
+      "consume_inputs_on": "completion",
+      "create_outputs_on": "completion",
+      "description": "Pilot world-time production.",
+      "failure_policy": "conservative_failure_outputs",
+      "id": "short_timed_crafting",
+      "interruptible": true,
+      "maximum_catchup_cycles": 1,
+      "name": "Short timed crafting",
+      "offline_progress_policy": "bounded_world_time",
+      "plugin_data": {},
+      "production_mode": "timed",
+      "restart_policy": "resume",
+      "tags": [
+        "phase7c"
+      ],
+      "tick_interval": 10,
+      "version": 1,
+      "workstation_presence_required": true
+    }
+  ]
+}
