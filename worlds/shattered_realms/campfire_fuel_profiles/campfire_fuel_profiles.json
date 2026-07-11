@@ -1,0 +1,19 @@
+{
+  "campfire_fuel_profiles": [
+    {
+      "id": "basic_firewood",
+      "name": "Basic Firewood",
+      "description": "Conservative firewood fuel.",
+      "item_template_ids": [
+        "firewood"
+      ],
+      "fuel_minutes": 60,
+      "messages": {},
+      "tags": [
+        "starter"
+      ],
+      "plugin_data": {},
+      "version": 1
+    }
+  ]
+}

@@ -7,3 +7,7 @@ World data lives in Builder/world-package collections: `actor_need_definitions`,
 The canonical runtime API is `engine.survival_needs.SurvivalNeedsService`. It initializes actor needs idempotently, migrates valid legacy `entity_needs` values, progresses needs from world time with bounded catch-up, resolves exact item instances for consumption, decrements servings atomically, and records idempotent consumption sessions.
 
 Default content is conservative and nonlethal. Rest, sleep, beds, shelters, campfires, and campsites remain placeholders for Phase 11D2.
+
+## Phase 11D2 survival extension
+
+Rest, sleep, rest-location profiles, rest quality, campfire profiles, campsite profiles, shelter context, runtime rest sessions, campfire instances, and campsite instances are routed through the canonical `engine.survival_needs.SurvivalNeedsService`. This preserves the existing EnvironmentService, PropertyService, GatheringService, CraftingService, QuestService, AchievementService, EventBus, item, and score boundaries while adding conservative starter content and diagnostics.
