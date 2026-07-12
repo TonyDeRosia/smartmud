@@ -15,7 +15,7 @@ from typing import Any, Optional
 from datetime import datetime, timezone, timedelta
 
 from engine.mud_commands import MudCommandEngine
-from engine.mud_displays import render_object, render_prompt, render_room, semantic
+from engine.mud_displays import render_object, render_prompt, render_room, semantic, build_inventory_document, build_equipment_document, render_display_mud
 from engine.conditions import condition_label
 from engine.mud_rendering import render_semantic_plain
 from smart_mud.world_registry import WorldRegistry
@@ -1985,19 +1985,13 @@ class MudRuntime:
         return " ".join(messages)
 
     def _render_inventory(self, character_id: str) -> str:
-        items=self.find_inventory_items(character_id)
-        return semantic("system", "You are not carrying anything.") if not items else semantic("system", "You are carrying:") + "\n" + "\n".join(f"  {semantic('item_' + str(i.get('rarity', 'common')), i['name'])}" + (f" x{i['stack_count']}" if i.get('stack_count',1)>1 else "") for i in items)
+        items = self.find_inventory_items(character_id)
+        total_weight = sum(float((i.get("template") or {}).get("weight") or i.get("weight") or 0) * int(i.get("stack_count") or 1) for i in items)
+        carrying = f"{int(total_weight) if total_weight.is_integer() else total_weight} weight" if items else ""
+        return render_display_mud(build_inventory_document(items, carrying=carrying))
 
     def _render_equipment(self, character_id: str) -> str:
-        equipped = self.find_equipped_items(character_id)
-        by={}
-        for i in equipped:
-            slots=str(i.get("equipped_slot") or "").split(",")
-            if "both_hands" in slots: slots += ["main_hand", "off_hand"]
-            for slot in slots:
-                if slot: by[slot]=i
-        prefix = "" if equipped else semantic("system", "You are not wearing anything.") + "\n"
-        return prefix + semantic("system", "Equipment:") + "\n" + "\n".join(f"  {semantic('equipment_slot', s.replace('_',' ').title())}: {semantic('equipment_item' if s in by else 'system', by[s]['name'] if s in by else 'nothing')}" for s in self.EQUIPMENT_SLOTS)
+        return render_display_mud(build_equipment_document(self.find_equipped_items(character_id), list(self.EQUIPMENT_SLOTS)))
 
     def _look_item(self, character_id: str, room_id: str, query: str) -> str:
         res=self.resolve_item_keywords(query, self.get_visible_room_items(room_id)+self.find_inventory_items(character_id)+self.find_equipped_items(character_id))
