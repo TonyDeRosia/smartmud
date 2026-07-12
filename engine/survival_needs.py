@@ -187,7 +187,7 @@ class SurvivalNeedsService:
     def can_consume(self, actor_id, item_instance_id) -> ConsumptionCheck:
         item=self._item(item_instance_id); prof=self._profile_for_item(item) if item else {}; servings=self._servings(item,prof) if prof else 0
         if not item: return ConsumptionCheck(False,'item_not_found',{}, {},0)
-        if item.get('owner_type') not in ('actor','room') or (item.get('owner_type')=='actor' and item.get('owner_id')!=actor_id): return ConsumptionCheck(False,'not_owned_or_accessible',prof,item,servings)
+        if item.get('owner_type') not in ('actor','character','room') or (item.get('owner_type') in ('actor','character') and item.get('owner_id')!=actor_id): return ConsumptionCheck(False,'not_owned_or_accessible',prof,item,servings)
         if not prof: return ConsumptionCheck(False,'not_consumable',{},item,servings)
         if servings <= 0: return ConsumptionCheck(False,'no_servings_remaining',prof,item,servings)
         sat=self.get_actor_need(actor_id,'satiation')

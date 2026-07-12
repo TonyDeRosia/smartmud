@@ -555,15 +555,28 @@
   },
   {
     "description": "clean water flask for beginner Smart MUD play.",
+    "drinkable": true,
     "effects": {},
     "equipment_slots": [
       "none"
     ],
     "id": "clean_water_flask",
+    "item_type": "consumable",
+    "keywords": [
+      "clean",
+      "clean water",
+      "clean water flask",
+      "flask",
+      "water"
+    ],
+    "long_description": "A small flask filled with clean water.",
     "name": "clean water flask",
     "occupies_slots": [
       "none"
     ],
+    "plugin_data": {
+      "consumable_profile_id": "clean_water_drink"
+    },
     "rarity": "common",
     "requirements": {},
     "slot": "none",
@@ -708,13 +721,13 @@
     "weight": 1
   },
   {
-    "description": "healer’s kit for beginner Smart MUD play.",
+    "description": "healer\u2019s kit for beginner Smart MUD play.",
     "effects": {},
     "equipment_slots": [
       "none"
     ],
     "id": "healers_kit",
-    "name": "healer’s kit",
+    "name": "healer\u2019s kit",
     "occupies_slots": [
       "none"
     ],
@@ -1024,15 +1037,19 @@
     ],
     "id": "notice_board",
     "keywords": [
+      "board",
       "notice",
-      "board"
+      "notice board"
     ],
     "long_description": "notice board for beginner Smart MUD play.",
     "name": "notice board",
     "occupies_slots": [
       "none"
     ],
+    "portable": false,
     "rarity": "common",
+    "readable": true,
+    "readable_text": "Posted notices list starter errands, road warnings, and a reminder to carry water before leaving town.",
     "requirements": {},
     "short_description": "notice board for beginner Smart MUD play.",
     "slot": "none",
@@ -1442,13 +1459,11 @@
     "version": 1
   },
   {
+    "description": "A tagged quest pelt recovered from a starter forest wolf corpse.",
     "id": "wolf_pelt",
     "name": "wolf pelt",
-    "description": "A tagged quest pelt recovered from a starter forest wolf corpse.",
-    "type": "material",
+    "plugin_data": {},
     "rarity": "common",
-    "value": 2,
-    "weight": 1,
     "stackable": true,
     "tags": [
       "starter",
@@ -1456,64 +1471,66 @@
       "crafting_material",
       "wolf"
     ],
-    "plugin_data": {},
-    "version": 1
+    "type": "material",
+    "value": 2,
+    "version": 1,
+    "weight": 1
   },
   {
+    "description": "A rough crafting material from a starter wolf.",
     "id": "torn_hide",
     "name": "torn hide",
-    "description": "A rough crafting material from a starter wolf.",
-    "type": "material",
+    "plugin_data": {},
     "rarity": "common",
-    "value": 1,
-    "weight": 1,
     "stackable": true,
     "tags": [
       "starter",
       "crafting_material",
       "wolf"
     ],
-    "plugin_data": {},
-    "version": 1
+    "type": "material",
+    "value": 1,
+    "version": 1,
+    "weight": 1
   },
   {
-    "id": "training_dagger",
-    "name": "training dagger",
     "description": "A rare starter equipment roll from the first hunting trail.",
-    "type": "weapon",
-    "slot": "main_hand",
+    "effects": {},
     "equipment_slots": [
       "main_hand"
     ],
-    "wear_slots": [
-      "main_hand"
-    ],
-    "occupies_slots": [
-      "main_hand"
-    ],
-    "rarity": "uncommon",
-    "value": 6,
-    "weight": 1,
-    "stats": {},
-    "effects": {},
+    "id": "training_dagger",
     "modifiers": [
       {
         "id": "training_dagger_attack_power",
-        "target_domain": "derived_stat",
-        "target_key": "attack_power",
         "operation": "add",
-        "value": 1,
         "priority": 100,
         "stacking_group": "equipment_attack_power",
         "stacking_policy": "stack",
+        "target_domain": "derived_stat",
+        "target_key": "attack_power",
+        "value": 1,
         "visible": true
       }
     ],
+    "name": "training dagger",
+    "occupies_slots": [
+      "main_hand"
+    ],
+    "plugin_data": {},
+    "rarity": "uncommon",
+    "slot": "main_hand",
+    "stats": {},
     "tags": [
       "starter",
       "rare_roll"
     ],
-    "plugin_data": {},
-    "version": 1
+    "type": "weapon",
+    "value": 6,
+    "version": 1,
+    "wear_slots": [
+      "main_hand"
+    ],
+    "weight": 1
   }
 ]
