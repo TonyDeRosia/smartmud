@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from engine.display_themes import resolve_effective_display_theme
+from engine.display_themes import resolve_effective_display_theme, ThemeResolutionMode
 from engine.mud_displays import build_score_document, build_affects_document, build_prompt_document, render_display_plain
 from engine.mud_commands import MudCommandEngine
 from smart_mud.builder import BuilderWorkspace
@@ -18,6 +18,8 @@ def test_scope_precedence_from_builder_world_zone_area(tmp_path):
     bw.save_drafts("shattered_realms", drafts)
     c=_char(); c.room_id="r"
     theme=resolve_effective_display_theme(c, world_root=tmp_path/"shattered_realms")
+    assert theme.theme_id == "classic_adventurer" and theme.source_scope in {"world", "engine"}
+    theme=resolve_effective_display_theme(c, world_root=tmp_path/"shattered_realms", resolution_mode=ThemeResolutionMode.BUILDER_DRAFT_PREVIEW)
     assert theme.theme_id == "minimal_modern" and theme.source_scope == "area"
     c.preferences={"display_theme":"classic_adventurer", "no_color": True, "high_contrast": True, "colorblind": True, "reduced_decoration": True}
     theme=resolve_effective_display_theme(c, world_root=tmp_path/"shattered_realms")
@@ -52,3 +54,22 @@ def test_prompt_theme_default_template_is_used():
     c=_char()
     theme=SimpleNamespace(prompt_presets={"classic":"[%n %h/%H]"})
     assert "Hero 9/10" in render_display_plain(build_prompt_document(c, theme=theme))
+
+
+def test_published_runtime_ignores_builder_draft_area_assignment(tmp_path):
+    root = tmp_path / "shattered_realms"
+    (root / "world").mkdir(parents=True)
+    (root / "areas").mkdir()
+    (root / "zones").mkdir()
+    (root / "builder").mkdir()
+    (root / "world" / "world.json").write_text('{"default_display_theme_id":"classic_adventurer"}\n')
+    (root / "areas" / "areas.json").write_text('[{"id":"a","display_theme_id":"classic_adventurer"}]\n')
+    (root / "zones" / "zones.json").write_text('[{"id":"z","area_id":"a","room_ids":["r"]}]\n')
+    (root / "builder" / "areas.json").write_text('{"a":{"id":"a","display_theme_id":"minimal_modern"}}\n')
+    c = _char(); c.room_id = "r"
+
+    live = resolve_effective_display_theme(c, world_root=root)
+    draft = resolve_effective_display_theme(c, world_root=root, resolution_mode=ThemeResolutionMode.BUILDER_DRAFT_PREVIEW)
+
+    assert live.theme_id == "classic_adventurer"
+    assert draft.theme_id == "minimal_modern"

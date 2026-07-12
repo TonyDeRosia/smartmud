@@ -20,7 +20,7 @@ from smart_mud.builder import BuilderWorkspace
 from engine.abilities import AbilityExecutionService
 from engine.display_services import CharacterDisplaySnapshotService, AbilityDisplaySnapshotService, ability_snapshots_as_rows
 from engine.player_preferences import PlayerPresentationPreferenceService
-from engine.display_themes import preview_display_theme, resolve_effective_display_theme, load_display_themes, SUPPORTED_FAMILIES
+from engine.display_themes import preview_display_theme, resolve_effective_display_theme, load_display_themes, SUPPORTED_FAMILIES, ThemeResolutionMode
 from engine.combat_behavior import CombatBehaviorService
 from engine.crafting import CraftingService, CraftingContent
 from engine.perception import PerceptionService
@@ -1520,8 +1520,9 @@ class MudCommandEngine:
             return CommandResult("That score section is not available.", ok=False, display_intent="WARNING", semantic_role="warning")
         svc = getattr(self, "character_display_snapshots", None) or getattr(getattr(self, "runtime", None), "character_display_snapshots", None) or CharacterDisplaySnapshotService(getattr(self, "runtime", None))
         snap = svc.build_snapshot(character)
-        doc = build_score_document(character, snapshot=snap, theme=resolve_effective_display_theme(character, family="score"))
-        return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="SCORE")
+        theme = resolve_effective_display_theme(character, family="score")
+        doc = build_score_document(character, snapshot=snap, theme=theme)
+        return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="SCORE")
 
 
     def _cmd_phase7a_reward(self, character: Any, args: list[str], raw: str) -> CommandResult:
@@ -1603,14 +1604,16 @@ class MudCommandEngine:
             narrative = f"{semantic('system', 'You are carrying:')}\n{items}"
         
         print(f"[mud-command] Inventory for {character.name}")
-        doc = build_inventory_document(list(getattr(character, "inventory", []) or []), theme=resolve_effective_display_theme(character, family="inventory"))
-        return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="INVENTORY")
+        theme = resolve_effective_display_theme(character, family="inventory")
+        doc = build_inventory_document(list(getattr(character, "inventory", []) or []), theme=theme)
+        return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="INVENTORY")
 
     def _cmd_equipment(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display equipped items through the single score renderer."""
         items=list((getattr(character, "equipment", {}) or {}).values()) if isinstance(getattr(character, "equipment", None), dict) else list(getattr(character, "equipment", []) or [])
-        doc=build_equipment_document(items, ["head","body","main_hand","off_hand","legs","feet"], theme=resolve_effective_display_theme(character, family="equipment"))
-        return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="EQUIPMENT")
+        theme = resolve_effective_display_theme(character, family="equipment")
+        doc=build_equipment_document(items, ["head","body","main_hand","off_hand","legs","feet"], theme=theme)
+        return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="EQUIPMENT")
 
     def _cmd_resists(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display resistances through the single score renderer."""
@@ -1808,14 +1811,14 @@ class MudCommandEngine:
             effects = [dict(x) for x in raw_affects if isinstance(x, dict)]
         theme = resolve_effective_display_theme(character, family="affects")
         doc = build_affects_document(effects, theme=theme)
-        return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="AFFECTS")
+        return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="AFFECTS")
 
     def _cmd_worth(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display net worth through the unified character display suite."""
         svc = getattr(self, "character_display_snapshots", None) or getattr(getattr(self, "runtime", None), "character_display_snapshots", None) or CharacterDisplaySnapshotService(getattr(self, "runtime", None))
         snap = svc.build_snapshot(character)
         doc = build_worth_document(character, snapshot=snap, theme=resolve_effective_display_theme(character, family="worth"))
-        return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="SCORE")
+        return CommandResult(narrative=render_display_mud(doc, color_enabled=getattr(doc.frames[0] if doc.frames else None, "color_enabled", True)), display_document=doc, display_intent="SCORE")
 
     def _cmd_who(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """List connected players."""
@@ -1995,7 +1998,7 @@ Available commands:
             from engine.display_themes import validate_display_theme
             errs=validate_display_theme(store[args[1]]); return CommandResult("Valid." if not errs else "Errors:\n"+"\n".join(errs), ok=not errs)
         if sub == "preview" and len(args)>2 and args[1] in store:
-            prev=preview_display_theme(store[args[1]], args[2]); return CommandResult(prev.get("plain") or prev.get("errors") or "Preview unavailable.", ok=prev.get("ok") == "true")
+            prev=preview_display_theme(store[args[1]], args[2]); header=f"Preview theme={args[1]} scope=draft family={args[2]} mode=draft\n"; return CommandResult((header + (prev.get("plain") or prev.get("errors") or "Preview unavailable.")), ok=prev.get("ok") == "true")
         if sub == "assign" and len(args)>2:
             world_id=self.builder.world_id(character); drafts=self.builder.load(world_id); scope=args[1].lower(); theme_id=args[-1]
             if theme_id not in store: return CommandResult(f"Display theme not found: {theme_id}", ok=False)

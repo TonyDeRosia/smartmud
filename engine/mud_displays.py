@@ -297,6 +297,32 @@ def _frame_line_plain(frame: DisplayFrame, content: str = "", *, kind: str = "ro
 def _cell_segments(cell: DisplayCell) -> list[DisplaySegment]:
     return list(cell.segments) if cell.segments else [DisplaySegment(str(cell.text), cell.role, cell.trusted_markup)]
 
+
+def resolve_theme_role(theme: Any, canonical_role: str) -> str:
+    role = str(((getattr(theme, "semantic_roles", {}) or {}).get(canonical_role)) or canonical_role)
+    if "high_contrast" in tuple(getattr(theme, "accessibility", ()) or ()):
+        role = {"character_frame":"character_title","character_muted":"character_value","equipment_empty":"character_value"}.get(role, role)
+    if "colorblind" in tuple(getattr(theme, "accessibility", ()) or ()):
+        role = {"character_positive":"success","character_negative":"warning"}.get(role, role)
+    return role if role in SEMANTIC_COLOR_ROLES else (canonical_role if canonical_role in SEMANTIC_COLOR_ROLES else "system")
+
+def theme_label(theme: Any, key: str, default: str) -> str:
+    return str((getattr(theme, "labels", {}) or {}).get(key, default))
+
+def _seg(text: Any, role: str, theme: Any = None, trusted: bool = False) -> DisplaySegment:
+    return DisplaySegment(str(text), resolve_theme_role(theme, role), trusted)
+
+def build_empty_display_rows(family: str, theme: Any, default_message: str) -> list[DisplayLine]:
+    policy = str(getattr(theme, "empty_section_policy", "hide") if theme is not None else "hide")
+    labels = getattr(theme, "labels", {}) or {}
+    if policy == "show_muted":
+        label = labels.get(f"{family}.title", family.replace("_", " ").title())
+        msg = labels.get(f"{family}.muted_empty", f"{label}: none" if family != "inventory" else f"{label}: empty")
+        return [DisplayLine(msg, role=resolve_theme_role(theme, "character_muted"), trusted_markup=True)]
+    if policy == "show_empty_message":
+        return [DisplayLine(labels.get(f"{family}.empty", default_message), role=resolve_theme_role(theme, "character_muted"), trusted_markup=True)]
+    return []
+
 def _frame_segments(frame: DisplayFrame, content: str = "", *, kind: str = "row", role: str = "character_value", segments: list[DisplaySegment] | None = None) -> DisplayLine:
     if kind != "row": return DisplayLine(_frame_line_plain(frame, kind=kind), role=frame.frame_role)
     style=str(getattr(frame, "frame_style", "classic_double") or "classic_double").lower()
@@ -307,8 +333,8 @@ def _frame_segments(frame: DisplayFrame, content: str = "", *, kind: str = "row"
     side=_frame_chars(frame, "row")[0]
     return DisplayLine(segments=[DisplaySegment(side, frame.frame_role), *segments, DisplaySegment(side, frame.frame_role)])
 
-def _field_segments(label: str, value: Any, *, value_role: str = "character_value") -> list[DisplaySegment]:
-    return [DisplaySegment(f"{label}: ", "character_label"), DisplaySegment(str(value), value_role)]
+def _field_segments(label: str, value: Any, *, value_role: str = "character_value", theme: Any = None) -> list[DisplaySegment]:
+    return [_seg(f"{label}: ", "character_label", theme, True), _seg(str(value), value_role, theme)]
 
 def _field_text(label: str, value: Any) -> str:
     return f"{label}: {value}"
@@ -316,9 +342,9 @@ def _field_text(label: str, value: Any) -> str:
 def build_character_frame_document(intent: DisplayIntent | str, title: str, rows: list[Any], *, width: int = 79, theme: Any = None) -> DisplayDocument:
     width = int(getattr(theme, "width", width) if theme is not None else width)
     label = (getattr(theme, "labels", {}) or {}).get(f"{str(intent).split('.')[-1].lower()}.title") or title
-    frame=DisplayFrame(title=label, width=width, frame_style=getattr(theme, "frame_style", "classic_double") if theme else "classic_double", title_alignment=getattr(theme, "title_alignment", "center") if theme else "center", border_characters=dict(getattr(theme, "border_characters", {}) or {}), divider_characters=dict(getattr(theme, "divider_characters", {}) or {}))
-    doc=DisplayDocument(intent, semantic_role="character_value", title_role="character_title", frames=[frame])
-    lines=[_frame_segments(frame, kind="top"), _frame_segments(frame, segments=[DisplaySegment(_pad_visible(label, width-2, frame.title_alignment), "character_title")]), _frame_segments(frame, kind="section")]
+    frame=DisplayFrame(title=label, width=width, frame_role=resolve_theme_role(theme, "character_frame"), title_role=resolve_theme_role(theme, "character_title"), frame_style=getattr(theme, "frame_style", "classic_double") if theme else "classic_double", title_alignment=getattr(theme, "title_alignment", "center") if theme else "center", border_characters=dict(getattr(theme, "border_characters", {}) or {}), divider_characters=dict(getattr(theme, "divider_characters", {}) or {}))
+    doc=DisplayDocument(intent, semantic_role=resolve_theme_role(theme, "character_value"), title_role=frame.title_role, frames=[frame])
+    lines=[_frame_segments(frame, kind="top"), _frame_segments(frame, segments=[_seg(_pad_visible(label, width-2, frame.title_alignment), "character_title", theme, True)]), _frame_segments(frame, kind="section")]
     for row in rows:
         if isinstance(row, DisplayDivider): lines.append(_frame_segments(frame, kind=row.kind)); continue
         if isinstance(row, DisplayLine):
@@ -376,10 +402,10 @@ def _char(character: Any, *names: str, default: Any = "") -> Any:
             if v not in (None,""): return v
     return default
 
-def _row_fields(*pairs: tuple[str, Any, str]) -> DisplayRow:
+def _row_fields(*pairs: tuple[str, Any, str], theme: Any = None) -> DisplayRow:
     cells=[]
     for label,value,*role in pairs:
-        cells.append(DisplayCell(width=34, segments=_field_segments(label, value, value_role=role[0] if role else "character_value")))
+        cells.append(DisplayCell(width=34, segments=_field_segments(label, value, value_role=role[0] if role else "character_value", theme=theme)))
     return DisplayRow(cells)
 
 def _fmt_attr(data: Any) -> str:
@@ -422,24 +448,24 @@ def build_score_document(character: Any, *, snapshot: CharacterDisplaySnapshot |
     ident,res,prog,attrs,combat,carry,currency,surv,time=snap.identity,snap.resources,snap.progression,snap.attributes,snap.combat,snap.carrying,snap.currency,snap.survival,snap.time
     section_rows: dict[str, list[Any]] = {k: [] for k in ("identity","resources","progression","carrying","attributes","combat","currency","survival","effects","time")}
     rows=section_rows["identity"]
-    rows.append(_row_fields(("Name", ident.get("display_name","Adventurer")), ("Title", ident.get("title","—"))))
-    rows.append(_row_fields(("Race", ident.get("race_name","—")), ("Class", ident.get("class_name","—"))))
-    rows.append(_row_fields(("Level", ident.get("level","—")), ("Alignment", ident.get("alignment","—"))))
-    if ident.get("age") or ident.get("birthday"): rows.append(_row_fields(("Age", ident.get("age","—")), ("Birthday", ident.get("birthday","—"))))
+    rows.append(_row_fields((theme_label(theme,"name","Name"), ident.get("display_name","Adventurer")), (theme_label(theme,"title","Title"), ident.get("title","—"))))
+    rows.append(_row_fields((theme_label(theme,"race","Race"), ident.get("race_name","—")), (theme_label(theme,"class","Class"), ident.get("class_name","—"))))
+    rows.append(_row_fields((theme_label(theme,"level","Level"), ident.get("level","—")), (theme_label(theme,"alignment","Alignment"), ident.get("alignment","—"))))
+    if ident.get("age") or ident.get("birthday"): rows.append(_row_fields((theme_label(theme,"age","Age"), ident.get("age","—")), (theme_label(theme,"birthday","Birthday"), ident.get("birthday","—"))))
     rows.append(DisplayDivider())
     resource_parts=[]
-    for label,a,b in (("HP","hp","max_hp"),("Mana","mana","max_mana"),("Stamina","stamina","max_stamina")):
+    for label,a,b in ((theme_label(theme,"hp","HP"),"hp","max_hp"),(theme_label(theme,"mana","Mana"),"mana","max_mana"),(theme_label(theme,"stamina","Stamina"),"stamina","max_stamina")):
         if a in res or b in res: resource_parts.append(f"{label}: {res.get(a,'—')}/{res.get(b,'—')}")
     if resource_parts: section_rows["resources"].append(DisplayLine("   ".join(resource_parts)))
     rows=section_rows["progression"]
-    if prog: rows.append(_row_fields(("Experience", prog.get("xp","—")), ("TNL", prog.get("xp_to_next_level","—"))))
+    if prog: rows.append(_row_fields((theme_label(theme,"experience","Experience"), prog.get("xp","—")), (theme_label(theme,"tnl","TNL"), prog.get("xp_to_next_level","—"))))
     pts=[(k.replace("_"," ").title(),v) for k,v in prog.items() if k in {"practice_points","training_points","quest_points","level_progress_percent"}]
     if pts: rows.append(_row_fields(*pts[:2]))
     if carry:
         section_rows["carrying"].append(DisplayLine(f"Carry Capacity: {carry.get('current_weight', carry.get('carry_weight','—'))} / {carry.get('carry_capacity','—')} — {carry.get('encumbrance_text', carry.get('encumbrance','—'))}"))
     rows=section_rows["attributes"]
-    labels=[("Str","strength"),("Dex","dexterity"),("Con","constitution"),("Int","intelligence"),("Wis","wisdom"),("Cha","charisma")]
-    attr_cells=[DisplayCell(width=22, segments=_field_segments(lab, _fmt_attr(attrs[key]))) for lab,key in labels if key in attrs]
+    labels=[(theme_label(theme,"strength","Str"),"strength"),(theme_label(theme,"dexterity","Dex"),"dexterity"),(theme_label(theme,"constitution","Con"),"constitution"),(theme_label(theme,"intelligence","Int"),"intelligence"),(theme_label(theme,"wisdom","Wis"),"wisdom"),(theme_label(theme,"charisma","Cha"),"charisma")]
+    attr_cells=[DisplayCell(width=22, segments=_field_segments(lab, _fmt_attr(attrs[key]), theme=theme)) for lab,key in labels if key in attrs]
     for i in range(0,len(attr_cells),3): rows.append(DisplayRow(attr_cells[i:i+3]))
     if combat:
         rows=section_rows["combat"]
@@ -484,7 +510,7 @@ def build_abilities_document(rows: list[dict[str, Any]], *, title: str="ABILITIE
             cat=str(r.get('category') or r.get('ability_type') or 'General').replace('_',' ').title(); meta=[DisplayCell(f"Category: {cat}",width=34),DisplayCell(f"Cost: {_ability_cost(r)}",width=28)]
         out.append(DisplayRow(meta));
         if r.get('description'): out.append(DisplayLine(str(r.get('description')), role="character_value"))
-    if not out: out=[DisplayLine(empty, role="character_muted")]
+    if not out: out=build_empty_display_rows(title.lower(), theme, empty) or [DisplayLine(empty, role=resolve_theme_role(theme, "character_muted"))]
     return build_character_frame_document(DisplayIntent.SKILLS if title=='SKILLS' else DisplayIntent.SPELLS if title=='SPELLS' else DisplayIntent.SYSTEM,title,out,width=70, theme=theme)
 
 def render_display_plain(doc: DisplayDocument) -> str:
@@ -549,7 +575,10 @@ def _render_field_html(field: Any, section: DisplaySection) -> str:
         return f"{_render_role_html(field.label_role, field.label + ':')} {_render_role_html(field.value_role, field.value, trusted_markup=field.trusted_markup)}"
     return semantic_html(_render_field_mud(field, section))
 
-def render_display_mud(doc: DisplayDocument) -> str:
+def render_display_mud(doc: DisplayDocument, *, color_enabled: bool = True) -> str:
+    if not color_enabled:
+        return render_display_plain(doc)
+
     parts: list[str] = []
     if doc.title: parts.append(_mud(getattr(doc, 'title_role', '') or doc.semantic_role, str(doc.title).strip()))
     if doc.subtitle: parts.append(_mud(getattr(doc, 'subtitle_role', '') or doc.semantic_role, str(doc.subtitle).strip()))
@@ -573,7 +602,13 @@ def _render_role_html(role: str, text: Any, *, trusted_markup: bool = False) -> 
     inner = render_mud_color_html(str(text)) if trusted_markup else html.escape(str(text))
     return f'<span role="{html.escape(role)}">{inner}</span>'
 
-def render_display_html(doc: DisplayDocument) -> str:
+def render_display_ansi(doc: DisplayDocument, *, color_enabled: bool = True) -> str:
+    mud = render_display_mud(doc, color_enabled=color_enabled)
+    return render_mud_color_ansi(mud) if color_enabled else render_display_plain(doc)
+
+def render_display_html(doc: DisplayDocument, *, color_enabled: bool = True) -> str:
+    if not color_enabled:
+        return html.escape(render_display_plain(doc))
     # Render each field independently. Trusted Builder markup is parsed only for
     # the specific authored line, avoiding global post-render string replacement
     # that can corrupt spans when the same text appears in multiple places.
@@ -626,19 +661,18 @@ def build_affects_document(effects: list[dict[str, Any]], *, theme: Any = None) 
         if mods: rows.append(DisplayLine("Modifiers: " + ", ".join(str(m) for m in mods), role="character_value"))
         if e.get("description"): rows.append(DisplayLine(str(e.get("description")), role="character_value"))
     if not rows:
-        empty=(getattr(theme, "labels", {}) or {}).get("affects.empty", "You have no active affects.")
-        rows=[DisplayLine(empty, role="character_muted", trusted_markup=True)] if str(getattr(theme, "empty_section_policy", "show_empty_message")) != "hide" else [DisplayLine(empty, role="character_muted", trusted_markup=True)]
+        rows = build_empty_display_rows("affects", theme, "You have no active affects.")
     return build_character_frame_document(DisplayIntent.AFFECTS, (getattr(theme, "labels", {}) or {}).get("affects.title", "AFFECTS"), rows, width=60, theme=theme)
 
 def build_inventory_document(items: list[dict[str, Any]], *, carrying: str = "", theme: Any = None) -> DisplayDocument:
-    label=(getattr(theme, "labels", {}) or {}).get("inventory.empty", "You are not carrying anything.")
+    label=theme_label(theme, "inventory.empty", "You are not carrying anything.")
     rows=[]
     if items:
         rows.append(DisplayLine((getattr(theme, "labels", {}) or {}).get("inventory.heading", "You are carrying:"), role="character_label"))
         for entry in group_display_entries(items):
             rows.append(DisplayLine(_render_entry_plain(entry), role=entry.role, trusted_markup=True))
     else:
-        rows.append(DisplayLine(label, role="character_muted", trusted_markup=True))
+        rows.extend(build_empty_display_rows("inventory", theme, label) or [DisplayLine(label, role=resolve_theme_role(theme, "character_muted"), trusted_markup=True)])
     if carrying:
         rows.append(DisplayDivider()); rows.append(DisplayLine(carrying, role="character_value"))
     return build_character_frame_document(DisplayIntent.INVENTORY, (getattr(theme, "labels", {}) or {}).get("inventory.title", "INVENTORY"), rows, width=60, theme=theme)
@@ -665,7 +699,8 @@ def build_equipment_document(items: list[dict[str, Any]], slots: list[str], *, t
             metadata={"instance_id": item.get("instance_id"), "template_id": item.get("template_id")} if item else {},
         ))
     rows=[DisplayRow([DisplayCell(f.label, width=22, role="equipment_slot"), DisplayCell(str(f.value), width=34, role=f.value_role, trusted_markup=f.trusted_markup)]) for f in fields]
-    if not items: rows.insert(0, DisplayLine((getattr(theme, "labels", {}) or {}).get("equipment.empty", "You are not wearing anything."), role="equipment_empty"))
+    if not items:
+        rows = (build_empty_display_rows("equipment", theme, theme_label(theme, "equipment.empty", "You are not wearing anything.")) or [DisplayLine(theme_label(theme, "equipment.empty", "You are not wearing anything."), role=resolve_theme_role(theme, "equipment_empty"))]) + rows
     return build_character_frame_document(DisplayIntent.EQUIPMENT, (getattr(theme, "labels", {}) or {}).get("equipment.title", "EQUIPMENT"), rows, width=60, theme=theme)
 
 PROMPT_PRESETS = {
@@ -683,14 +718,24 @@ def _prompt_template(character: Any) -> str:
     preset = str(getattr(character, "prompt_preset", None) or prefs.get("prompt_preset") or "compact").lower()
     return str(custom or PROMPT_PRESETS.get(preset, PROMPT_PRESETS["compact"]))[:PROMPT_MAX_LENGTH]
 
-def build_prompt_document(character: Any, theme: Any = None) -> DisplayDocument:
+def resolve_prompt_template(character: Any, theme: Any = None, preferences: dict[str, Any] | None = None, *, world_default: str | None = None) -> str:
+    prefs = preferences if preferences is not None else (getattr(character, "preferences", {}) or {})
+    custom = getattr(character, "prompt_template", None) or prefs.get("prompt_template")
+    if custom: return str(custom)[:PROMPT_MAX_LENGTH]
+    preset = getattr(character, "prompt_preset", None) or prefs.get("prompt_preset")
+    if preset: return str(PROMPT_PRESETS.get(str(preset).lower(), PROMPT_PRESETS["compact"]))[:PROMPT_MAX_LENGTH]
+    presets=getattr(theme, "prompt_presets", {}) or {}
+    if presets: return str(presets.get("default") or presets.get("classic") or next(iter(presets.values()), ""))[:PROMPT_MAX_LENGTH]
+    if world_default: return str(world_default)[:PROMPT_MAX_LENGTH]
+    return PROMPT_PRESETS["compact"]
+
+def build_prompt_document(character: Any, theme: Any = None, template: str | None = None) -> DisplayDocument:
     prefs = getattr(character, "preferences", {}) or {}
-    if not getattr(character, "prompt_template", None) and not getattr(character, "prompt_preset", None) and not prefs.get("prompt_template") and not prefs.get("prompt_preset"):
+    if template is None and not getattr(character, "prompt_template", None) and not getattr(character, "prompt_preset", None) and not prefs.get("prompt_template") and not prefs.get("prompt_preset"):
         if theme is not None and getattr(theme, "prompt_presets", None):
             presets=getattr(theme, "prompt_presets", {}) or {}; default=(presets.get("default") or presets.get("classic") or next(iter(presets.values()), ""))
             if default:
-                old=getattr(character, "prompt_template", None); setattr(character, "prompt_template", default)
-                doc=build_prompt_document(character, None); setattr(character, "prompt_template", old); return doc
+                return build_prompt_document(character, None, template=default)
         segments = [DisplaySegment("[", "prompt_marker"), DisplaySegment(f"{character.hp}/{character.max_hp} HP", "prompt_hp")]
         if getattr(character, "max_mana", 0): segments += [DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.mana}/{character.max_mana} MP", "prompt_mana")]
         if getattr(character, "max_stamina", 0): segments += [DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.stamina}/{character.max_stamina} ST", "prompt_stamina")]
@@ -710,7 +755,7 @@ def build_prompt_document(character: Any, theme: Any = None) -> DisplayDocument:
         "%P": (str(getattr(character,"played_time", getattr(character,"play_time", "--")) or "--"), "prompt_time"), "%e": (str(getattr(character,"encumbrance_text", getattr(character,"encumbrance", "normal")) or "normal"), "prompt"),
         "%w": (str(getattr(character,"current_weapon", getattr(character,"weapon_damage_summary", "unarmed")) or "unarmed"), "prompt"), "%b": (str(getattr(character,"combat_state", "peaceful") or "peaceful"), "prompt"),
     }
-    template=_prompt_template(character)
+    template=template if template is not None else resolve_prompt_template(character, theme, prefs)
     segments=[]; i=0
     while i < len(template):
         if template[i] == "%" and i+1 < len(template):
@@ -729,7 +774,7 @@ def build_prompt_document(character: Any, theme: Any = None) -> DisplayDocument:
 import html
 import re
 
-from engine.mud_rendering import SEMANTIC_COLOR_ROLES, render_mud_color_html, strip_mud_color_markup
+from engine.mud_rendering import SEMANTIC_COLOR_ROLES, render_mud_color_html, render_mud_color_ansi, strip_mud_color_markup
 from engine.conditions import condition_label
 from collections import OrderedDict
 
