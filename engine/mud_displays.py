@@ -148,34 +148,14 @@ def _canonical_tnl(character: Any) -> Any:
     return None
 
 def build_character_display_snapshot(character: Any) -> CharacterDisplaySnapshot:
-    stats = _as_mapping(getattr(character, "calculated_stats", None)) or _as_mapping(getattr(character, "stats", None))
-    attrs = _as_mapping(getattr(character, "attributes", None)) or _as_mapping(getattr(character, "ability_scores", None))
-    attr_snapshot: dict[str, Any] = {}
-    for key in ("strength","dexterity","constitution","intelligence","wisdom","charisma"):
-        raw = attrs.get(key) if isinstance(attrs, dict) else None
-        if isinstance(raw, dict):
-            attr_snapshot[key] = {k: raw.get(k) for k in ("base","modifier","final") if raw.get(k) is not None}
-        elif raw is not None:
-            attr_snapshot[key] = {"final": raw}
-        elif hasattr(character, key):
-            attr_snapshot[key] = {"final": getattr(character, key)}
-    currency = _as_mapping(getattr(character, "currency", None)).copy()
-    for cur in ("gold", "silver", "copper"):
-        if hasattr(character, cur) and getattr(character, cur) is not None:
-            currency.setdefault(cur, getattr(character, cur))
-    return CharacterDisplaySnapshot(
-        identity={k:v for k,v in {"character_id":getattr(character,"id",None),"display_name":_char(character,"name",default=None),"title":getattr(character,"title",None),"race_name":_char(character,"race_name","race",default=None),"class_name":_char(character,"class_name","character_class","char_class",default=None),"level":getattr(character,"level",None),"age":getattr(character,"age",None),"alignment":getattr(character,"alignment",None),"birthday":getattr(character,"birthday",None)}.items() if v not in (None,"")},
-        resources={k:getattr(character,k) for k in ("hp","max_hp","mana","max_mana","stamina","max_stamina","hp_regen","mana_regen","stamina_regen") if hasattr(character,k)},
-        progression={k:v for k,v in {"xp":getattr(character,"xp",None),"xp_to_next_level":_canonical_tnl(character),"practice_points":getattr(character,"practice_points",None),"training_points":getattr(character,"training_points",None),"quest_points":getattr(character,"quest_points",None),"level_progress_percent":getattr(character,"level_progress_percent",None)}.items() if v is not None},
-        attributes=attr_snapshot,
-        combat={k:(stats.get(k) if k in stats else getattr(character,k)) for k in ("armor","evasion","accuracy","hit_bonus","damage_bonus","spell_saves","resistances","critical_melee","critical_spell","critical_heal","weapon_damage_summary","unarmed_damage_summary") if (k in stats or hasattr(character,k))},
-        carrying={k:getattr(character,k) for k in ("current_weight","carry_weight","carry_capacity","encumbrance_key","encumbrance_text","encumbrance","item_count","max_item_count") if hasattr(character,k)},
-        currency=currency,
-        survival={k:getattr(character,k) for k in ("posture","hunger","thirst","fatigue","active_combat","status_conditions") if hasattr(character,k)},
-        time={k:getattr(character,k) for k in ("played_time","play_time","age","last_login","birthday") if hasattr(character,k)},
-        effects=list(getattr(character,"effects",[]) or getattr(character,"affects",[]) or []),
-        inventory=list(getattr(character,"inventory",[]) or []),
-    )
+    """Compatibility adapter for tests and legacy callers.
+
+    Live runtime commands use CharacterDisplaySnapshotService directly; this
+    helper is intentionally only the single fallback boundary for older tests
+    that pass ad-hoc SimpleNamespace character objects to builders.
+    """
+    from engine.display_services import CharacterDisplaySnapshotService
+    return CharacterDisplaySnapshotService().build_snapshot(character)
 
 @dataclass
 class DisplayDocument:
@@ -224,15 +204,37 @@ def _render_entry_plain(entry: DisplayEntry) -> str:
 def _visible_width(text: Any) -> int:
     return len(strip_mud_color_markup(re.sub(r"\{/?[a-z_]+\}", "", html.unescape(str(text or "")))))
 
-def _slice_visible(text: str, width: int) -> str:
-    out=[]; visible=0; i=0; text=str(text or "")
-    while i < len(text) and visible < width:
+def _tokenize_markup(text: str) -> list[tuple[str, str]]:
+    """Return (kind, token) pairs without splitting markup/control tokens."""
+    out=[]; i=0; text=str(text or "")
+    while i < len(text):
         if text[i] == "{" and (m:=re.match(r"\{/?[a-z_]+\}", text[i:])):
-            out.append(m.group(0)); i += len(m.group(0)); continue
+            out.append(("markup", m.group(0))); i += len(m.group(0)); continue
         if text[i] == "&" and i+1 < len(text) and re.match(r"[A-Za-z0-9]", text[i+1]):
-            out.append(text[i:i+2]); i += 2; continue
-        out.append(text[i]); visible += 1; i += 1
+            out.append(("markup", text[i:i+2])); i += 2; continue
+        if text[i] == "&" and (m:=re.match(r"&(?:[A-Za-z]+|#[0-9]+|#x[0-9A-Fa-f]+);", text[i:])):
+            out.append(("char", html.unescape(m.group(0)))); i += len(m.group(0)); continue
+        out.append(("char", text[i])); i += 1
+    return out
+
+def _slice_visible(text: str, width: int) -> str:
+    out=[]; visible=0
+    for kind, token in _tokenize_markup(str(text or "")):
+        if kind == "markup": out.append(token); continue
+        if visible >= width: break
+        out.append(token); visible += 1
     return "".join(out)
+
+def _split_visible_once(text: str, width: int) -> tuple[str, str]:
+    left=[]; right=[]; visible=0; into_right=False
+    for kind, token in _tokenize_markup(str(text or "")):
+        if kind == "markup":
+            (right if into_right else left).append(token); continue
+        if visible < width and not into_right:
+            left.append(token); visible += 1
+        else:
+            into_right=True; right.append(token)
+    return "".join(left), "".join(right)
 
 def _pad_visible(text: str, width: int, align: str = "left") -> str:
     text = _slice_visible(str(text), max(0,width))
@@ -245,18 +247,21 @@ def _pad_visible(text: str, width: int, align: str = "left") -> str:
 def _wrap_visible(text: str, width: int) -> list[str]:
     text=str(text or "")
     if width <= 0: return [""]
-    words=text.split(" ")
+    if not text: return [_pad_visible("", width)]
     lines=[]; cur=""
-    for word in words:
+    for word in text.split(" "):
         candidate = word if not cur else cur + " " + word
         if _visible_width(candidate) <= width:
             cur = candidate; continue
-        if cur: lines.append(_pad_visible(cur, width)); cur=""
+        if cur:
+            lines.append(_pad_visible(cur, width)); cur=""
         while _visible_width(word) > width:
-            lines.append(_pad_visible(_slice_visible(word, width), width)); word = word[len(strip_mud_color_markup(_slice_visible(word, width))):]
+            piece, word = _split_visible_once(word, width)
+            lines.append(_pad_visible(piece, width))
         cur = word
     if cur or not lines: lines.append(_pad_visible(cur, width))
     return lines
+
 
 def _frame_chars(frame: DisplayFrame, kind: str) -> tuple[str,str,str]:
     chars=getattr(frame, "border_characters", None) or {}
@@ -294,19 +299,46 @@ def build_character_frame_document(intent: DisplayIntent | str, title: str, rows
             for wrapped in _wrap_visible(_line_text(row), width-2): lines.append(_frame_segments(frame, segments=[DisplaySegment(wrapped, _line_role(row,"character_value"), _line_trusted(row))]));
             continue
         if isinstance(row, DisplayRow):
-            raw=[]
-            for idx,cell in enumerate(row.cells):
-                if idx: raw.append(DisplaySegment("   ", row.role))
-                cwidth = cell.width or max(cell.min_width, (width-2)//max(1,len(row.cells))-3)
-                segs=_cell_segments(cell)
-                # keep individual segment roles, place padding on last segment role
-                used=0
-                for seg in segs:
-                    raw.append(seg); used += _visible_width(seg.text)
-                if cwidth > used: raw.append(DisplaySegment(" "*(cwidth-used), segs[-1].role if segs else cell.role))
-            visible=sum(_visible_width(seg.text) for seg in raw)
-            if visible < width-2: raw.append(DisplaySegment(" "*((width-2)-visible), row.role))
-            lines.append(_frame_segments(frame, segments=raw))
+            gap = 3
+            inner = width - 2
+            fixed_total = gap * max(0, len(row.cells)-1)
+            auto = max(1, len([c for c in row.cells if not c.width]))
+            specified = sum(int(c.width or 0) for c in row.cells)
+            remaining = max(0, inner - fixed_total - specified)
+            widths = [max(c.min_width, int(c.width or remaining // auto or c.min_width)) for c in row.cells]
+            overflow = max(0, sum(widths) + fixed_total - inner)
+            if overflow:
+                order = sorted(range(len(row.cells)), key=lambda i: row.cells[i].shrink_priority, reverse=True)
+                for i in order:
+                    take = min(overflow, max(0, widths[i] - row.cells[i].min_width))
+                    widths[i] -= take; overflow -= take
+                    if overflow <= 0: break
+            wrapped_cells=[]
+            for cell, cwidth in zip(row.cells, widths):
+                text = "".join(seg.text for seg in _cell_segments(cell))
+                base_role = (_cell_segments(cell)[0].role if _cell_segments(cell) else cell.role)
+                physical = _wrap_visible(text, cwidth) if cell.wrap else [_pad_visible(text, cwidth, cell.align)]
+                wrapped_cells.append((cell, cwidth, base_role, [_pad_visible(x.rstrip(), cwidth, cell.align) for x in physical]))
+            height = max((len(x[3]) for x in wrapped_cells), default=1)
+            for line_idx in range(height):
+                raw=[]
+                for idx,(cell,cwidth,base_role,physical) in enumerate(wrapped_cells):
+                    if idx: raw.append(DisplaySegment(" "*gap, row.role))
+                    segs=_cell_segments(cell)
+                    if line_idx == 0 and len(physical) == 1 and sum(_visible_width(seg.text) for seg in segs) <= cwidth:
+                        used=0
+                        if cell.align == "right":
+                            pad=max(0,cwidth-sum(_visible_width(seg.text) for seg in segs)); raw.append(DisplaySegment(" "*pad, row.role)); used += pad
+                        elif cell.align == "center":
+                            pad=max(0,cwidth-sum(_visible_width(seg.text) for seg in segs)); left=pad//2; raw.append(DisplaySegment(" "*left, row.role)); used += left
+                        for seg in segs:
+                            raw.append(seg); used += _visible_width(seg.text)
+                        if used < cwidth: raw.append(DisplaySegment(" "*(cwidth-used), row.role))
+                    else:
+                        raw.append(DisplaySegment(physical[line_idx] if line_idx < len(physical) else " "*cwidth, base_role, cell.trusted_markup))
+                visible=sum(_visible_width(seg.text) for seg in raw)
+                if visible < inner: raw.append(DisplaySegment(" "*(inner-visible), row.role))
+                lines.append(_frame_segments(frame, segments=raw))
             continue
         for wrapped in _wrap_visible(str(row), width-2): lines.append(_frame_segments(frame, segments=[DisplaySegment(wrapped,"character_value")]))
     lines.append(_frame_segments(frame, kind="bottom")); doc.lines=lines; return doc
@@ -584,6 +616,9 @@ def build_prompt_document(character: Any) -> DisplayDocument:
         "%t": (str(getattr(character,"combat_target","none") or "none"), "prompt_target"), "%c": (str(getattr(character,"target_condition","unknown") or "unknown"), "prompt_target"),
         "%r": (str(getattr(character,"room_name", getattr(character,"room_id", "unknown")) or "unknown"), "prompt_area"), "%z": (str(getattr(character,"area_name", getattr(character,"zone_name", "")) or ""), "prompt_area"),
         "%q": (str(getattr(character,"quest_timer", "--") or "--"), "prompt_time"), "%T": (str(getattr(character,"world_time", "--") or "--"), "prompt_time"),
+        "%n": (str(getattr(character,"name", "Adventurer") or "Adventurer"), "prompt"), "%A": (str(getattr(character,"age", "--") or "--"), "prompt_time"),
+        "%P": (str(getattr(character,"played_time", getattr(character,"play_time", "--")) or "--"), "prompt_time"), "%e": (str(getattr(character,"encumbrance_text", getattr(character,"encumbrance", "normal")) or "normal"), "prompt"),
+        "%w": (str(getattr(character,"current_weapon", getattr(character,"weapon_damage_summary", "unarmed")) or "unarmed"), "prompt"), "%b": (str(getattr(character,"combat_state", "peaceful") or "peaceful"), "prompt"),
     }
     template=_prompt_template(character)
     segments=[]; i=0

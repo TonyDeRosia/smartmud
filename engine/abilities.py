@@ -169,8 +169,34 @@ class AbilityExecutionService:
         if source_instance_id is not None: wh+=" AND source_instance_id=?"; p.append(source_instance_id)
         with sqlite3.connect(self.db_path) as c: cur=c.execute(f"DELETE FROM actor_ability_grants WHERE {wh}", p); n=cur.rowcount
         self._pub("ability_revoked", {"actor_id":actor_id,"ability_id":ability_id,"count":n}); return n
-    def can_use_ability(self, actor_id: str, ability_id: str, target: Any=None) -> dict[str, Any]: return self.trace_ability(actor_id, ability_id, target)
-    def trace_ability(self, actor_id: str, ability_id: str, target: Any=None) -> dict[str, Any]:
+    def can_use_ability(self, actor_id: str, ability_id: str, target: Any=None) -> dict[str, Any]: return self.validate_ability_use(actor_id, ability_id, target)
+    def validate_ability_use(self, actor_id: str, ability_id: str, target: Any=None, context: Any=None, preview: bool=True) -> dict[str, Any]:
+        """Non-mutating canonical legality validator shared by display and execution."""
+        tr = self.trace_ability(actor_id, ability_id, target, _from_validator=True)
+        ab = self.registry.abilities.get(ability_id)
+        if ab and ab.ability_type == "passive":
+            tr.update(ok=True, availability="PASSIVE", reason_code="passive", message="Passive")
+            return tr
+        reason = "READY" if tr.get("ok") else "UNKNOWN"; message = "Ready" if tr.get("ok") else "Unavailable"
+        for step in tr.get("trace", []):
+            name=str(step.get("step") or "")
+            if step.get("ready") is False:
+                reason="BLOCKED_COOLDOWN"; message=step.get("remaining_text") or "On cooldown"; break
+            if step.get("ok") is False:
+                if name == "validate_resources": reason="BLOCKED_RESOURCE"; message="Insufficient resources"
+                elif name == "resolve_target" and target is None: reason="READY_NEEDS_TARGET"; message="Ready — requires a visible target"
+                elif name == "resolve_target": reason="BLOCKED_PREREQUISITE"; message="Invalid target"
+                elif name == "confirm_grant": reason="BLOCKED_PREREQUISITE"; message="Not learned"
+                else: reason="UNKNOWN"; message="Unavailable"
+                break
+        cd=tr.get("cooldowns") or {}
+        if cd.get("remaining") is not None:
+            from engine.display_services import _natural_seconds
+            tr["cooldown_remaining_text"] = _natural_seconds(cd.get("remaining"))
+            if reason == "BLOCKED_COOLDOWN": message = tr["cooldown_remaining_text"]
+        tr.update(availability=reason, reason_code=reason.lower(), message=message)
+        return tr
+    def trace_ability(self, actor_id: str, ability_id: str, target: Any=None, _from_validator: bool=False) -> dict[str, Any]:
         steps=[]; ok=True
         a=self.actors.get(actor_id); ab=self.registry.abilities.get(ability_id)
         if not a: return {"ok":False,"errors":["actor not found"],"trace":[{"step":"resolve_actor","ok":False}]}
