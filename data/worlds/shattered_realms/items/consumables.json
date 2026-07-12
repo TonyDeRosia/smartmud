@@ -35,7 +35,7 @@
     "description": "ration for beginner Smart MUD play.",
     "effects": {},
     "id": "ration",
-    "name": "ration",
+    "name": "Ration",
     "rarity": "common",
     "requirements": {},
     "slot": "none",
@@ -45,7 +45,14 @@
     ],
     "type": "consumable",
     "value": 5,
-    "weight": 1
+    "weight": 1,
+    "keywords": [
+      "ration",
+      "food"
+    ],
+    "short_description": "a wrapped ration",
+    "look_description": "A wrapped trail ration suitable for a quick meal.",
+    "examine_description": "Hard bread, dried fruit, and a strip of smoked meat are bundled in waxed cloth."
   },
   {
     "description": "clean water flask for beginner Smart MUD play.",
@@ -61,7 +68,7 @@
       "water"
     ],
     "long_description": "A small flask filled with clean water.",
-    "name": "clean water flask",
+    "name": "Clean Water Flask",
     "plugin_data": {
       "consumable_profile_id": "clean_water_drink"
     },
@@ -74,13 +81,17 @@
     ],
     "type": "consumable",
     "value": 5,
-    "weight": 1
+    "weight": 1,
+    "short_description": "a stoppered leather flask",
+    "look_description": "A stoppered leather flask filled with clean water.",
+    "examine_description": "The flask is made from treated hide and sealed with a wooden stopper. It feels mostly full.",
+    "identify_description": "A simple consumable water flask."
   },
   {
     "description": "torch for beginner Smart MUD play.",
     "effects": {},
     "id": "torch",
-    "name": "torch",
+    "name": "Torch",
     "rarity": "common",
     "requirements": {},
     "slot": "none",
@@ -90,6 +101,13 @@
     ],
     "type": "consumable",
     "value": 5,
-    "weight": 1
+    "weight": 1,
+    "keywords": [
+      "torch",
+      "light"
+    ],
+    "short_description": "a pitch-coated torch",
+    "look_description": "A pitch-coated torch ready to be lit.",
+    "examine_description": "The wrapped head smells of resin and should burn for a useful stretch of travel."
   }
 ]
