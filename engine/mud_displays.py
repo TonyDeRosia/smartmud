@@ -146,15 +146,33 @@ def render_display_mud(doc: DisplayDocument) -> str:
     text = re.sub(r"\n{3,}", "\n\n", "\n\n".join(p for p in parts if p.strip())).strip()
     return text or _mud(doc.semantic_role, "Nothing to show.")
 
+def _render_role_html(role: str, text: Any, *, trusted_markup: bool = False) -> str:
+    role = _role(role)
+    inner = render_mud_color_html(str(text)) if trusted_markup else html.escape(str(text))
+    return f'<span role="{html.escape(role)}">{inner}</span>'
+
 def render_display_html(doc: DisplayDocument) -> str:
-    # Render semantic structure segment-by-segment so untrusted player text is escaped
-    # while Builder-authored MUD color markup can be enabled explicitly per line.
-    mud = render_display_mud(doc)
-    html_text = semantic_html(mud)
-    if doc.renderer_hints.get("trusted_builder_markup"):
-        # Compatibility: legacy room descriptions arrive as already-safe MUD markup.
-        pass
-    return html_text
+    # Render each field independently. Trusted Builder markup is parsed only for
+    # the specific authored line, avoiding global post-render string replacement
+    # that can corrupt spans when the same text appears in multiple places.
+    parts: list[str] = []
+    if doc.title:
+        parts.append(_render_role_html(getattr(doc, 'title_role', '') or doc.semantic_role, str(doc.title).strip()))
+    if doc.subtitle:
+        parts.append(_render_role_html(getattr(doc, 'subtitle_role', '') or doc.semantic_role, str(doc.subtitle).strip()))
+    paras=[_render_role_html(_line_role(p, doc.semantic_role), _line_text(p).strip(), trusted_markup=_line_trusted(p)) for p in doc.paragraphs if _line_text(p).strip()]
+    if paras: parts.append("<br>".join(paras))
+    line_block=[_render_role_html(_line_role(x, doc.semantic_role), _line_text(x).rstrip(), trusted_markup=_line_trusted(x)) for x in doc.lines if _line_text(x).strip()]
+    if line_block: parts.append("<br>".join(line_block))
+    for section in doc.sections:
+        lines=[]
+        if section.title: lines.append(_render_role_html(section.title_role or section.role, str(section.title).strip()))
+        lines.extend(_render_role_html(_line_role(x, section.role), _line_text(x).rstrip(), trusted_markup=_line_trusted(x)) for x in section.lines if _line_text(x).strip())
+        lines.extend(_render_role_html(e.role or section.role, _render_entry_plain(e)) for e in section.entries if str(e.text).strip())
+        lines.extend(semantic_html(_render_field_mud(f, section)) for f in section.fields)
+        if lines: parts.append("<br>".join(lines))
+    if doc.footer: parts.append(_render_role_html(doc.semantic_role, str(doc.footer).strip()))
+    return re.sub(r"(?:\n\n){2,}", "\n\n", "\n\n".join(p for p in parts if p.strip())).strip() or _render_role_html(doc.semantic_role, "Nothing to show.")
 
 def group_display_entries(items: list[dict[str, Any]], *, key_fields: tuple[str, ...] = ("name", "equipped_slot", "condition", "status")) -> list[DisplayEntry]:
     grouped: OrderedDict[tuple[Any, ...], DisplayEntry] = OrderedDict()
@@ -328,16 +346,7 @@ def build_room_document(room: Any, viewer: Any = None) -> DisplayDocument:
 
 def render_room(room: Any, colors: dict[str, str] | None = None, character: Any = None) -> str:
     """Compatibility wrapper around the canonical room DisplayDocument."""
-    doc = build_room_document(room, character)
-    html_text = render_display_html(doc)
-    # Preserve Builder-authored MUD color markup in room titles/descriptions while
-    # keeping ordinary actor/object categories white by default.
-    title = _display_name(getattr(room, "title", "Unknown Room"))
-    for line in [title, *[p.text for p in _room_description_paragraphs(room, title)]]:
-        escaped = html.escape(str(line))
-        if escaped in html_text:
-            html_text = html_text.replace(escaped, render_mud_color_html(str(line)))
-    return html_text
+    return render_display_html(build_room_document(room, character))
 
 
 def render_object(obj: Any) -> str:
