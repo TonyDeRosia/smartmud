@@ -20,18 +20,31 @@ from engine.formulas import FormulaEngine
 from engine.conditions import condition_label, condition_key, transition_text
 
 
+def _ensure_column(con: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    cols = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
 def init_combat_runtime_schema(db_path: str | Path) -> None:
     with sqlite3.connect(db_path) as con:
         con.execute("""CREATE TABLE IF NOT EXISTS combat_encounters(encounter_id TEXT PRIMARY KEY,world_id TEXT,room_id TEXT,status TEXT,started_world_time INTEGER,current_round INTEGER,next_round_world_time INTEGER,created_at TEXT,updated_at TEXT,ended_at TEXT,end_reason TEXT,metadata_json TEXT)""")
         con.execute("""CREATE TABLE IF NOT EXISTS combat_participants(encounter_id TEXT,actor_id TEXT,actor_type TEXT,entity_instance_id TEXT,character_id TEXT,side_id TEXT,current_target_actor_id TEXT,participation_status TEXT,initiative_value INTEGER,joined_round INTEGER,last_action_round INTEGER,next_action_world_time INTEGER,contribution_damage INTEGER DEFAULT 0,contribution_healing INTEGER DEFAULT 0,contribution_support INTEGER DEFAULT 0,fled INTEGER DEFAULT 0,defeated INTEGER DEFAULT 0,metadata_json TEXT,PRIMARY KEY(encounter_id,actor_id))""")
+        _ensure_column(con, 'combat_participants', 'lifecycle_id', 'TEXT')
         con.execute("""CREATE TABLE IF NOT EXISTS combat_action_queue(action_id TEXT PRIMARY KEY,encounter_id TEXT,actor_id TEXT,action_type TEXT,ability_id TEXT,target_actor_id TEXT,queued_round INTEGER,execute_world_time INTEGER,status TEXT,source TEXT,metadata_json TEXT,created_at TEXT,resolved_at TEXT)""")
+        _ensure_column(con, 'combat_action_queue', 'claim_token', 'TEXT')
+        _ensure_column(con, 'combat_action_queue', 'claimed_at', 'TEXT')
         con.execute("""CREATE TABLE IF NOT EXISTS combat_round_history(history_id TEXT PRIMARY KEY,encounter_id TEXT,round_number INTEGER,actor_id TEXT,target_actor_id TEXT,action_type TEXT,ability_id TEXT,outcome TEXT,damage INTEGER,healing INTEGER,result_json TEXT,world_time INTEGER,created_at TEXT)""")
         con.execute("""CREATE TABLE IF NOT EXISTS combat_outbound_messages(message_id INTEGER PRIMARY KEY AUTOINCREMENT,world_id TEXT,room_id TEXT,character_id TEXT,encounter_id TEXT,category TEXT,message TEXT,created_world_time INTEGER,created_at TEXT,delivered INTEGER DEFAULT 0)""")
+        _ensure_column(con, 'combat_outbound_messages', 'claim_token', 'TEXT')
+        _ensure_column(con, 'combat_outbound_messages', 'claimed_at', 'TEXT')
         con.execute("CREATE INDEX IF NOT EXISTS idx_combat_outbound_character ON combat_outbound_messages(character_id,delivered,message_id)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_combat_encounters_active ON combat_encounters(world_id,room_id,status)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_combat_participants_actor ON combat_participants(actor_id,participation_status)")
         con.execute("""CREATE TABLE IF NOT EXISTS combat_death_transactions(death_id TEXT PRIMARY KEY,encounter_id TEXT,actor_id TEXT,killer_actor_id TEXT,corpse_entity_id TEXT,world_id TEXT,room_id TEXT,created_world_time INTEGER,created_at TEXT,metadata_json TEXT)""")
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_combat_death_actor_once ON combat_death_transactions(world_id,actor_id)")
+        _ensure_column(con, 'combat_death_transactions', 'lifecycle_id', 'TEXT')
+        con.execute("UPDATE combat_death_transactions SET lifecycle_id=COALESCE(lifecycle_id, json_extract(metadata_json, '$.lifecycle_id'), actor_id || ':legacy') WHERE lifecycle_id IS NULL OR lifecycle_id=''")
+        con.execute("DROP INDEX IF EXISTS idx_combat_death_actor_once")
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_combat_death_actor_lifecycle_once ON combat_death_transactions(world_id,actor_id,lifecycle_id)")
         con.commit()
 
 @dataclass
@@ -76,8 +89,9 @@ class CombatRuntimeService:
             if tmpl.get(k): a.combat_profile[k]=tmpl.get(k)
         if tmpl.get('natural_weapon_profile_id'): a.combat_profile['natural_weapon_profile_ids']=[tmpl.get('natural_weapon_profile_id')]
         if stats.get('attack_power'): a.combat_profile['attack_power']=stats.get('attack_power')
-        a.body_profile_id = str(tmpl.get('body_profile_id') or ('wolf' if 'wolf' in str(tmpl.get('id','')) else 'humanoid'))
+        a.body_profile_id = str(tmpl.get('body_profile_id') or tmpl.get('body_profile') or 'humanoid')
         a.lifecycle_state = 'dead' if not ent.get('is_alive', True) or hp <= 0 else 'alive'
+        a.lifecycle_profile['lifecycle_id'] = str(st.get('lifecycle_id') or ent.get('entity_id') or a.actor_id)
         a.derived_statistics_cache = default_derived_statistics(); return a
 
     def persist_actor(self, actor: Actor) -> None:
@@ -129,12 +143,15 @@ class CombatRuntimeService:
             con.execute("INSERT INTO combat_outbound_messages(world_id,room_id,character_id,encounter_id,category,message,created_world_time,created_at,delivered) VALUES(?,?,?,?,?,?,?,?,0)", (self.runtime.active_world_id or "", room_id, character_id, encounter_id, category, str(message).strip(), self.world_time(), datetime.now(timezone.utc).isoformat()))
 
     def drain_output(self, character_id: str, limit: int = 50) -> list[str]:
-        with sqlite3.connect(self.db_path) as con:
-            rows=con.execute("SELECT message_id,message FROM combat_outbound_messages WHERE character_id=? AND delivered=0 ORDER BY message_id LIMIT ?", (character_id, int(limit))).fetchall()
-            ids=[r[0] for r in rows]
+        token='claim_'+uuid.uuid4().hex; now=datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path, timeout=30) as con:
+            con.execute('BEGIN IMMEDIATE')
+            ids=[r[0] for r in con.execute("SELECT message_id FROM combat_outbound_messages WHERE character_id=? AND delivered=0 AND (claim_token IS NULL OR claim_token='') ORDER BY message_id LIMIT ?", (character_id, int(limit))).fetchall()]
             if ids:
-                con.executemany("UPDATE combat_outbound_messages SET delivered=1 WHERE message_id=?", [(i,) for i in ids])
-        return [r[1] for r in rows]
+                con.executemany("UPDATE combat_outbound_messages SET claim_token=?,claimed_at=?,delivered=1 WHERE message_id=? AND character_id=? AND delivered=0", [(token,now,i,character_id) for i in ids])
+            rows=con.execute("SELECT message FROM combat_outbound_messages WHERE character_id=? AND claim_token=? ORDER BY message_id", (character_id, token)).fetchall()
+            con.commit()
+        return [r[0] for r in rows]
 
     def _deliver_combat_messages(self, eid: str, attacker: Actor, defender: Actor, result: Any, category: str = "attack_hit", skip_attacker: bool = False) -> None:
         room_id = attacker.identity.current_location
@@ -154,21 +171,24 @@ class CombatRuntimeService:
 
     def queue_action(self, eid: str, actor_id: str, action_type: str, target_actor_id: str = "", ability_id: str = "", source: str = "player", metadata: dict[str, Any] | None = None) -> None:
         wt=self.world_time(); aid='act_'+uuid.uuid4().hex
-        with sqlite3.connect(self.db_path) as con:
+        with sqlite3.connect(self.db_path, timeout=30) as con:
+            con.execute("BEGIN IMMEDIATE")
             old=con.execute("SELECT action_id FROM combat_action_queue WHERE encounter_id=? AND actor_id=? AND status='queued'", (eid,actor_id)).fetchone()
             if old:
                 con.execute("UPDATE combat_action_queue SET status='replaced',resolved_at=? WHERE action_id=?", (datetime.now(timezone.utc).isoformat(), old[0]))
                 self._publish('combat_action_replaced', {'encounter_id':eid,'actor_id':actor_id,'old_action_id':old[0],'world_time':wt})
-            con.execute("INSERT INTO combat_action_queue VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (aid,eid,actor_id,action_type,ability_id,target_actor_id,self._round(eid),wt,'queued',source,json.dumps(metadata or {}),datetime.now(timezone.utc).isoformat(),None))
+            con.execute("INSERT INTO combat_action_queue(action_id,encounter_id,actor_id,action_type,ability_id,target_actor_id,queued_round,execute_world_time,status,source,metadata_json,created_at,resolved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (aid,eid,actor_id,action_type,ability_id,target_actor_id,self._round(eid),wt,'queued',source,json.dumps(metadata or {}),datetime.now(timezone.utc).isoformat(),None))
         self._publish('combat_action_queued', {'encounter_id':eid,'actor_id':actor_id,'action_type':action_type,'ability_id':ability_id,'target_actor_id':target_actor_id,'world_time':wt})
 
     def _consume_action(self, eid: str, actor_id: str) -> dict[str, Any] | None:
-        with sqlite3.connect(self.db_path) as con:
-            con.row_factory=sqlite3.Row
+        token='actclaim_'+uuid.uuid4().hex; now=datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path, timeout=30) as con:
+            con.row_factory=sqlite3.Row; con.execute('BEGIN IMMEDIATE')
             row=con.execute("SELECT * FROM combat_action_queue WHERE encounter_id=? AND actor_id=? AND status='queued' ORDER BY created_at LIMIT 1", (eid,actor_id)).fetchone()
-            if not row: return None
-            con.execute("UPDATE combat_action_queue SET status='consumed',resolved_at=? WHERE action_id=? AND status='queued'", (datetime.now(timezone.utc).isoformat(), row['action_id']))
-            return dict(row)
+            if not row: con.commit(); return None
+            changed=con.execute("UPDATE combat_action_queue SET status='consumed',claim_token=?,claimed_at=?,resolved_at=? WHERE action_id=? AND status='queued'", (token,now,now,row['action_id'])).rowcount
+            con.commit()
+            return dict(row) if changed == 1 else None
 
     def is_actor_in_active_combat(self, actor_id: str) -> bool:
         return bool(self.find_actor_encounter(actor_id))
@@ -204,7 +224,7 @@ class CombatRuntimeService:
 
     def join_encounter(self,eid:str,actor:Actor,side:str)->None:
         kind, raw = actor.actor_id.split(':',1); wt=self.world_time(); init=int(actor.attributes.get('dexterity') or 10)
-        with sqlite3.connect(self.db_path) as con: con.execute("INSERT OR IGNORE INTO combat_participants(encounter_id,actor_id,actor_type,entity_instance_id,character_id,side_id,current_target_actor_id,participation_status,initiative_value,joined_round,last_action_round,next_action_world_time,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(eid,actor.actor_id,actor.actor_type,raw if kind=='entity' else '',raw if kind=='character' else '',side,'','active',init,0,-1,wt,'{}'))
+        with sqlite3.connect(self.db_path) as con: con.execute("INSERT OR IGNORE INTO combat_participants(encounter_id,actor_id,actor_type,entity_instance_id,character_id,side_id,current_target_actor_id,participation_status,initiative_value,joined_round,last_action_round,next_action_world_time,metadata_json,lifecycle_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(eid,actor.actor_id,actor.actor_type,raw if kind=='entity' else '',raw if kind=='character' else '',side,'','active',init,0,-1,wt,'{}',str(actor.lifecycle_profile.get('lifecycle_id') or raw or actor.actor_id)))
         actor.combat_profile['combat_state']='in_combat'; self.persist_actor(actor); self._publish('combat_participant_joined',{'encounter_id':eid,'actor_id':actor.actor_id,'world_id':self.runtime.active_world_id or '', 'side_id':side,'world_time':wt})
 
     def set_target(self,eid:str,actor_id:str,target_id:str)->None:
@@ -305,19 +325,20 @@ class CombatRuntimeService:
         if not defender.actor_id.startswith('entity:'):
             self._defeat(eid, defender.actor_id); self.end_if_finished(eid); return {'messages':['You collapse and die.']}
         entity_id = defender.actor_id.split(':',1)[1]; ent = self.runtime.find_entity(entity_id) or {}; room_id = defender.identity.current_location
-        death_id = 'death_' + uuid.uuid5(uuid.NAMESPACE_URL, f"{self.runtime.active_world_id}:{entity_id}").hex
+        lifecycle_id = str((ent.get('state') or {}).get('lifecycle_id') or entity_id)
+        death_id = 'death_' + uuid.uuid5(uuid.NAMESPACE_URL, f"{self.runtime.active_world_id}:{defender.actor_id}:{lifecycle_id}").hex
         with sqlite3.connect(self.db_path) as con:
-            inserted = con.execute("INSERT OR IGNORE INTO combat_death_transactions(death_id,encounter_id,actor_id,killer_actor_id,world_id,room_id,created_world_time,created_at,metadata_json) VALUES(?,?,?,?,?,?,?,?,?)", (death_id,eid,defender.actor_id,attacker.actor_id,self.runtime.active_world_id or '',room_id,self.world_time(),datetime.now(timezone.utc).isoformat(),json.dumps({'source_entity_id':entity_id}))).rowcount
+            inserted = con.execute("INSERT OR IGNORE INTO combat_death_transactions(death_id,encounter_id,actor_id,killer_actor_id,world_id,room_id,created_world_time,created_at,metadata_json,lifecycle_id) VALUES(?,?,?,?,?,?,?,?,?,?)", (death_id,eid,defender.actor_id,attacker.actor_id,self.runtime.active_world_id or '',room_id,self.world_time(),datetime.now(timezone.utc).isoformat(),json.dumps({'source_entity_id':entity_id,'lifecycle_id':lifecycle_id}),lifecycle_id)).rowcount
         if not inserted:
             self._defeat(eid, defender.actor_id); self.end_if_finished(eid); return {'messages': []}
-        self._publish('actor_death_started', {'death_id':death_id,'actor_id':defender.actor_id,'killer_actor_id':attacker.actor_id,'world_id':self.runtime.active_world_id or '', 'room_id':room_id,'world_time':self.world_time()})
+        self._publish('actor_death_started', {'death_id':death_id,'actor_id':defender.actor_id,'killer_actor_id':attacker.actor_id,'world_id':self.runtime.active_world_id or '', 'room_id':room_id,'world_time':self.world_time(),'lifecycle_id':lifecycle_id})
         defender.lifecycle_state='dead'; defender.resources.health=0; self.persist_actor(defender)
         self._defeat(eid, defender.actor_id)
         corpse = self.runtime.create_corpse(entity_id, source_system='combat_runtime', death_id=death_id, killer_actor_id=attacker.actor_id)
         with sqlite3.connect(self.db_path) as con:
             con.execute("UPDATE combat_death_transactions SET corpse_entity_id=? WHERE death_id=?", (corpse.get('entity_id',''), death_id))
-        self._publish('actor_died', {'death_id':death_id,'actor_id':defender.actor_id,'killer_actor_id':attacker.actor_id,'world_id':self.runtime.active_world_id or '', 'room_id':room_id,'world_time':self.world_time()})
-        self._publish('living_entity_retired', {'death_id':death_id,'entity_id':entity_id,'room_id':room_id,'world_time':self.world_time()})
+        self._publish('actor_died', {'death_id':death_id,'actor_id':defender.actor_id,'killer_actor_id':attacker.actor_id,'world_id':self.runtime.active_world_id or '', 'room_id':room_id,'world_time':self.world_time(),'lifecycle_id':lifecycle_id})
+        self._publish('living_entity_retired', {'death_id':death_id,'entity_id':entity_id,'room_id':room_id,'world_time':self.world_time(),'lifecycle_id':lifecycle_id})
         self.end_if_finished(eid)
         msg = f"{defender.identity.name} collapses and dies."
         self._broadcast_room(eid, room_id, msg, category='actor_died')
