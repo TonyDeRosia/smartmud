@@ -3,6 +3,133 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+
+from dataclasses import dataclass, field
+from enum import Enum
+
+class DisplayIntent(str, Enum):
+    ROOM = "ROOM"; TARGET_LOOK = "TARGET_LOOK"; TARGET_EXAMINE = "TARGET_EXAMINE"; IDENTIFY = "IDENTIFY"; READ = "READ"; LOOK_INSIDE = "LOOK_INSIDE"; LOOK_DIRECTION = "LOOK_DIRECTION"; EXITS = "EXITS"
+    INVENTORY = "INVENTORY"; EQUIPMENT = "EQUIPMENT"; SCORE = "SCORE"; ATTRIBUTES = "ATTRIBUTES"; AFFECTS = "AFFECTS"; SKILLS = "SKILLS"; SPELLS = "SPELLS"; COOLDOWNS = "COOLDOWNS"; PROMPT = "PROMPT"; COMBAT_STATUS = "COMBAT_STATUS"; QUEST_STATUS = "QUEST_STATUS"
+    ITEM_ACTION = "ITEM_ACTION"; MOVEMENT = "MOVEMENT"; POSTURE = "POSTURE"; COMMUNICATION = "COMMUNICATION"; SOCIAL = "SOCIAL"; SHOP = "SHOP"; BOARD = "BOARD"; QUEST = "QUEST"; TRAINER = "TRAINER"; CRAFTING = "CRAFTING"; GATHERING = "GATHERING"
+    COMBAT = "COMBAT"; DEATH = "DEATH"; REWARD = "REWARD"; RESPAWN = "RESPAWN"; AMBIENT = "AMBIENT"
+    HELP = "HELP"; WHO = "WHO"; WHERE = "WHERE"; SYSTEM = "SYSTEM"; SUCCESS = "SUCCESS"; WARNING = "WARNING"; ERROR = "ERROR"; ADMIN = "ADMIN"; BUILDER = "BUILDER"
+
+@dataclass
+class DisplayEntry:
+    text: str
+    role: str = "system"
+    quantity: int = 1
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class DisplaySection:
+    title: str = ""
+    lines: list[str] = field(default_factory=list)
+    entries: list[DisplayEntry] = field(default_factory=list)
+    fields: list[tuple[str, Any]] = field(default_factory=list)
+    role: str = "system"
+
+@dataclass
+class DisplayDocument:
+    intent: DisplayIntent | str
+    title: str = ""
+    semantic_role: str = "system"
+    subtitle: str = ""
+    paragraphs: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
+    sections: list[DisplaySection] = field(default_factory=list)
+    footer: str = ""
+    spacing: str = "major"
+    renderer_hints: dict[str, Any] = field(default_factory=dict)
+    debug_metadata: dict[str, Any] = field(default_factory=dict)
+
+def normalize_sentence(text: Any) -> str:
+    raw = re.sub(r"\s+", " ", str(text or "").strip())
+    if not raw:
+        return ""
+    raw = re.sub(r"([.!?]){2,}$", r"\1", raw)
+    if raw[-1] not in ".!?]>)\"\'":
+        raw += "."
+    return raw
+
+def _render_entry_plain(entry: DisplayEntry) -> str:
+    qty = f"{entry.quantity}x " if entry.quantity and entry.quantity > 1 else ""
+    return qty + str(entry.text)
+
+def render_display_plain(doc: DisplayDocument) -> str:
+    blocks: list[str] = []
+    if doc.title:
+        blocks.append(str(doc.title).strip())
+    if doc.subtitle:
+        blocks.append(str(doc.subtitle).strip())
+    para = [p.strip() for p in doc.paragraphs if str(p).strip()]
+    if para:
+        blocks.append("\n".join(para))
+    if doc.lines:
+        blocks.append("\n".join(str(x).rstrip() for x in doc.lines if str(x).strip()))
+    for section in doc.sections:
+        lines: list[str] = []
+        if section.title:
+            lines.append(str(section.title).strip())
+        lines.extend(str(x).rstrip() for x in section.lines if str(x).strip())
+        lines.extend(_render_entry_plain(e) for e in section.entries if str(e.text).strip())
+        lines.extend(f"{k}: {v}" for k, v in section.fields)
+        if lines:
+            blocks.append("\n".join(lines))
+    if doc.footer:
+        blocks.append(str(doc.footer).strip())
+    return re.sub(r"\n{3,}", "\n\n", "\n\n".join(b for b in blocks if b.strip())).strip()
+
+def render_display_mud(doc: DisplayDocument) -> str:
+    role = doc.semantic_role if doc.semantic_role in SEMANTIC_COLOR_ROLES else "system"
+    text = render_display_plain(doc)
+    if not text:
+        text = "Nothing to show."
+    # Keep headings/section text structurally plain; semantic tags carry color intent.
+    return semantic(role, text)
+
+def render_display_html(doc: DisplayDocument) -> str:
+    return semantic_html(render_display_mud(doc))
+
+def group_display_entries(items: list[dict[str, Any]], *, key_fields: tuple[str, ...] = ("name", "equipped_slot", "condition", "status")) -> list[DisplayEntry]:
+    grouped: OrderedDict[tuple[Any, ...], DisplayEntry] = OrderedDict()
+    for item in items:
+        name = str(item.get("short_description") or item.get("name") or "something").strip()
+        key = tuple(item.get(k) for k in key_fields) + (name,)
+        if key not in grouped:
+            grouped[key] = DisplayEntry(name, role="object", quantity=0, metadata={"instance_ids": []})
+        grouped[key].quantity += int(item.get("stack_count") or 1)
+        if item.get("instance_id"):
+            grouped[key].metadata.setdefault("instance_ids", []).append(item.get("instance_id"))
+    return list(grouped.values())
+
+def build_inventory_document(items: list[dict[str, Any]], *, carrying: str = "") -> DisplayDocument:
+    doc = DisplayDocument(DisplayIntent.INVENTORY, title="Inventory", semantic_role="system")
+    if items:
+        doc.sections.append(DisplaySection(lines=["You are carrying:"], entries=group_display_entries(items)))
+    else:
+        doc.paragraphs.append("You are not carrying anything.")
+    if carrying:
+        doc.sections.append(DisplaySection(title="Carrying", lines=[carrying]))
+    return doc
+
+def build_equipment_document(items: list[dict[str, Any]], slots: list[str]) -> DisplayDocument:
+    by: dict[str, dict[str, Any]] = {}
+    for item in items:
+        for slot in str(item.get("equipped_slot") or "").split(","):
+            if slot == "both_hands":
+                by["main_hand"] = item; by["off_hand"] = item
+            elif slot:
+                by[slot] = item
+    fields = [(slot.replace("_", " ").capitalize(), by[slot].get("name", "something") if slot in by else "nothing") for slot in slots]
+    return DisplayDocument(DisplayIntent.EQUIPMENT, title="Equipment", semantic_role="system", paragraphs=[] if items else ["You are not wearing anything."], sections=[DisplaySection(fields=fields)])
+
+def build_prompt_document(character: Any) -> DisplayDocument:
+    parts = [f"{character.hp}/{character.max_hp} HP"]
+    if getattr(character, "max_mana", 0): parts.append(f"{character.mana}/{character.max_mana} MP")
+    if getattr(character, "max_stamina", 0): parts.append(f"{character.stamina}/{character.max_stamina} ST")
+    return DisplayDocument(DisplayIntent.PROMPT, semantic_role="prompt", lines=["[" + " ".join(parts) + "]"])
+
 import html
 import re
 
@@ -137,7 +264,7 @@ def render_room(room: Any, colors: dict[str, str] | None = None, character: Any 
 
     exits = getattr(room, "exits", []) or []
     exit_names: list[str] = []
-    order = ["north", "west", "south", "east", "up", "down", "northeast", "northwest", "southeast", "southwest", "in", "out"]
+    order = ["north", "east", "south", "west", "up", "down", "northeast", "northwest", "southeast", "southwest", "in", "out"]
     if isinstance(exits, list):
         sorted_exits = sorted(exits, key=lambda ex: order.index(str((ex.get("direction") or ex.get("dir")) if isinstance(ex, dict) else ex).lower()) if str((ex.get("direction") or ex.get("dir")) if isinstance(ex, dict) else ex).lower() in order else 999)
         for exit_def in sorted_exits:
@@ -159,27 +286,8 @@ def render_object(obj: Any) -> str:
     return f'<span role="object">{render_mud_color_html(name)}</span>\n\n<span role="room_description">{render_mud_color_html(desc)}</span>'
 
 def render_prompt(character: Any, colors: dict[str, str]) -> str:
-    """Render MUD prompt with semantic color roles."""
-    # Minimal classic MUD prompt style
-    prompt = (
-        f'<span role="prompt"><span role="prompt_marker">&gt;</span> '
-        f'<span role="player">{html.escape(character.name)}</span> '
-        f'<span role="hp">HP:</span> <span role="prompt_hp">{character.hp}/{character.max_hp}</span> '
-    )
-
-    # Add mana if > 0
-    if character.max_mana > 0:
-        prompt += (
-            f'<span role="mp">MP:</span> <span role="prompt_mana">{character.mana}/{character.max_mana}</span> '
-        )
-    if getattr(character, "max_stamina", 0) > 0:
-        prompt += (
-            f'<span role="stamina">STM:</span> <span role="prompt_stamina">{character.stamina}/{character.max_stamina}</span> '
-        )
-    prompt += '</span>'
-
-    print("[mud-render] Prompt rendered")
-    return prompt
+    """Render the canonical configurable-style prompt as safe browser HTML."""
+    return render_display_html(build_prompt_document(character))
 
 
 def render_scrollback_line(output: str, role: str = "default", colors: dict[str, str] = None) -> str:
