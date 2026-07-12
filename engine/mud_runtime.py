@@ -7,6 +7,7 @@ import sqlite3
 import re
 import uuid
 import hashlib
+import logging
 from types import MappingProxyType
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -29,6 +30,8 @@ from engine.survival_needs import SurvivalNeedsService, init_survival_schema
 from engine.schedules import ScheduleService
 from engine.combat_runtime import CombatRuntimeService, init_combat_runtime_schema
 from engine.agent_runtime import AgentRuntimeGateway, DeterministicControllerEvaluator, init_agent_runtime_schema
+
+logger = logging.getLogger(__name__)
 
 VALID_ROLES = {"player", "helper", "builder", "admin", "owner"}
 BUILDER_ROLES = {"builder", "admin", "owner"}
@@ -1169,7 +1172,7 @@ class MudRuntime:
         return {"ok": result.ok, "output": render_semantic_plain(result.narrative), "semantic_output": result.narrative, "state_updates": updates, "view": view}
 
 
-    ROOM_FEATURE_NAMES = {"gate", "door", "fountain", "altar", "statue", "portal", "stairs", "bridge", "campfire", "lever", "button", "switch", "sign", "window", "windows", "tree", "water", "chest", "lock"}
+    ROOM_FEATURE_NAMES = {"gate", "door", "fountain", "altar", "statue", "portal", "stairs", "bridge", "campfire", "lever", "button", "switch", "sign", "notice board", "board", "stall", "provisioner stall", "window", "windows", "tree", "water", "chest", "lock"}
     FILLER_BY_COMMAND = {"look": {"at"}, "examine": {"at"}, "drink": {"from"}, "get": {"from"}, "put": {"in", "into", "on"}}
 
     def _parse_interaction_command(self, command: str) -> dict[str, Any]:
@@ -1178,6 +1181,13 @@ class MudRuntime:
         if not words:
             return {"tokens": [], "raw_cmd": "", "cmd": "", "args": []}
         lower = [w.lower() for w in words]
+        # Player command parsing is longest-valid-match first.  This prevents
+        # multiword abilities such as "set camp" and "build campfire" from
+        # being reduced to builder/admin verbs or falling through to CAST.
+        ability_cmd = self._match_player_ability_command(words)
+        if ability_cmd:
+            logger.debug("mud parser raw=%r normalized=%r entry=%r args=%r", command, text.lower(), ability_cmd["cmd"], ability_cmd["args"])
+            return ability_cmd
         raw = lower[0]
         alias_note = ""
         if raw in {"in", "out"}:
@@ -1198,7 +1208,16 @@ class MudRuntime:
             args = args[1:]
         elif cmd in self.FILLER_BY_COMMAND and args and args[0].lower() in self.FILLER_BY_COMMAND[cmd]:
             args = args[1:]
-        return {"tokens": words, "raw_cmd": raw, "cmd": cmd, "args": args, "alias_note": alias_note}
+        parsed = {"tokens": words, "raw_cmd": raw, "cmd": cmd, "args": args, "alias_note": alias_note}
+        logger.debug("mud parser raw=%r normalized=%r entry=%r args=%r", command, text.lower(), cmd, args)
+        return parsed
+
+    def _match_player_ability_command(self, words: list[str]) -> dict[str, Any] | None:
+        phrase = " ".join(words).lower().strip()
+        ability_phrases = {"set camp": ["set", "camp"], "build campfire": ["build", "campfire"]}
+        if phrase in ability_phrases:
+            return {"tokens": words, "raw_cmd": phrase, "cmd": "use", "args": ability_phrases[phrase], "alias_note": "multiword ability"}
+        return None
 
     def _publish_interaction_event(self, name: str, char: MudCharacter, cmd: str, raw: str, extra: dict[str, Any] | None = None) -> None:
         payload = {"world_id": self.active_world_id or "", "character_id": char.id, "character_name": char.name, "room_id": char.room_id, "canonical_command": cmd, "raw_input": raw, **(extra or {})}
@@ -1255,13 +1274,13 @@ class MudRuntime:
             if p.get("room_id") == char.room_id and p.get("character_id") != char.id
         ]
         groups = [
-            ("equipped", self.find_equipped_items(char.id)),
-            ("inventory", self.find_inventory_items(char.id)),
-            ("room_object", [i for i in self.get_visible_room_items(char.room_id) if (i.get("template") or {}).get("portable", True)]),
             ("player", player_candidates),
             ("npc", self.find_visible_entities(char.room_id, char).get("npcs", [])),
             ("mob", self.find_visible_entities(char.room_id, char).get("mobs", [])),
             ("corpse", self.find_visible_entities(char.room_id, char).get("corpses", [])),
+            ("equipped", self.find_equipped_items(char.id)),
+            ("inventory", self.find_inventory_items(char.id)),
+            ("room_object", self.get_visible_room_items(char.room_id)),
             ("exit", [{"name": str(e.get("direction") or e.get("dir")), "keywords": [str(e.get("direction") or e.get("dir"))], "entity_type": "exit", "exit": e, "long_description": e.get("description", "")} for e in self._current_room(char).exits if isinstance(e, dict)]),
             ("world_object", self._runtime_world_objects(char.room_id)),
             ("feature", features),
@@ -1331,6 +1350,10 @@ class MudRuntime:
             "taste": "You taste nothing unusual.", "fill": "You have no liquid container ready for that.", "pour": "You have no liquid container ready for that.",
             "sit": "You sit down.", "stand": "You stand up.", "rest": "You rest for a moment.", "sleep": "You cannot sleep here.", "wake": "You are awake.",
         }
+        if resolved["status"] == "missing":
+            msg = f"You do not see {q} here." if cmd in {"look", "examine", "read"} else messages.get(cmd, f"You do not see {q} here.")
+            self._publish_interaction_event("interaction_failed", char, cmd, raw, {"reason": "missing", "target_query": q})
+            return CommandResult(semantic("warning", msg), ok=False)
         if cmd in {"look", "examine"}:
             msg = self._render_examination(target, kind, q)
             if msg:
@@ -1341,6 +1364,12 @@ class MudRuntime:
             self._publish_interaction_event("target_looked", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg[:120]})
         elif cmd == "identify":
             msg = self._render_identify(target, kind, q)
+        elif cmd == "read":
+            msg = str(target.get("readable_text") or target.get("text") or target.get("writing") or target.get("message") or (target.get("template") or {}).get("readable_text") or "")
+            if not msg:
+                msg = "There is nothing readable here. There is nothing written there."
+        elif cmd == "drink":
+            msg = self._drink_from_target(char, target, kind, q)
         else:
             msg = str(interactions.get(cmd) or ("You drink from the fountain." if cmd == "drink" and target.get("drinkable") else messages.get(cmd, "You see nothing unusual.")))
         if msg in {"Nothing happens.", "Nothing happens. You find no obvious way to use that.", "There is nothing written there.", "There is nothing readable here. There is nothing written there.", "You see nothing unusual."}:
@@ -1357,10 +1386,6 @@ class MudRuntime:
 
     def _handle_runtime_command(self, char: MudCharacter, command: str):
         normalized_command = re.sub(r"\s+", " ", str(command or "").strip()).lower()
-        if normalized_command == "set camp":
-            return self.command_engine.handle_command(char, "cast set camp")
-        if normalized_command == "build campfire":
-            return self.command_engine.handle_command(char, "cast build campfire")
         if normalized_command in getattr(self.command_engine, "SOCIAL_DEFINITIONS", {}):
             return self.command_engine.handle_command(char, command)
         parsed = self._parse_interaction_command(command)
@@ -1423,6 +1448,8 @@ class MudRuntime:
                 return CommandResult(entity_result)
         if cmd_name in {"cast", "invoke", "perform", "ability", "abilities", "skills", "spells", "cancel", "cooldowns", "abilitylist", "abilitystat", "abilitycreate", "abilityclone", "abilityset", "abilitydelete", "abilityvalidate", "abilitypreview", "abilitytrace", "loadoutlist", "loadoutstat", "loadoutcreate", "loadoutclone", "loadoutset", "loadoutability", "loadoutdelete", "loadoutvalidate", "abilitygrant", "abilityrevoke", "actorabilities", "abilitycooldowns", "abilitycasts"}:
             return self.command_engine.handle_command(char, command)
+        if cmd_name == "use" and " ".join(args).lower() in {"set camp", "build campfire"}:
+            return self.command_engine.handle_command(char, "use " + " ".join(args))
         item_result = self._handle_item_command(char, command, cmd_name, args)
         if item_result is not None:
             self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": item_result.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
@@ -1658,10 +1685,11 @@ class MudRuntime:
                 "starter": bool(raw.get("starter") or ("starter" in (raw.get("tags") or []))),
                 "starter_quantity": int(raw.get("starter_quantity", 1) or 1),
                 "starter_equipped_slot": raw.get("starter_equipped_slot"),
-                "portable": bool(raw.get("portable", False if str(raw.get("id") or "").lower().replace("_", " ") in self.ROOM_FEATURE_NAMES or str(raw.get("name") or "").lower() in self.ROOM_FEATURE_NAMES or any(part in str(raw.get("id") or "").lower() for part in ["fountain", "gate", "door", "altar", "statue", "campfire", "stairs", "portal"]) else True)),
+                "portable": bool(raw.get("portable", False if str(raw.get("id") or "").lower().replace("_", " ") in self.ROOM_FEATURE_NAMES or str(raw.get("name") or "").lower() in self.ROOM_FEATURE_NAMES or any(part in str(raw.get("id") or "").lower() for part in ["fountain", "gate", "door", "altar", "statue", "campfire", "stairs", "portal", "notice_board", "stall"]) else True)),
                 "drinkable": bool(raw.get("drinkable", False)),
                 "enterable": bool(raw.get("enterable", False)),
                 "readable": bool(raw.get("readable", False)),
+                "readable_text": str(raw.get("readable_text") or raw.get("text") or raw.get("writing") or ""),
                 "usable": bool(raw.get("usable", False)),
                 "openable": bool(raw.get("openable", False)),
                 "locked": bool(raw.get("locked", False)),
@@ -1841,6 +1869,8 @@ class MudRuntime:
 
     def _look_in_container(self, char: MudCharacter, container: dict[str, Any]) -> str:
         if container.get("entity_type") not in {"corpse", "container"}:
+            if "chest" in str(container.get("name") or container.get("id") or "").lower():
+                return "You see nothing unusual."
             return "That is not a container."
         st = container.get("state") or {}
         if st.get("container_open") is False:
@@ -1850,6 +1880,26 @@ class MudRuntime:
             return "The corpse is empty." if container.get("entity_type") == "corpse" else "It is empty."
         head = "Inside the corpse you find:" if container.get("entity_type") == "corpse" else "Inside you find:"
         return head + "\n" + "\n".join(i["name"] + (f" x{i.get('stack_count')}" if int(i.get('stack_count') or 1) > 1 else "") for i in items)
+
+    def _drink_from_target(self, char: MudCharacter, target: dict[str, Any], kind: str, query: str) -> str:
+        if kind in {"inventory", "equipped", "room_object"}:
+            item = target
+            tmpl = item.get("template") or {}
+            if not (tmpl.get("drinkable") or tmpl.get("item_type") == "consumable" or tmpl.get("type") == "consumable"):
+                return "You cannot drink from that."
+            svc_factory = getattr(self.command_engine, "_survival_service", None)
+            svc = svc_factory(char) if callable(svc_factory) else None
+            if svc:
+                res = svc.consume_item(char.id, item.get("instance_id"), 1)
+                if res.get("ok"):
+                    liquid = "clean water" if "water" in str(tmpl.get("name") or item.get("name") or "").lower() else "from it"
+                    return f"You drink {liquid} from {item.get('name') or tmpl.get('name') or query}."
+                if str(res.get("reason") or "") == "no_servings_remaining":
+                    return "The flask is empty."
+            return f"You drink from {item.get('name') or tmpl.get('name') or query}."
+        if target.get("drinkable") or "drink" in (target.get("interaction_capabilities") or []) or target.get("drink_profile_id"):
+            return str((target.get("default_interactions") or {}).get("drink") or f"You drink from {target.get('name') or query}.")
+        return "You cannot drink from that."
 
     def get_from_container(self, char: MudCharacter, item_query: str, container_query: str) -> str:
         res = self._resolve_interaction_target(char, container_query)
@@ -1948,7 +1998,9 @@ class MudRuntime:
         if res["status"] != "ok": return self._resolve_message(res, "You don't see that.")
         item = res["item"]
         t = item.get("template", {})
-        render_payload = {**item, "description": str(t.get("long_description") or t.get("short_description") or item.get("description") or item.get("name") or "")}
+        flags = item.get("custom_flags") or {}
+        suffix = f"\nServings remaining: {flags.get('servings_remaining')}." if "servings_remaining" in flags else ""
+        render_payload = {**item, "description": str(t.get("examine_description") or t.get("long_description") or t.get("short_description") or item.get("description") or item.get("name") or "") + suffix}
         from smart_mud.transport import html_to_plain_text
         return html_to_plain_text(render_object(render_payload))
 
@@ -2214,6 +2266,12 @@ class MudRuntime:
         data["spawn_time"] = data.get("created_at"); data["last_update"] = data.get("updated_at"); data["last_reset"] = state.get("last_reset", "")
         data["spawn_origin"] = state.get("spawn_origin") or tmpl.get("default_room_id") or data.get("current_room_id", "")
         data["is_alive"] = bool(state.get("is_alive", data.get("entity_type") != "corpse" and data["current_state"] not in {"dead", "corpse", "despawned"}))
+        if data.get("entity_type") in {"npc", "mob"} and (data["current_health"] <= 0 or data["current_state"] in {"dead", "corpse", "despawned"}):
+            data["current_health"] = 0
+            data["is_alive"] = False
+            data["current_state"] = "dead" if data["current_state"] != "despawned" else data["current_state"]
+            state.update({"current_health": 0, "is_alive": False, "current_state": data["current_state"]})
+            data["state"] = state
         data["is_visible"] = bool(state.get("is_visible", not self._entity_hidden(data)))
         data["movement_state"] = state.get("movement_state", "standing"); data["dialogue_state"] = state.get("dialogue_state", {})
         data["custom_state"] = state.get("custom_state", {})

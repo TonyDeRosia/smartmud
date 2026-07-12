@@ -1622,7 +1622,7 @@ class MudCommandEngine:
             costs = ", ".join(f"{c.get('amount', c.get('percentage', 0))} {c.get('resource_id')}" for c in r.get("costs", [])) or "no cost"
             rank = int(r.get("rank") or 1); mx = int(r.get("maximum_rank") or 100)
             source = ((r.get("progression_metadata") or {}).get("source_type") or (r.get("plugin_data") or {}).get("source") or "learned")
-            lines.append(f"{r.get('name') or r.get('id')}\nRank {rank}/{mx}\nCategory: {r.get('category') or r.get('ability_type')}\nCost: {costs}\nSource: {source}\n{r.get('description','')}")
+            lines.append(f"{r.get('name') or r.get('id')}\nRank {rank}/{mx}\nStatus: Ready\nCategory: {r.get('category') or r.get('ability_type')}\nCost: {costs}\nSource: {source}\n{r.get('description','')}")
         return "\n\n".join(lines)
 
     def _cmd_spellup(self, character: Any, args: list[str], raw: str) -> CommandResult:

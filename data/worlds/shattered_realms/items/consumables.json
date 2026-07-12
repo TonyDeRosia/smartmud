@@ -1,82 +1,95 @@
 [
   {
+    "description": "minor healing potion for beginner Smart MUD play.",
+    "effects": {},
     "id": "minor_healing_potion",
     "name": "minor healing potion",
-    "type": "consumable",
-    "slot": "none",
     "rarity": "common",
-    "value": 5,
-    "weight": 1,
     "requirements": {},
+    "slot": "none",
     "stats": {},
-    "effects": {},
-    "description": "minor healing potion for beginner Smart MUD play.",
     "tags": [
       "starter"
-    ]
+    ],
+    "type": "consumable",
+    "value": 5,
+    "weight": 1
   },
   {
+    "description": "minor mana potion for beginner Smart MUD play.",
+    "effects": {},
     "id": "minor_mana_potion",
     "name": "minor mana potion",
-    "type": "consumable",
-    "slot": "none",
     "rarity": "common",
-    "value": 5,
-    "weight": 1,
     "requirements": {},
+    "slot": "none",
     "stats": {},
-    "effects": {},
-    "description": "minor mana potion for beginner Smart MUD play.",
     "tags": [
       "starter"
-    ]
+    ],
+    "type": "consumable",
+    "value": 5,
+    "weight": 1
   },
   {
+    "description": "ration for beginner Smart MUD play.",
+    "effects": {},
     "id": "ration",
     "name": "ration",
-    "type": "consumable",
-    "slot": "none",
     "rarity": "common",
-    "value": 5,
-    "weight": 1,
     "requirements": {},
+    "slot": "none",
     "stats": {},
-    "effects": {},
-    "description": "ration for beginner Smart MUD play.",
     "tags": [
       "starter"
-    ]
+    ],
+    "type": "consumable",
+    "value": 5,
+    "weight": 1
   },
   {
-    "id": "clean_water_flask",
-    "name": "clean water flask",
-    "type": "consumable",
-    "slot": "none",
-    "rarity": "common",
-    "value": 5,
-    "weight": 1,
-    "requirements": {},
-    "stats": {},
-    "effects": {},
     "description": "clean water flask for beginner Smart MUD play.",
+    "drinkable": true,
+    "effects": {},
+    "id": "clean_water_flask",
+    "item_type": "consumable",
+    "keywords": [
+      "clean",
+      "clean water",
+      "clean water flask",
+      "flask",
+      "water"
+    ],
+    "long_description": "A small flask filled with clean water.",
+    "name": "clean water flask",
+    "plugin_data": {
+      "consumable_profile_id": "clean_water_drink"
+    },
+    "rarity": "common",
+    "requirements": {},
+    "slot": "none",
+    "stats": {},
     "tags": [
       "starter"
-    ]
+    ],
+    "type": "consumable",
+    "value": 5,
+    "weight": 1
   },
   {
+    "description": "torch for beginner Smart MUD play.",
+    "effects": {},
     "id": "torch",
     "name": "torch",
-    "type": "consumable",
-    "slot": "none",
     "rarity": "common",
-    "value": 5,
-    "weight": 1,
     "requirements": {},
+    "slot": "none",
     "stats": {},
-    "effects": {},
-    "description": "torch for beginner Smart MUD play.",
     "tags": [
       "starter"
-    ]
+    ],
+    "type": "consumable",
+    "value": 5,
+    "weight": 1
   }
 ]
