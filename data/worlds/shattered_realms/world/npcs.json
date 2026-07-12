@@ -133,7 +133,14 @@
     "level_range": [
       1,
       5
-    ]
+    ],
+    "keywords": [
+      "borik",
+      "training master",
+      "master"
+    ],
+    "look_description": "Borik is a broad-shouldered trainer with scarred knuckles and a watchful stare.",
+    "examine_description": "His practice leathers are patched but well cared for, and a training whistle hangs at his neck."
   },
   {
     "id": "apprentice_mage_lina",
@@ -349,7 +356,7 @@
     "personality": [
       "warm",
       "gossipy",
-      "remembers everyone’s drink"
+      "remembers everyone\u2019s drink"
     ],
     "speech_style": "character-specific, concise, MUD-friendly",
     "goals": [
@@ -739,7 +746,9 @@
     "level_range": [
       1,
       5
-    ]
+    ],
+    "look_description": "A nervous rat darts and sniffs for scraps.",
+    "examine_description": "Its whiskers twitch constantly, and its yellow teeth look sharp enough to matter."
   },
   {
     "id": "old_gate_watcher",
@@ -873,7 +882,9 @@
     "level_range": [
       1,
       2
-    ]
+    ],
+    "look_description": "A nervous rat darts and sniffs for scraps.",
+    "examine_description": "Its whiskers twitch constantly, and its yellow teeth look sharp enough to matter."
   },
   {
     "id": "giant_cellar_rat",
@@ -940,7 +951,9 @@
     "level_range": [
       1,
       2
-    ]
+    ],
+    "look_description": "A nervous rat darts and sniffs for scraps.",
+    "examine_description": "Its whiskers twitch constantly, and its yellow teeth look sharp enough to matter."
   },
   {
     "id": "forest_wolf",
@@ -1000,7 +1013,7 @@
     "room_id": "emberwood_hunting_trail",
     "max_alive": 1,
     "respawn_enabled": true,
-    "respawn_delay_seconds": 120,
+    "respawn_delay_seconds": 60,
     "respawn_mode": "normal",
     "corpse_decay_seconds": 1800,
     "corpse_profile_id": "standard_mob_corpse",
@@ -1033,6 +1046,15 @@
         "death_loot_profiles",
         "corpse_decay_profiles"
       ]
-    }
+    },
+    "keywords": [
+      "wolf",
+      "forest wolf",
+      "canine"
+    ],
+    "look_description": "A lean gray-brown wolf watches the trail with bright, wary eyes.",
+    "examine_description": "Its ribs shift under a rough winter coat. The wolf keeps low, ready either to spring or flee.",
+    "room_description": "A forest wolf prowls near the brush.",
+    "respawn_message": "A forest wolf emerges cautiously from the trees."
   }
 ]

@@ -12,7 +12,7 @@ from types import MappingProxyType
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from engine.mud_commands import MudCommandEngine
 from engine.mud_displays import render_object, render_prompt, render_room, semantic
@@ -1128,6 +1128,7 @@ class MudRuntime:
 
     def handle_input(self, character_id: str, command: str) -> dict[str, Any]:
         """Execute a command and persist command/output scrollback to SQLite."""
+        self.process_due_entity_respawns()
         char = self.state_store.load_character(character_id)
         if char is None:
             raise ValueError(f"Character not found: {character_id}")
@@ -1313,6 +1314,7 @@ class MudRuntime:
             return CommandResult(msg)
         if cmd in {"look", "examine"} and re.match(r"^\s*(look|l|examine|exa)\s+(in|inside)\b", raw, re.I):
             resolved_container = self._resolve_interaction_target(char, q)
+            self._log_inspection_route(raw, cmd, q, resolved_container, "look_inside")
             if resolved_container.get("status") != "ok":
                 return CommandResult(self._resolve_message(resolved_container, "You don't see that."), ok=False)
             return CommandResult(self._look_in_container(char, resolved_container.get("target", {})))
@@ -1329,6 +1331,8 @@ class MudRuntime:
             self._publish_interaction_event("command_usage", char, cmd, raw, {"usage": self.command_engine.registry.commands.get(cmd).usage if cmd in self.command_engine.registry.commands else cmd, "message": msg})
             return CommandResult(semantic("usage", msg), ok=False)
         resolved = self._resolve_interaction_target(char, q)
+        mode = "identify" if cmd == "identify" else "read" if cmd == "read" else "look" if cmd == "look" else "examine" if cmd == "examine" else cmd
+        self._log_inspection_route(raw, cmd, q, resolved, f"inspection_dispatcher:{mode}")
         if resolved["status"] == "ambiguous":
             msg = self._resolve_message(resolved, "You don't see that.")
             self._publish_interaction_event("interaction_failed", char, cmd, raw, {"reason": "ambiguous"})
@@ -1355,7 +1359,7 @@ class MudRuntime:
             self._publish_interaction_event("interaction_failed", char, cmd, raw, {"reason": "missing", "target_query": q})
             return CommandResult(semantic("warning", msg), ok=False)
         if cmd in {"look", "examine"}:
-            msg = self._render_examination(target, kind, q)
+            msg = self.inspect_target(char, resolved, "LOOK" if cmd == "look" else "EXAMINE")
             if msg:
                 event_name = "feature_examined" if kind in {"feature", "exit"} else "entity_examined" if kind in {"player", "npc", "mob"} else "object_examined"
                 self._publish_interaction_event(event_name, char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg[:120]})
@@ -1363,11 +1367,9 @@ class MudRuntime:
             else: return None
             self._publish_interaction_event("target_looked", char, cmd, raw, {"target_kind": kind, "target_name": target.get("name", q), "result_summary": msg[:120]})
         elif cmd == "identify":
-            msg = self._render_identify(target, kind, q)
+            msg = self.inspect_target(char, resolved, "IDENTIFY")
         elif cmd == "read":
-            msg = str(target.get("readable_text") or target.get("text") or target.get("writing") or target.get("message") or (target.get("template") or {}).get("readable_text") or "")
-            if not msg:
-                msg = "There is nothing readable here. There is nothing written there."
+            msg = self.inspect_target(char, resolved, "READ")
         elif cmd == "drink":
             msg = self._drink_from_target(char, target, kind, q)
         else:
@@ -1669,6 +1671,9 @@ class MudRuntime:
                 "keywords": [str(k).lower() for k in keywords if str(k).strip()],
                 "short_description": str(raw.get("short_description") or raw.get("description") or raw.get("name") or tid),
                 "long_description": str(raw.get("long_description") or raw.get("description") or raw.get("short_description") or raw.get("name") or tid),
+                "look_description": str(raw.get("look_description") or raw.get("description") or raw.get("long_description") or raw.get("short_description") or raw.get("name") or tid),
+                "examine_description": str(raw.get("examine_description") or raw.get("look_description") or raw.get("long_description") or raw.get("description") or raw.get("short_description") or raw.get("name") or tid),
+                "room_description": str(raw.get("room_description") or raw.get("short_description") or raw.get("name") or tid),
                 "item_type": str(raw.get("item_type") or raw.get("type") or "misc"),
                 "weight": raw.get("weight", 0), "value": raw.get("value", 0),
                 "wear_slots": [str(v) for v in (raw.get("occupies_slots") or raw.get("equipment_slots") or wear_slots) if str(v) in self.EQUIPMENT_SLOTS],
@@ -1690,6 +1695,7 @@ class MudRuntime:
                 "enterable": bool(raw.get("enterable", False)),
                 "readable": bool(raw.get("readable", False)),
                 "readable_text": str(raw.get("readable_text") or raw.get("text") or raw.get("writing") or ""),
+                "interaction_hints": raw.get("interaction_hints") or [],
                 "usable": bool(raw.get("usable", False)),
                 "openable": bool(raw.get("openable", False)),
                 "locked": bool(raw.get("locked", False)),
@@ -2034,16 +2040,101 @@ class MudRuntime:
             return out
         return out
 
-    def _render_examination(self, target: dict[str, Any], kind: str, query: str) -> str:
+    def _log_inspection_route(self, raw: str, cmd: str, argument: str, resolved: dict[str, Any], renderer: str) -> None:
+        target = resolved.get("target") or {}
+        logger.debug(
+            "inspection_route raw_input=%r selected_command=%s remaining_argument=%r resolved_target_category=%s resolved_target_id=%s selected_renderer=%s",
+            raw,
+            cmd,
+            argument,
+            resolved.get("kind") or resolved.get("status"),
+            target.get("entity_id") or target.get("instance_id") or target.get("id") or target.get("feature_id") or target.get("name") or "",
+            renderer,
+        )
+
+    def inspect_target(self, viewer: MudCharacter, resolved_target: dict[str, Any], inspection_mode: str) -> str:
+        """Canonical target inspection dispatcher for player rendering.
+
+        Parser code resolves a target once; this dispatcher owns mode/category
+        presentation so targeted LOOK never falls back to room rendering after a
+        successful resolution.
+        """
+        if resolved_target.get("status") != "ok":
+            return self._resolve_message(resolved_target, "You don't see that.")
+        target = resolved_target.get("target") or {}
+        kind = str(resolved_target.get("kind") or target.get("entity_type") or "object")
+        mode = inspection_mode.upper()
+        if mode == "LOOK_INSIDE":
+            return self._look_in_container(viewer, target)
+        if mode == "LOOK_DIRECTION":
+            return self._render_examination(target, "exit", str(target.get("name") or "exit"), mode="LOOK")
+        if mode == "IDENTIFY":
+            if kind == "corpse":
+                return "You cannot identify that without a suitable skill."
+            return self._render_identify(target, kind, str(target.get("name") or "target"))
+        if mode == "READ":
+            template = target.get("template") or {}
+            msg = str(target.get("readable_text") or target.get("text") or target.get("writing") or target.get("message") or template.get("readable_text") or "")
+            return msg or "There is nothing readable here. There is nothing written there."
+        return self._render_examination(target, kind, str(target.get("name") or "target"), mode=mode)
+
+    def _description_for_mode(self, target: dict[str, Any], template: dict[str, Any], mode: str) -> str:
+        mode = mode.upper()
+        keys = (
+            ("examine_description", "examine_text", "extended_description", "look_description", "long_description", "description", "short_description")
+            if mode in {"EXAMINE", "INSPECT"}
+            else ("look_description", "description", "long_description", "short_description")
+        )
+        for key in keys:
+            if key in {"look_description", "examine_description", "examine_text"}:
+                val = template.get(key)
+                if val:
+                    return str(val).strip()
+            val = target.get(key)
+            if val:
+                return str(val).strip()
+            val = template.get(key)
+            if val:
+                return str(val).strip()
+        return ""
+
+    def _state_lines_for_target(self, target: dict[str, Any], kind: str, mode: str) -> list[str]:
         template = target.get("template") or {}
+        state = target.get("state") or {}
+        flags = target.get("custom_flags") or state or {}
+        lines: list[str] = []
+        servings = flags.get("servings_remaining")
+        if servings is not None or template.get("drinkable"):
+            try:
+                count = int(servings)
+                lines.append("It is empty." if count <= 0 else "It feels partly full." if count <= 1 else "It feels mostly full.")
+            except Exception:
+                pass
+        status = str(target.get("status") or state.get("status") or "").lower()
+        if kind in {"campfire", "world_object"} or "campfire" in str(target.get("name", "")).lower():
+            if status == "lit":
+                lines.append("It is lit and burning steadily.")
+            elif status == "extinguished":
+                lines.append("It has burned down to cold ash.")
+            elif status:
+                lines.append("It is not lit.")
+        if kind == "corpse":
+            lines.append(f"It is {state.get('decay_state', 'fresh')}.")
+            lines += ["It has been skinned." if state.get("skinned") else "It has not been skinned."]
+            if mode.upper() != "LOOK":
+                lines += ["It has been butchered." if state.get("butchered") else "It has not been butchered.", "It is open." if state.get("container_open", True) else "It is closed."]
+        return lines
+
+    def _render_examination(self, target: dict[str, Any], kind: str, query: str, mode: str = "EXAMINE") -> str:
+        template = target.get("template") or {}
+        if not template and target.get("template_id"):
+            template = dict(self.entity_templates.get(str(target.get("template_id") or ""), {}))
         name = str(target.get("name") or template.get("name") or query).strip()
-        long_desc = str(target.get("long_description") or template.get("long_description") or target.get("description") or template.get("description") or target.get("short_description") or template.get("short_description") or "").strip()
-        extended = str(target.get("extended_description") or template.get("extended_description") or "").strip()
+        long_desc = self._description_for_mode(target, template, mode)
+        extended = str(target.get("extended_description") or template.get("extended_description") or "").strip() if mode.upper() != "LOOK" else ""
         if kind == "exit" and not long_desc:
             return semantic("direction", name) + "\n" + semantic("placeholder", "You see nothing unusual.")
         interactions = target.get("interactions") or target.get("default_interactions") or template.get("default_interactions") or {}
-        if not interactions and kind in {"feature", "exit"}:
-            interactions = {"look": True, "use": True}
         title_role = "entity_title" if kind in {"player", "npc", "mob"} else "feature" if kind in {"feature", "exit"} else "object_title"
         desc_role = "entity_description" if kind in {"player", "npc", "mob"} else "object_description"
         lines = [semantic(title_role, name)]
@@ -2053,17 +2144,21 @@ class MudRuntime:
             lines.append(semantic(desc_role, long_desc))
         if extended:
             lines.append(semantic(desc_role, extended))
+        if not long_desc and kind not in {"player", "npc", "mob"}:
+            lines.append(semantic(desc_role, f"You see nothing unusual about {name}."))
+        lines.extend(self._state_lines_for_target(target, kind, mode))
         if kind in {"npc", "mob", "player"}:
             lines += ["", "Condition:", condition_label(target).capitalize() + "."]
             st = str(target.get("current_state") or (target.get("state") or {}).get("current_state") or "standing")
             target_name = (target.get("state") or {}).get("combat_target_name")
             lines += ["", "Status:", (f"Fighting {target_name}." if target_name else st.replace('_',' ').capitalize() + ".")]
             lines += ["", "Equipment:", "None visible."]
-        if kind == "corpse":
-            st = target.get("state") or {}
-            lines += ["", f"It is {st.get('decay_state', 'fresh')}.", "It has been skinned." if st.get("skinned") else "It has not been skinned.", "It has been butchered." if st.get("butchered") else "It has not been butchered.", "It is open." if st.get("container_open", True) else "It is closed."]
-        if interactions:
-            lines.append(semantic("object_interaction", "You may:"))
+        hints = target.get("interaction_hints") or template.get("interaction_hints") or []
+        if mode.upper() != "LOOK" and hints:
+            lines.append("Possible interactions:")
+            lines.extend(str(h) for h in hints)
+        elif mode.upper() != "LOOK" and interactions:
+            lines.append(semantic("object_interaction", "Possible interactions:"))
             for verb in sorted(interactions.keys() if isinstance(interactions, dict) else interactions):
                 lines.append(semantic("object_interaction", str(verb)))
         return "\n".join(lines) if len(lines) > 1 else ""
@@ -2229,6 +2324,16 @@ class MudRuntime:
                 "keywords": [str(k).lower() for k in keywords if str(k).strip()],
                 "short_description": str(raw.get("short_description") or raw.get("description") or raw.get("name") or tid),
                 "long_description": str(raw.get("long_description") or raw.get("description") or raw.get("short_description") or raw.get("name") or tid),
+                "look_description": str(raw.get("look_description") or raw.get("description") or raw.get("long_description") or raw.get("short_description") or raw.get("name") or tid),
+                "examine_description": str(raw.get("examine_description") or raw.get("look_description") or raw.get("long_description") or raw.get("description") or raw.get("short_description") or raw.get("name") or tid),
+                "room_description": str(raw.get("room_description") or raw.get("short_description") or raw.get("name") or tid),
+                "readable_text": str(raw.get("readable_text") or ""),
+                "interaction_hints": raw.get("interaction_hints") or [],
+                "respawn_enabled": bool(raw.get("respawn_enabled")),
+                "respawn_delay_seconds": int(raw.get("respawn_delay_seconds") or 0),
+                "respawn_mode": str(raw.get("respawn_mode") or "normal"),
+                "respawn_message": str(raw.get("respawn_message") or ""),
+                "spawn_id": str(raw.get("spawn_id") or raw.get("spawn_group") or tid),
                 "default_room_id": str(raw.get("default_room_id") or raw.get("room_id") or ""),
                 "faction_id": str(raw.get("faction_id") or ""), "level": level,
                 "id": tid,
@@ -2560,7 +2665,70 @@ class MudRuntime:
         return self.find_entity(entity_id) or {}
 
     def respawn_entity(self, template_id: str, room_id: str | None = None, **ctx: Any) -> dict[str, Any]:
-        return self.spawn_entity(template_id, room_id=room_id, state={"current_state":"idle", "spawn_origin": room_id or "", "lifecycle_id": f"life_{uuid.uuid4().hex}"}, **ctx)
+        tmpl = self.entity_templates.get(template_id, {})
+        max_hp = int(((tmpl.get("state") or {}).get("maximum_health") or (tmpl.get("stats") or {}).get("max_health") or 100) or 100)
+        return self.spawn_entity(template_id, room_id=room_id, state={"current_state":"idle", "spawn_origin": room_id or "", "current_health": max_hp, "maximum_health": max_hp, "is_alive": True, "lifecycle_id": f"life_{uuid.uuid4().hex}", "source_spawn_id": ctx.get("spawn_id", "")}, **ctx)
+
+    def _ensure_entity_respawn_schema(self) -> None:
+        with sqlite3.connect(self.state_store.db_path) as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS entity_respawn_queue(
+                respawn_id TEXT PRIMARY KEY,
+                world_id TEXT,
+                template_id TEXT,
+                spawn_id TEXT,
+                room_id TEXT,
+                old_entity_id TEXT,
+                old_lifecycle_id TEXT,
+                due_at TEXT,
+                state TEXT,
+                new_entity_id TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                metadata_json TEXT
+            )""")
+
+    def schedule_entity_respawn(self, ent: dict[str, Any], *, death_id: str = "") -> None:
+        tmpl = self.entity_templates.get(str(ent.get("template_id") or ""), {})
+        if not tmpl.get("respawn_enabled") or str(tmpl.get("respawn_mode") or "normal") == "story_permanent":
+            return
+        delay = int(tmpl.get("respawn_delay_seconds") or (tmpl.get("spawn_rules") or {}).get("respawn_delay") or 0)
+        if delay <= 0:
+            return
+        self._ensure_entity_respawn_schema()
+        state = ent.get("state") or {}
+        spawn_id = str(tmpl.get("spawn_id") or tmpl.get("id") or ent.get("template_id") or "")
+        old_lifecycle = str(state.get("lifecycle_id") or ent.get("entity_id") or "")
+        respawn_id = "respawn_" + uuid.uuid5(uuid.NAMESPACE_URL, f"{self.active_world_id}:{death_id or ent.get('entity_id')}:{old_lifecycle}").hex
+        now = datetime.now(timezone.utc)
+        due = (now + timedelta(seconds=delay)).isoformat()
+        with sqlite3.connect(self.state_store.db_path) as conn:
+            conn.execute("""INSERT OR IGNORE INTO entity_respawn_queue(respawn_id,world_id,template_id,spawn_id,room_id,old_entity_id,old_lifecycle_id,due_at,state,new_entity_id,created_at,updated_at,metadata_json)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (respawn_id, self.active_world_id or "", ent.get("template_id"), spawn_id, ent.get("room_id") or ent.get("current_room_id"), ent.get("entity_id"), old_lifecycle, due, "WAITING_TO_RESPAWN", "", now.isoformat(), now.isoformat(), json.dumps({"death_id": death_id, "delay_seconds": delay})))
+        logger.info("entity respawn scheduled template=%s old_entity=%s due_at=%s state=WAITING_TO_RESPAWN", ent.get("template_id"), ent.get("entity_id"), due)
+
+    def process_due_entity_respawns(self, now: str | None = None) -> list[dict[str, Any]]:
+        self._ensure_entity_respawn_schema()
+        now = now or datetime.now(timezone.utc).isoformat()
+        made: list[dict[str, Any]] = []
+        with sqlite3.connect(self.state_store.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = [dict(r) for r in conn.execute("SELECT * FROM entity_respawn_queue WHERE world_id=? AND state IN ('WAITING_TO_RESPAWN','READY_TO_RESPAWN') AND due_at<=? ORDER BY due_at,respawn_id", (self.active_world_id or "", now))]
+        for row in rows:
+            alive = [e for e in self.find_entities(template_id=row["template_id"], room_id=row["room_id"]) if e.get("entity_type") in {"npc","mob"} and e.get("is_alive")]
+            if alive:
+                with sqlite3.connect(self.state_store.db_path) as conn:
+                    conn.execute("UPDATE entity_respawn_queue SET state='ACTIVE_NEW_LIFECYCLE',new_entity_id=?,updated_at=? WHERE respawn_id=?", (alive[0].get("entity_id"), now, row["respawn_id"]))
+                continue
+            ent = self.respawn_entity(row["template_id"], row["room_id"], source_system="respawn", spawn_id=row.get("spawn_id",""))
+            made.append(ent)
+            with sqlite3.connect(self.state_store.db_path) as conn:
+                conn.execute("UPDATE entity_respawn_queue SET state='ACTIVE_NEW_LIFECYCLE',new_entity_id=?,updated_at=? WHERE respawn_id=?", (ent.get("entity_id",""), now, row["respawn_id"]))
+            msg = str(self.entity_templates.get(row["template_id"], {}).get("respawn_message") or f"{ent.get('name','Someone')} arrives.")
+            combat_rt = getattr(self, "combat_runtime", None)
+            if combat_rt and hasattr(combat_rt, "active_character_ids_in_room") and hasattr(combat_rt, "enqueue_output"):
+                for cid in combat_rt.active_character_ids_in_room(row["room_id"]):
+                    combat_rt.enqueue_output(cid, msg, room_id=row["room_id"], category="respawn")
+        return made
 
     def create_corpse(self, entity_id: str, **ctx: Any) -> dict[str, Any]:
         ent = self.find_entity(entity_id) or {}
@@ -2583,6 +2751,7 @@ class MudRuntime:
             conn.execute("UPDATE entity_instances SET name=?,keywords=?,short_description=?,long_description=?,updated_at=? WHERE entity_id=?", (corpse_name, json.dumps(["corpse", "body", *str(name).lower().split()]), f"The corpse of {name.lower()} is lying here.", f"{corpse_name}. It was recently slain. Blood darkens the fur and flesh around several wounds.", now, corpse.get("entity_id")))
         corpse = self.find_entity(corpse.get("entity_id")) or corpse
         self._generate_corpse_contents(corpse, ent, ctx)
+        self.schedule_entity_respawn(ent, death_id=death_id)
         self._publish_entity_event("corpse_created", corpse, source_system=ctx.get("source_system", "runtime"), source_entity_id=entity_id)
         return corpse
 
