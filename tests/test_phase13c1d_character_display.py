@@ -46,8 +46,9 @@ def test_prompt_presets_custom_unknown_and_parity():
 
 
 def test_builder_theme_validation_and_preview():
-    good={'labels': {'score.title':'&YCHARACTER STATUS&n'}, 'semantic_roles': {'frame':'character_frame'}, 'templates': {'score': {'title':'{name}'}}}
+    good={'labels': {'score.title':'&YCHARACTER STATUS&n'}, 'semantic_roles': {'frame':'character_frame'}}
     assert validate_display_theme(good) == []
+    assert validate_display_theme({'templates': {'score': {'title':'{name}'}}})
     assert preview_display_theme(good)['ok'] == 'true'
     bad={'templates': {'score': {'title':'{player.secret}'}, 'mail': {'title':'x'}}, 'labels': {'x':'<script>alert(1)</script>'}}
     errors='\n'.join(validate_display_theme(bad))
@@ -66,7 +67,7 @@ def test_cell_roles_are_rendered_independently_and_unknown_ability_is_not_ready(
 
 
 def test_builder_preview_uses_real_runtime_builder_for_multiple_families():
-    raw = {'width': 60, 'templates': {'score': {'title': '{name}'}}}
+    raw = {'width': 60}
     score = preview_display_theme(raw, 'score')
     skills = preview_display_theme(raw, 'skills')
     assert score['ok'] == 'true' and 'CHARACTER STATUS' in score['plain']
