@@ -2169,6 +2169,9 @@ class MudRuntime:
         etype = entity_type or tmpl.get("entity_type") or "object"
         if etype not in self.ENTITY_TYPES: raise ValueError(f"Unsupported entity type: {etype}")
         now = datetime.now(timezone.utc).isoformat(); eid = f"ent_{uuid.uuid4().hex}"
+        if etype in {"npc", "mob"} and (state is None or not dict(state).get("lifecycle_id")):
+            state = dict(state or tmpl.get("state", {}) or {})
+            state["lifecycle_id"] = f"life_{uuid.uuid4().hex}"
         payload = (eid, self.active_world_id or tmpl.get("world_id", ""), etype, template_id, tmpl.get("name", template_id), json.dumps(tmpl.get("keywords", [template_id])), tmpl.get("short_description", tmpl.get("name", template_id)), tmpl.get("long_description", tmpl.get("short_description", tmpl.get("name", template_id))), room_id or tmpl.get("default_room_id", ""), owner_type, owner_id, tmpl.get("faction_id", ""), int(tmpl.get("level", 1) or 1), json.dumps(state if state is not None else tmpl.get("state", {})), json.dumps(flags if flags is not None else tmpl.get("flags", [])), now, now, json.dumps(tmpl.get("plugin_data", {})))
         with sqlite3.connect(self.state_store.db_path) as conn:
             conn.execute("INSERT INTO entity_instances(entity_id,world_id,entity_type,template_id,name,keywords,short_description,long_description,current_room_id,owner_type,owner_id,faction_id,level,state,flags,created_at,updated_at,plugin_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", payload)
@@ -2316,7 +2319,7 @@ class MudRuntime:
         for ent in existing[:qty]:
             ids.append(ent.get("entity_id") or ent.get("instance_id"))
         for _ in range(max(0, qty - len(ids))):
-            ent=self.spawn_entity(tid, room_id=rid, state={"current_state":"idle", "spawn_origin": rid, "source_spawn_id": spawn_id, "custom_state": {}}, source_system="materializer"); ids.append(ent.get("entity_id") or ent.get("instance_id"))
+            ent=self.spawn_entity(tid, room_id=rid, state={"current_state":"idle", "spawn_origin": rid, "source_spawn_id": spawn_id, "custom_state": {}, "lifecycle_id": f"life_{uuid.uuid4().hex}"}, source_system="materializer"); ids.append(ent.get("entity_id") or ent.get("instance_id"))
         with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("INSERT INTO content_materializations(world_id,declaration_kind,declaration_id,materialized_at,instance_ids_json,status,metadata_json) VALUES(?,?,?,?,?,?,?)", (self.active_world_id or "","entity_spawn",spawn_id,now,json.dumps(ids),"materialized",json.dumps({"template_id": tid, "room_id": rid, "quantity": qty, "adopted_existing": len(existing[:qty]), "duplicate_candidates": [e.get("instance_id") for e in existing[qty:]]})))
         self.event_bus.publish("entity_spawn_materialized", {"world_id": self.active_world_id or "", "declaration_id": spawn_id, "template_id": tid, "room_id": rid, "instance_ids": ids, "quantity": qty, "policy": sp.get("spawn_policy", "once")}, source_system="runtime", world_id=self.active_world_id or "", room_id=rid)
         return {"instance_ids": ids, "status":"materialized", "materialized_at": now}
@@ -2436,20 +2439,22 @@ class MudRuntime:
         return self.find_entity(entity_id) or {}
 
     def respawn_entity(self, template_id: str, room_id: str | None = None, **ctx: Any) -> dict[str, Any]:
-        return self.spawn_entity(template_id, room_id=room_id, state={"current_state":"idle", "spawn_origin": room_id or ""}, **ctx)
+        return self.spawn_entity(template_id, room_id=room_id, state={"current_state":"idle", "spawn_origin": room_id or "", "lifecycle_id": f"life_{uuid.uuid4().hex}"}, **ctx)
 
     def create_corpse(self, entity_id: str, **ctx: Any) -> dict[str, Any]:
         ent = self.find_entity(entity_id) or {}
         if not ent:
             return {}
-        existing = [c for c in self.find_entities(entity_type="corpse", room_id=ent.get("room_id")) if (c.get("state") or {}).get("source_entity_id") == entity_id]
+        death_id = str(ctx.get("death_id") or "")
+        source_lifecycle_id = str((ent.get("state") or {}).get("lifecycle_id") or entity_id)
+        existing = [c for c in self.find_entities(entity_type="corpse", room_id=ent.get("room_id")) if (death_id and (c.get("state") or {}).get("death_id") == death_id) or ((not death_id) and (c.get("state") or {}).get("source_entity_id") == entity_id and (c.get("state") or {}).get("source_lifecycle_id") == source_lifecycle_id)]
         if existing:
             return existing[0]
         name = str(ent.get("name") or "creature")
         state = dict(ent.get("state") or {})
         state.update({"current_state":"dead", "is_alive": False, "current_health": 0})
         self.update_entity_state(entity_id, state, source_system=ctx.get("source_system", "runtime"))
-        corpse_state={"current_state":"corpse", "source_entity_id": entity_id, "source_template_id": ent.get("template_id"), "source_actor_name": name, "is_alive": False, "container_open": True, "decay_state": "fresh", "created_world_time": self.get_world_time(self.active_world_id or '').get('total_minutes', 0), "skinned": False, "butchered": False}
+        corpse_state={"current_state":"corpse", "source_entity_id": entity_id, "source_template_id": ent.get("template_id"), "source_actor_name": name, "source_lifecycle_id": source_lifecycle_id, "death_id": death_id, "killer_actor_id": str(ctx.get("killer_actor_id") or ""), "is_alive": False, "container_open": True, "decay_state": "fresh", "created_world_time": self.get_world_time(self.active_world_id or '').get('total_minutes', 0), "skinned": False, "butchered": False}
         corpse = self.spawn_entity(ent.get("template_id", "corpse"), entity_type="corpse", room_id=ent.get("room_id"), state=corpse_state, flags=["corpse"], **ctx)
         corpse_name = f"The corpse of {name.lower()}"
         now = datetime.now(timezone.utc).isoformat()
@@ -2468,7 +2473,7 @@ class MudRuntime:
             return
         from engine.rewards import RewardService
         svc = RewardService(runtime=self, world_id=self.active_world_id or "shattered_realms", event_bus=self.event_bus)
-        pkt = svc.resolve_loot_table(loot_table, {"source_type":"combat","source_id":str(source_ent.get("template_id")),"source_instance_id":str(source_ent.get("entity_id")),"world_id":self.active_world_id or "","world_time":self.get_world_time(self.active_world_id or '').get('total_minutes',0)}, {"recipient_type":"corpse","recipient_id":corpse_id}, seed=corpse_id)
+        pkt = svc.resolve_loot_table(loot_table, {"source_type":"combat","source_id":str(source_ent.get("template_id")),"source_instance_id":str(ctx.get("death_id") or source_ent.get("entity_id")),"world_id":self.active_world_id or "","world_time":self.get_world_time(self.active_world_id or '').get('total_minutes',0)}, {"recipient_type":"corpse","recipient_id":corpse_id}, seed=str(ctx.get('death_id') or corpse_id))
         svc.deliver_reward_packet(pkt["reward_packet_id"])
         self.event_bus.publish("corpse_contents_generated", {"corpse_entity_id":corpse_id,"source_entity_id":source_ent.get("entity_id"),"loot_table_id":loot_table,"reward_packet_id":pkt["reward_packet_id"]}, source_system="runtime", world_id=self.active_world_id or "", room_id=corpse.get("room_id"))
 

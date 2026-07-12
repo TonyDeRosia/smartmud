@@ -60,3 +60,57 @@ def test_room_look_and_actor_inspection_show_state_and_condition(tmp_path):
     assert 'condition:' in look
     assert 'badly wounded' in look or 'seriously injured' in look
     assert 'equipment:' in look
+
+
+def test_respawned_entity_gets_new_lifecycle_and_can_die_again(tmp_path):
+    rt, ch = runtime_with_wolf(tmp_path)
+    first = wolf(rt)
+    first_life = (first['state'] or {})['lifecycle_id']
+    st = dict(first['state']); st.update({'current_health': 1, 'maximum_health': 8, 'is_alive': True})
+    rt.update_entity_state(first['entity_id'], st)
+    rt.command_engine.handle_command(ch, 'kill forest wolf')
+    second = rt.respawn_entity(first['template_id'], room_id=ch.room_id, source_system='test')
+    second_life = (second['state'] or {})['lifecycle_id']
+    assert second_life != first_life
+    st = dict(second['state']); st.update({'current_health': 1, 'maximum_health': 8, 'is_alive': True})
+    rt.update_entity_state(second['entity_id'], st)
+    rt.command_engine.handle_command(ch, 'kill forest wolf')
+    with sqlite3.connect(rt.state_store.db_path) as con:
+        rows = con.execute("SELECT death_id,lifecycle_id,corpse_entity_id FROM combat_death_transactions ORDER BY created_at").fetchall()
+        assert len(rows) == 2
+        assert len({r[0] for r in rows}) == 2
+        assert len({r[1] for r in rows}) == 2
+        assert len({r[2] for r in rows}) == 2
+    corpses = rt.find_visible_entities(ch.room_id, ch).get('corpses', [])
+    assert len(corpses) == 2
+
+
+def test_output_drain_claims_messages_once_and_preserves_order(tmp_path):
+    rt, ch = runtime_with_wolf(tmp_path)
+    cid2 = rt.create_character(world_id='shattered_realms', name='Other')['character_id']
+    rt.combat_runtime.enqueue_output(ch.id, 'one')
+    rt.combat_runtime.enqueue_output(ch.id, 'two')
+    rt.combat_runtime.enqueue_output(cid2, 'other')
+    assert rt.combat_runtime.drain_output(ch.id) == ['one', 'two']
+    assert rt.combat_runtime.drain_output(ch.id) == []
+    assert rt.combat_runtime.drain_output(cid2) == ['other']
+
+
+def test_action_consume_is_atomic_and_replaced_action_cannot_execute(tmp_path):
+    rt, ch = runtime_with_wolf(tmp_path)
+    w = wolf(rt)
+    enc = rt.combat_runtime.start_encounter(ch.room_id)
+    actor = rt.combat_runtime.actor_id_for_character(ch)
+    defender = rt.combat_runtime.actor_from_entity(w)
+    attacker = rt.combat_runtime._load_actor(actor)
+    rt.combat_runtime.join_encounter(enc, attacker, 'side_1')
+    rt.combat_runtime.join_encounter(enc, defender, 'side_2')
+    rt.combat_runtime.queue_action(enc, actor, 'defend')
+    rt.combat_runtime.queue_action(enc, actor, 'basic_attack', defender.actor_id)
+    first = rt.combat_runtime._consume_action(enc, actor)
+    second = rt.combat_runtime._consume_action(enc, actor)
+    assert first and first['action_type'] == 'basic_attack'
+    assert second is None
+    with sqlite3.connect(rt.state_store.db_path) as con:
+        assert con.execute("SELECT count(*) FROM combat_action_queue WHERE status='replaced'").fetchone()[0] == 1
+        assert con.execute("SELECT count(*) FROM combat_action_queue WHERE status='consumed'").fetchone()[0] == 1
