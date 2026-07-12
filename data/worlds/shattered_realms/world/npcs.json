@@ -71,7 +71,7 @@
     "id": "training_master_borik",
     "name": "Training Master Borik",
     "kind": "npc",
-    "description": "Training Master Borik is a memorable resident of the starter zone.",
+    "description": "Training Master Borik watches the yard with his arms folded.",
     "faction_id": "adventurers_guild",
     "default_room_id": "training_yard",
     "occupation": "Training",
@@ -139,8 +139,9 @@
       "training master",
       "master"
     ],
-    "look_description": "Borik is a broad-shouldered trainer with scarred knuckles and a watchful stare.",
-    "examine_description": "His practice leathers are patched but well cared for, and a training whistle hangs at his neck."
+    "look_description": "Borik is a broad-shouldered veteran with a watchful expression and the posture of someone who has spent years correcting careless recruits.",
+    "examine_description": "Old scars cross Borik\u2019s forearms, and every movement carries the precision of a lifelong soldier.",
+    "room_description": "Training Master Borik watches the yard with his arms folded."
   },
   {
     "id": "apprentice_mage_lina",

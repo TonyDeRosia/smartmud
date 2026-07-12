@@ -312,10 +312,11 @@ class WebRuntime:
 
     @staticmethod
     def _plain_text(html: str) -> str:
-        text = re.sub(r"<[^>]+>", "", str(html or ""))
+        normalized = re.sub(r"<br\s*/?>", "\n", str(html or ""), flags=re.I)
+        text = re.sub(r"<[^>]+>", "", normalized)
         return text.replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&")
 
-    def _normalize_mud_view(self, view: dict[str, Any], command_output: str = "", command: str = "", command_echo: bool = True) -> dict[str, Any]:
+    def _normalize_mud_view(self, view: dict[str, Any], command_output: str = "", command: str = "", command_echo: bool = True, state_updates: dict[str, Any] | None = None) -> dict[str, Any]:
         import html
         from engine.mud_displays import semantic_html
         from engine.mud_rendering import render_semantic_plain
@@ -325,8 +326,11 @@ class WebRuntime:
         room_text = self._plain_text(room_output_html)
         semantic_output_text = str(command_output or view.get("output_text") or view.get("text") or room_text)
         clean_command = command.strip().lower().split()[0] if command.strip() else ""
-        room_commands = {"look", "l", "north", "n", "south", "s", "east", "e", "west", "w", "up", "u", "down", "d", "in", "out"}
-        include_room_output = not command or clean_command in room_commands
+        movement_commands = {"north", "n", "south", "s", "east", "e", "west", "w", "up", "u", "down", "d", "in", "out"}
+        words = command.strip().lower().split()
+        is_bare_look = words in (["look"], ["l"])
+        wants_room = bool((state_updates or {}).get("render_room"))
+        include_room_output = not command or is_bare_look or (clean_command in movement_commands and wants_room)
         command_result_text = render_semantic_plain(semantic_output_text).strip()
         command_result_semantic = semantic_output_text
         if include_room_output and room_text and room_text in command_result_text:
@@ -351,13 +355,10 @@ class WebRuntime:
         output_text = "\n".join(output_text_parts) if (command or include_room_output) else render_semantic_plain(semantic_output_text)
         prompt_html = str(view.get("prompt") or view.get("prompt_html") or "")
         prompt_plain = self._plain_text(prompt_html).strip()
-        prompt_parts = prompt_plain.lstrip("> ").split()
-        character_name = prompt_parts[0] if prompt_parts else ""
-        hp = ""
-        if "HP:" in prompt_parts:
-            hp_index = prompt_parts.index("HP:")
-            hp = prompt_parts[hp_index + 1] if hp_index + 1 < len(prompt_parts) else ""
-        prompt_text = f"[{character_name} HP: {hp}]" if character_name and hp else prompt_plain
+        character = self.mud_runtime.state_store.load_character(self.active_character_id) if self.active_character_id else None
+        character_name = getattr(character, "name", "") or ""
+        hp = f"{getattr(character, 'hp', '')}/{getattr(character, 'max_hp', '')}" if character is not None else ""
+        prompt_text = f"[{character_name} HP: {hp}]" if character_name and hp != "/" else prompt_plain
         return {
             **view,
             "ok": True,
@@ -413,7 +414,7 @@ class WebRuntime:
                 view = self._normalize_mud_view(result["view"], command_output, command, command_echo)
                 view["session_transition"] = "character_select"
                 return view
-            return self._normalize_mud_view(result["view"], command_output, command, command_echo)
+            return self._normalize_mud_view(result["view"], command_output, command, command_echo, result.get("state_updates") or {})
         return result
 
     def mud_list_worlds(self) -> dict[str, Any]:
