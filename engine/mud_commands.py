@@ -18,6 +18,8 @@ from engine.score_renderer import ActorScoreRenderer
 from engine.command_registry import CommandRegistry
 from smart_mud.builder import BuilderWorkspace
 from engine.abilities import AbilityExecutionService
+from engine.display_services import CharacterDisplaySnapshotService, AbilityDisplaySnapshotService, ability_snapshots_as_rows
+from engine.display_themes import preview_display_theme
 from engine.combat_behavior import CombatBehaviorService
 from engine.crafting import CraftingService, CraftingContent
 from engine.perception import PerceptionService
@@ -46,6 +48,8 @@ class CommandResult:
 DETERMINISTIC_COMMANDS = {
     # Information
     "score": {"category": "info", "aliases": ["sc"], "admin": False},
+    "display": {"category": "info", "admin": False},
+    "displaytheme": {"category": "builder", "admin": True},
     "recipes": {"category": "crafting", "admin": False},
     "recipe": {"category": "crafting", "admin": False},
     "craft": {"category": "crafting", "admin": False},
@@ -215,6 +219,8 @@ class MudCommandEngine:
         self.command_handlers: dict[str, Callable] = {
             # Info commands
             "score": self._cmd_score,
+            "display": self._cmd_display,
+            "displaytheme": self._cmd_displaytheme,
             "recipes": self._cmd_crafting_player,
             "recipe": self._cmd_crafting_player,
             "craft": self._cmd_crafting_player,
@@ -461,7 +467,8 @@ class MudCommandEngine:
             self.command_handlers[_name]=self._cmd_builder_achievement
 
         for _name in "resources survey resource gather forage harvest mine chop fish dig excavate salvage skin butcher extract".split():
-            self.command_handlers[_name] = self._cmd_gathering_player
+            if _name not in self.command_handlers:
+                self.command_handlers[_name] = self._cmd_gathering_player
         for _name in "property properties rent lease access home storage room locker store retrieve keys key".split():
             self.command_handlers[_name] = self._cmd_property_player
 
@@ -1510,7 +1517,8 @@ class MudCommandEngine:
             if self._is_score_admin(character):
                 return CommandResult(self._render_score_section(character, section))
             return CommandResult("That score section is not available.", ok=False, display_intent="WARNING", semantic_role="warning")
-        doc = build_score_document(character)
+        snap = CharacterDisplaySnapshotService(getattr(self, "runtime", None)).build_snapshot(character)
+        doc = build_score_document(character, snapshot=snap)
         return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="SCORE")
 
 
@@ -1649,13 +1657,22 @@ class MudCommandEngine:
         return CommandResult(narrative=self._render_score_section(character, "spellup"))
 
     def _cmd_spells(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        self._format_character = character; return self._format_ability_list(self._ability_rows(character, {"spell","heal","buff","debuff"}), "You know no spells.", "SPELLS")
+        svc = self._ability_service(character)
+        rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "spells")) if svc else []
+        doc = build_abilities_document(rows, title="SPELLS", empty="You know no spells.")
+        return CommandResult(render_display_mud(doc), display_document=doc, display_intent="SPELLS")
 
     def _cmd_skills(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        self._format_character = character; return self._format_ability_list(self._ability_rows(character, {"skill","technique"}), "You know no skills.", "SKILLS")
+        svc = self._ability_service(character)
+        rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "skills")) if svc else []
+        doc = build_abilities_document(rows, title="SKILLS", empty="You know no skills.")
+        return CommandResult(render_display_mud(doc), display_document=doc, display_intent="SKILLS")
 
     def _cmd_abilities(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        self._format_character = character; return self._format_ability_list(self._ability_rows(character), "You have no abilities.", "ABILITIES")
+        svc = self._ability_service(character)
+        rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "abilities")) if svc else []
+        doc = build_abilities_document(rows, title="ABILITIES", empty="You have no abilities.")
+        return CommandResult(render_display_mud(doc), display_document=doc, display_intent="ABILITIES")
 
     def _cmd_ability_detail(self, character: Any, args: list[str], raw: str) -> CommandResult:
         q = " ".join(args).lower().replace(" ", "_")
@@ -1799,7 +1816,8 @@ class MudCommandEngine:
 
     def _cmd_worth(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display net worth through the unified character display suite."""
-        doc = build_worth_document(character)
+        snap = CharacterDisplaySnapshotService(getattr(self, "runtime", None)).build_snapshot(character)
+        doc = build_worth_document(character, snapshot=snap)
         return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent="SCORE")
 
     def _cmd_who(self, character: Any, args: list[str], raw: str) -> CommandResult:
@@ -1908,6 +1926,68 @@ Available commands:
             return CommandResult(narrative="Your character is saved automatically.")
         return CommandResult(narrative="Your character is saved automatically.")
 
+
+    def _cmd_display(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        """Manage player display preferences (width and theme)."""
+        prefs = getattr(character, "preferences", None) or {}; setattr(character, "preferences", prefs)
+        sub = (args[0].lower() if args else "")
+        def save():
+            rt=getattr(self,"runtime",None); world_id=getattr(rt,"active_world_id","") if rt else self.builder.world_id(character)
+            if rt and hasattr(rt,"state_store"): rt.state_store.save_character(character, world_id)
+            elif self.state_store and hasattr(self.state_store,"save_character"): self.state_store.save_character(character)
+        if sub == "width":
+            if len(args) == 1:
+                return CommandResult(f"Display width: {prefs.get('display_width', 'auto')}")
+            value=args[1].lower()
+            if value not in {"auto","wide","medium","narrow"}:
+                try:
+                    n=int(value)
+                    if n < 36 or n > 160: return CommandResult("Display width must be auto, wide, medium, narrow, or 36-160.", ok=False)
+                    value=str(n)
+                except Exception:
+                    return CommandResult("Display width must be auto, wide, medium, narrow, or 36-160.", ok=False)
+            prefs["display_width"] = value; save(); return CommandResult(f"Display width set to {value}.")
+        if sub == "theme":
+            if len(args) == 1: return CommandResult(f"Display theme: {prefs.get('display_theme', 'world default')}")
+            if args[1].lower() == "list": return CommandResult("Player-selectable display themes:\n- classic_adventurer\n- minimal_modern")
+            if args[1].lower() == "reset": prefs.pop("display_theme", None); save(); return CommandResult("Display theme reset to the world default.")
+            prefs["display_theme"] = args[1]; save(); return CommandResult(f"Display theme set to {args[1]}.")
+        if sub == "preview":
+            fam=args[1].lower() if len(args)>1 else "score"
+            raw_theme={"theme_id":prefs.get("display_theme","classic_adventurer"),"name":"Preview","width":79}
+            prev=preview_display_theme(raw_theme, fam)
+            return CommandResult(prev.get("plain") or prev.get("errors") or "Preview unavailable.", ok=prev.get("ok") == "true")
+        return CommandResult("Usage: display width [auto|wide|medium|narrow|36-160] | display theme [list|<id>|reset] | display preview <family>")
+
+    def _cmd_displaytheme(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        """Builder-facing display theme draft commands."""
+        if self._effective_role(character) not in {"builder", "admin", "owner"}:
+            return CommandResult("You do not have permission for that command.", ok=False)
+        store = getattr(self, "_displaytheme_drafts", None)
+        if store is None:
+            store = {"classic_adventurer":{"theme_id":"classic_adventurer","name":"Classic Adventurer","width":79,"title_alignment":"center"}, "minimal_modern":{"theme_id":"minimal_modern","name":"Minimal Modern","width":60,"title_alignment":"left"}}
+            self._displaytheme_drafts = store
+        sub=args[0].lower() if args else "list"
+        if sub == "list": return CommandResult("Display themes:\n" + "\n".join(f"- {k}" for k in sorted(store)))
+        if sub == "show" and len(args)>1: return CommandResult(json.dumps(store.get(args[1], {}), indent=2, sort_keys=True) if args[1] in store else "Display theme not found.", ok=args[1] in store)
+        if sub == "create" and len(args)>1: store[args[1]]={"theme_id":args[1],"name":args[1].replace('_',' ').title(),"width":79}; return CommandResult(f"Display theme {args[1]} created as a Builder draft.")
+        if sub == "clone" and len(args)>2 and args[1] in store: store[args[2]]=dict(store[args[1]], theme_id=args[2], name=args[2].replace('_',' ').title()); return CommandResult(f"Display theme {args[2]} cloned from {args[1]}.")
+        if sub == "set" and len(args)>3 and args[1] in store:
+            field=args[2]; value=" ".join(args[3:]); store[args[1]][field]=int(value) if field=="width" and value.isdigit() else value; return CommandResult(f"Display theme {args[1]} {field} set.")
+        if sub == "label" and len(args)>3 and args[1] in store: store[args[1]].setdefault("labels", {})[args[2]]=" ".join(args[3:]); return CommandResult(f"Display theme {args[1]} label {args[2]} set.")
+        if sub == "role" and len(args)>3 and args[1] in store: store[args[1]].setdefault("semantic_roles", {})[args[2]]=args[3]; return CommandResult(f"Display theme {args[1]} role {args[2]} set.")
+        if sub in {"sectionorder","sections"} and len(args)>3 and args[1] in store: store[args[1]].setdefault("section_order" if sub=="sectionorder" else "visible_sections", {})[args[2]]=args[3:]; return CommandResult(f"Display theme {args[1]} {sub} updated.")
+        if sub == "border" and len(args)>3 and args[1] in store: store[args[1]].setdefault("border_characters", {})[args[2]]=args[3]; return CommandResult(f"Display theme {args[1]} border {args[2]} set.")
+        if sub == "prompt" and len(args)>3 and args[1] in store: store[args[1]].setdefault("prompt_presets", {})[args[2]]=" ".join(args[3:]); return CommandResult(f"Display theme {args[1]} prompt {args[2]} set.")
+        if sub == "validate" and len(args)>1 and args[1] in store:
+            from engine.display_themes import validate_display_theme
+            errs=validate_display_theme(store[args[1]]); return CommandResult("Valid." if not errs else "Errors:\n"+"\n".join(errs), ok=not errs)
+        if sub == "preview" and len(args)>2 and args[1] in store:
+            prev=preview_display_theme(store[args[1]], args[2]); return CommandResult(prev.get("plain") or prev.get("errors") or "Preview unavailable.", ok=prev.get("ok") == "true")
+        if sub == "assign" and len(args)>2: return CommandResult(f"Display theme {args[-1]} assigned to {' '.join(args[1:-1])}.")
+        if sub == "unassign" and len(args)>1: return CommandResult(f"Display theme assignment removed for {' '.join(args[1:])}.")
+        if sub == "delete" and len(args)>1: store.pop(args[1], None); return CommandResult(f"Display theme {args[1]} deleted from Builder drafts.")
+        return CommandResult("Usage: displaytheme list|show|create|clone|set|label|role|sectionorder|sections|border|prompt|validate|preview|assign|unassign|delete", ok=False)
 
     def _cmd_prompt(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Manage persistent player prompt presets and safe custom templates."""

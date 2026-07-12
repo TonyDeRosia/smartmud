@@ -90,3 +90,54 @@ def preview_display_theme(raw: dict[str, Any], family: str = "score") -> dict[st
     if width and getattr(doc, "frames", None):
         for frame in doc.frames: frame.width = width
     return {"ok": "true", "plain": render_display_plain(doc), "mud": render_display_mud(doc), "html": render_display_html(doc)}
+
+@dataclass(frozen=True)
+class ResolvedDisplayTheme:
+    theme_id: str = "engine_default"
+    family: str = "score"
+    width: int = 79
+    frame_style: str = "classic_double"
+    title_alignment: str = "center"
+    section_order: tuple[str, ...] = ()
+    visible_sections: tuple[str, ...] = ()
+    empty_section_policy: str = "hide"
+    labels: dict[str, str] = field(default_factory=dict)
+    semantic_roles: dict[str, str] = field(default_factory=dict)
+    border_characters: dict[str, str] = field(default_factory=dict)
+    divider_characters: dict[str, str] = field(default_factory=dict)
+    templates: dict[str, Any] = field(default_factory=dict)
+    prompt_presets: dict[str, str] = field(default_factory=dict)
+
+
+def load_display_themes(world_root: str | Any = "worlds/shattered_realms") -> dict[str, DisplayTheme]:
+    import json
+    from pathlib import Path
+    root = Path(world_root)
+    path = root / "display_themes" / "display_themes.json"
+    if not path.exists(): return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    items = raw.get("display_themes", raw) if isinstance(raw, dict) else raw
+    out={}
+    for item in items if isinstance(items, list) else []:
+        errs = validate_display_theme(item)
+        if errs: continue
+        tid = str(item.get("theme_id") or item.get("id") or "")
+        if tid: out[tid] = DisplayTheme(theme_id=tid, name=str(item.get("name") or tid), description=str(item.get("description") or ""), frame_style=str(item.get("frame_style") or "classic_double"), width=int(item.get("width") or 79), title_alignment=str(item.get("title_alignment") or "center"), section_order=dict(item.get("section_order") or {}), visible_sections=dict(item.get("visible_sections") or {}), empty_section_policy=str(item.get("empty_section_policy") or "hide"), labels=dict(item.get("labels") or {}), semantic_roles=dict(item.get("semantic_roles") or {}), border_characters=dict(item.get("border_characters") or {}), divider_characters=dict(item.get("divider_characters") or {}), prompt_presets=dict(item.get("prompt_presets") or {}), templates=dict(item.get("templates") or {}), metadata=dict(item.get("metadata") or {}))
+    return out
+
+
+def resolve_effective_display_theme(character: Any = None, world_id: str = "shattered_realms", zone_id: str = "", area_id: str = "", family: str = "score", themes: dict[str, DisplayTheme] | None = None) -> ResolvedDisplayTheme:
+    from pathlib import Path
+    themes = themes or load_display_themes(Path("worlds") / (world_id or "shattered_realms"))
+    prefs = getattr(character, "preferences", {}) or {} if character is not None else {}
+    selected = prefs.get("display_theme") or "classic_adventurer"
+    theme = themes.get(str(selected)) or themes.get("classic_adventurer") or DisplayTheme("engine_default", "Engine Default")
+    width_pref = str(prefs.get("display_width") or theme.width or "79")
+    width = {"wide":79,"medium":60,"narrow":44,"auto":int(theme.width or 79)}.get(width_pref, None)
+    if width is None:
+        try: width=max(36, min(160, int(width_pref)))
+        except Exception: width=int(theme.width or 79)
+    roles=dict(theme.semantic_roles)
+    if prefs.get("no_color"):
+        roles = {k:"content" for k in roles}
+    return ResolvedDisplayTheme(theme_id=theme.theme_id, family=family, width=width, frame_style=theme.frame_style, title_alignment=theme.title_alignment, section_order=tuple((theme.section_order or {}).get(family, ())), visible_sections=tuple((theme.visible_sections or {}).get(family, ())), empty_section_policy=theme.empty_section_policy, labels=dict(theme.labels), semantic_roles=roles, border_characters=dict(theme.border_characters), divider_characters=dict(theme.divider_characters), templates=dict((theme.templates or {}).get(family, {})), prompt_presets=dict(theme.prompt_presets))
