@@ -105,7 +105,7 @@ class AbilityRuntimeGateway:
         if actor is None:
             self.service._log_missing_actor(character_id, ability_query, invocation_context or {})
             return AbilityUseResult(False, reason_code="actor_registration_missing", player_message="Your character is not ready to use abilities yet. Please re-enter the world.", actor_id=character_id)
-        resolved = self.resolve_ability(actor.actor_id, ability_query)
+        resolved = self.resolve_ability(actor.actor_id, ability_query) or self.resolve_ability(character_id, ability_query)
         if not resolved:
             return AbilityUseResult(False, reason_code="unknown_ability", player_message="Unknown ability.", actor_id=character_id)
         ab = self.service.registry.abilities[resolved]
@@ -120,20 +120,34 @@ class AbilityRuntimeGateway:
             events=list(res.get("events") or []), metadata={k: v for k, v in (res.get("metadata") or {}).items() if k in {"effect_type", "room_id"}},
         )
 
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        value = re.sub(r"\s+", " ", str(query or "").lower().replace("_", " ")).strip()
+        return re.sub(r"^(use|cast|perform|invoke)\s+", "", value).strip()
+
     def resolve_ability(self, actor_id: str, query: str) -> str:
-        q = re.sub(r"\s+", " ", str(query or "").lower().replace("_", " ")).strip()
-        explicit = re.sub(r"^(use|cast|perform|invoke)\s+", "", q)
-        learned = {r["id"] for r in self.service.get_actor_abilities(actor_id)}
+        q = self._normalize_query(query)
+        learned = {str(r["id"]) for r in self.service.get_actor_abilities(actor_id)}
         matches: list[str] = []
         for aid, ab in self.service.registry.abilities.items():
+            if aid not in learned:
+                continue
             pdata = ab.plugin_data or {}
-            command = re.sub(r"\s+", " ", str(pdata.get("command") or pdata.get("usage") or "").lower()).strip()
             aliases = pdata.get("aliases") or []
-            if isinstance(aliases, str): aliases = [aliases]
-            names = {aid.replace("_", " "), str(ab.name).lower(), str(ab.short_name).lower()}
-            if aid in learned and (q == command or q in {str(a).lower() for a in aliases} or explicit in names or explicit == command):
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            candidates = {
+                self._normalize_query(aid),
+                self._normalize_query(aid.replace("_", " ")),
+                self._normalize_query(str(ab.name)),
+                self._normalize_query(str(ab.short_name)),
+                self._normalize_query(str(pdata.get("command") or "")),
+                self._normalize_query(str(pdata.get("usage") or "")),
+            } | {self._normalize_query(str(a)) for a in aliases}
+            if q and q in {c for c in candidates if c}:
                 matches.append(aid)
-        return matches[0] if len(set(matches)) == 1 else ""
+        unique = sorted(set(matches))
+        return unique[0] if len(unique) == 1 else ""
 
 class AbilityRegistry:
     def __init__(self, package: Any|None=None, records: dict[str, list[dict[str, Any]]]|None=None):
@@ -286,14 +300,14 @@ class AbilityExecutionService:
         if ab.ability_type == "passive" or ab.activation_type == "passive":
             return self._validation_result(tr, "PASSIVE", "Passive")
 
-        from engine.display_services import _natural_seconds
         cd=tr.get("cooldowns") or {}
         if cd.get("remaining") is not None:
-            tr["cooldown_remaining_text"] = _natural_seconds(cd.get("remaining"))
+            rem = int(cd.get("remaining") or 0)
+            tr["cooldown_remaining_text"] = f"{rem} game minute" + ("" if rem == 1 else "s")
         for step in tr.get("trace", []):
             name=str(step.get("step") or "")
             if step.get("ready") is False:
-                remaining = tr.get("cooldown_remaining_text") or _natural_seconds(cd.get("remaining"))
+                remaining = tr.get("cooldown_remaining_text") or "0 game minutes"
                 return self._validation_result(tr, "BLOCKED_COOLDOWN", f"Ready in {remaining}" if remaining != "Ready" else "Ready", cooldown_remaining=cd.get("remaining"))
             if step.get("ok") is False:
                 if name == "confirm_grant": return self._validation_result(tr, "BLOCKED_NOT_LEARNED", "Not learned.")
@@ -535,7 +549,8 @@ class AbilityExecutionService:
         dur=int(num((ab.cooldowns or {}).get("cooldown_duration", (ab.cooldowns or {}).get("duration",0)))); charges=int(num((ab.cooldowns or {}).get("charges",0))); wt=self.world_time()
         if self.db_path and (dur or charges):
             cid=f"cd_{actor_id}_{ab.id}_{(ab.cooldowns or {}).get('cooldown_group','ability')}"
-            with sqlite3.connect(self.db_path) as c: c.execute("INSERT OR REPLACE INTO actor_ability_cooldowns VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (cid,self.world_id,"actor",actor_id,ab.id,str((ab.cooldowns or {}).get("cooldown_group") or ab.id),wt,wt+dur,max(0,charges-1) if charges else 0,charges,wt+int(num((ab.cooldowns or {}).get("charge_recovery",dur))),1,now(),now(),"{}"))
+            metadata = jdump({"time_unit":"world_minutes","time_domain":"world_time","source_action":"ability_start"})
+            with sqlite3.connect(self.db_path) as c: c.execute("INSERT OR REPLACE INTO actor_ability_cooldowns VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (cid,self.world_id,"actor",actor_id,ab.id,str((ab.cooldowns or {}).get("cooldown_group") or ab.id),wt,wt+dur,max(0,charges-1) if charges else 0,charges,wt+int(num((ab.cooldowns or {}).get("charge_recovery",dur))),1,now(),now(),metadata))
             self._pub("ability_cooldown_started", {"actor_id":actor_id,"ability_id":ab.id,"ready_world_time":wt+dur})
     def _apply_damage_component(self, actor: Actor, target: Actor, ab: AbilityDefinition, comp: dict[str,Any], cast_id: str) -> dict[str,Any]:
         rt = getattr(self, "runtime", None)
@@ -595,7 +610,17 @@ class AbilityExecutionService:
         if not self.db_path: return []
         with sqlite3.connect(self.db_path) as c: rows=c.execute("SELECT grant_id,ability_id,source_type,source_id,source_instance_id,rank,proficiency,enabled,temporary,starts_at,expires_at,metadata_json FROM actor_ability_grants WHERE actor_id=? AND enabled=1 ORDER BY ability_id,source_type,grant_id",(actor_id,)).fetchall()
         return [{"grant_id":r[0],"ability_id":r[1],"source_type":r[2],"source_id":r[3],"source_instance_id":r[4],"rank":r[5],"proficiency":r[6],"enabled":bool(r[7]),"temporary":bool(r[8]),"starts_at":r[9],"expires_at":r[10],"metadata":jload(r[11])} for r in rows]
-    def world_time(self) -> int: return int(getattr(self,"_world_time",0) or 0)
+    def world_time(self) -> int:
+        rt = getattr(self, "runtime", None)
+        if rt and hasattr(rt, "get_world_time"):
+            try:
+                wt = rt.get_world_time(self.world_id) or {}
+                if wt.get("total_minutes") is not None:
+                    return int(wt.get("total_minutes") or 0)
+                return (max(1, int(wt.get("day") or 1)) - 1) * 1440 + int(wt.get("hour") or 0) * 60 + int(wt.get("minute") or 0)
+            except Exception:
+                pass
+        return int(getattr(self,"_world_time",0) or 0)
     def _pub(self, name: str, payload: dict[str,Any]) -> None:
         if self.event_bus: self.event_bus.publish(name,payload,source_system="abilities",world_id=self.world_id)
 

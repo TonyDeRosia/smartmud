@@ -215,6 +215,10 @@ class WebRuntime:
     def select_world(self, world_id: str) -> dict[str, Any]:
         world = self.world_registry.load_world(world_id)
         self.active_world_id = world.id
+        self.web_session.world_id = world.id
+        self.web_session.state = "character_select"
+        self.web_session.character_id = None
+        self.active_character_id = ""
         self.mud_runtime.load_world(world.id)
         manifest = {
             **world.manifest,
@@ -230,8 +234,19 @@ class WebRuntime:
             raise HTTPException(status_code=401, detail="Authenticate before listing characters.")
         return self.mud_runtime.list_characters(self.active_world_id, self.web_session.account_id or "")
 
+    def _character_entered(self) -> bool:
+        return bool(
+            self.web_session.authenticated
+            and self.active_world_id
+            and self.web_session.world_id == self.active_world_id
+            and self.active_character_id
+            and self.web_session.character_id == self.active_character_id
+            and self.web_session.state == "playing"
+        )
+
     def account_session(self) -> dict[str, Any]:
-        return {"session_id": self.web_session.session_id, "transport_type": self.web_session.transport_type, "account_id": self.web_session.account_id, "character_id": self.web_session.character_id, "world_id": self.web_session.world_id, "authenticated": bool(self.web_session.authenticated), "state": self.web_session.state, "account_exists": self.mud_runtime.any_account_exists()}
+        state = self.web_session.state or ("logged_out" if not self.web_session.authenticated else "account_authenticated")
+        return {"session_id": self.web_session.session_id, "transport_type": self.web_session.transport_type, "account_id": self.web_session.account_id, "character_id": self.web_session.character_id, "world_id": self.web_session.world_id, "authenticated": bool(self.web_session.authenticated), "state": state, "session_state": state, "character_entered": self._character_entered(), "account_exists": self.mud_runtime.any_account_exists()}
 
 
     def publish_flow_failure(self, event_name: str, exc: Exception, username: str = "", world_id: str = "") -> None:
@@ -245,7 +260,7 @@ class WebRuntime:
 
     def create_account(self, payload: dict[str, Any]) -> dict[str, Any]:
         account = self.mud_runtime.create_account(str(payload.get("username") or payload.get("account_name") or "local_dev"), str(payload.get("password") or ""), str(payload.get("email") or ""), str(payload.get("notes") or ""))
-        self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "character_select"
+        self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "account_authenticated"
         self.mud_runtime.authenticate_session(self.web_session.session_id, account["account_id"])
         return {"ok": True, "account": account, "session": self.account_session()}
 
@@ -257,7 +272,7 @@ class WebRuntime:
             account = self.mud_runtime.ensure_dev_account()
         else:
             account = self.mud_runtime.login_account(username, str(payload.get("password") or ""), self.web_session.session_id)
-        self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "character_select"
+        self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "account_authenticated"
         return {"ok": True, "account": account, "session": self.account_session()}
 
     def logout_account(self) -> dict[str, Any]:
@@ -382,11 +397,17 @@ class WebRuntime:
             "prompt_text": prompt_text,
             "prompt_html": prompt_html,
             "save_status": "Saved.",
+            "session_state": self.web_session.state,
+            "state": self.web_session.state,
+            "session": self.account_session(),
+            "character_entered": self._character_entered(),
             "command_echo": command_echo,
             "command_history": ([{"command_text": command}] if command else []),
         }
 
     def play_view(self) -> dict[str, Any]:
+        if not self._character_entered():
+            return {"ok": True, "state": self.web_session.state, "session_state": self.web_session.state, "session": self.account_session(), "character_entered": False, "prompt_text": "", "prompt_html": "", "output_text": "", "output_html": "", "async_messages": []}
         return self._normalize_mud_view(self.mud_runtime.play_view(self.active_character_id))
 
     def handle_input(self, command: str, command_echo: bool = True) -> dict[str, Any]:
@@ -394,9 +415,7 @@ class WebRuntime:
             raise HTTPException(status_code=401, detail="Authenticate before sending commands.")
         if not self.active_world_id or not self.web_session.world_id:
             raise HTTPException(status_code=409, detail="Select a world before sending commands.")
-        if not self.active_character_id or not self.web_session.character_id:
-            raise HTTPException(status_code=409, detail="Select and enter a character before sending commands.")
-        if self.web_session.state != "playing":
+        if not self._character_entered():
             raise HTTPException(status_code=409, detail="Enter a character before sending commands.")
         response = self.web_transport.handle_message(TransportMessage(session=self.web_session, text=command))
         result = response.metadata.get("result", {})
@@ -486,6 +505,8 @@ def _failure_code(exc: Exception) -> str:
 
 def _expected_error(exc: Exception, state: str = "account_login") -> Any:
     msg = str(exc) or "Request failed."
+    if "enter a character before sending commands" in msg.lower() or "select and enter a character" in msg.lower():
+        return _api_error(409, msg, "not_playing_character", "character_select")
     low = msg.lower()
     if isinstance(exc, PermissionError) or "does not belong" in low:
         return _api_error(403, msg, "character_not_owned", "character_select")
@@ -604,7 +625,7 @@ def create_web_app(runtime: WebRuntime, static_root: Path) -> Any:
         try:
             return runtime.handle_input(str(payload.get("command") or payload.get("text") or ""), payload.get("command_echo") is not False)
         except HTTPException as exc:
-            code = "unauthenticated" if exc.status_code == 401 else "session_not_playing"
+            code = "unauthenticated" if exc.status_code == 401 else "not_playing_character"
             return _api_error(exc.status_code, str(exc.detail), code, "character_select")
         except Exception as exc:
             return _expected_error(exc, "character_select")
