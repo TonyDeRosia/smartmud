@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from engine.actors import Actor, ActorRegistry, actor_from_runtime_character
-from engine.combat import CombatEngine, DamageEvent, apply_healing as actor_apply_healing, modify_resource
+from engine.combat import CombatEngine, DamageEvent
+from engine.runtime_resources import RuntimeResourceService
 from engine.combat_equipment import CombatContentRegistry
 
 ABILITY_TYPES = {"skill","spell","technique","heal","buff","debuff","utility","defensive","movement","racial","profession","monster","natural","item","passive","administrative","custom"}
@@ -522,7 +523,7 @@ class AbilityExecutionService:
         paid=[]
         for c in ab.costs:
             if str(c.get("consume_on","start")) != consume_on: continue
-            amt=self._cost_amount(actor,c); trace=modify_resource(actor,str(c.get("resource_id")),-amt,source="ability_cost",metadata={"ability_id":ab.id}); paid.append(trace); self._pub("ability_cost_paid", dict(trace, ability_id=ab.id, actor_id=actor.actor_id))
+            amt=self._cost_amount(actor,c); rr=RuntimeResourceService(getattr(self,"runtime",None), db_path=self.db_path, event_bus=self.event_bus, world_id=self.world_id).pay_cost(actor,str(c.get("resource_id")),amt,metadata={"source":"ability_cost","ability_id":ab.id}); trace={"resource":rr.resource,"operation":rr.operation,"before":rr.before,"amount":rr.applied_amount,"after":rr.after,"reason_code":rr.reason_code}; paid.append(trace); self._pub("ability_cost_paid", dict(trace, ability_id=ab.id, actor_id=actor.actor_id))
         return paid
     def _cooldown_status(self, actor_id: str, ab: AbilityDefinition) -> dict[str, Any]:
         wt=self.world_time(); rows=[]
@@ -547,7 +548,7 @@ class AbilityExecutionService:
     def apply_healing(self, source_actor_id: str, target_actor_id: str, amount: int, ability_id: str|None=None, component_id: str|None=None, metadata: dict[str,Any]|None=None) -> HealingEvent:
         target=self._get_actor(target_actor_id)
         if target is None: raise ValueError(f"Actor not registered: {target_actor_id}")
-        before=int(num(target.resources.health)); maxh=int(num(target.resources.maximum_health,before)); base=max(0,int(amount)); trace=actor_apply_healing(target,base,source="ability_healing",metadata={"ability_id":ability_id,"component_id":component_id}); final=int(trace["after"])-before; ev=HealingEvent("heal_"+uuid.uuid4().hex,self.world_id,source_actor_id,target_actor_id,ability_id,metadata.get("cast_id") if metadata else None,component_id,base,(metadata or {}).get("formula_id"),False,None,{},final,max(0,before+base-maxh),self.world_time(),[{**trace}],metadata or {})
+        before=int(num(target.resources.health)); maxh=int(num(target.resources.maximum_health,before)); base=max(0,int(amount)); rr=RuntimeResourceService(getattr(self,"runtime",None), db_path=self.db_path, event_bus=self.event_bus, world_id=self.world_id).apply_healing(target,base,metadata={"source":"ability_healing","ability_id":ability_id or "","component_id":component_id or ""}); trace={"resource":rr.resource,"operation":rr.operation,"before":rr.before,"amount":rr.applied_amount,"after":rr.after,"reason_code":rr.reason_code}; final=int(rr.after)-before; ev=HealingEvent("heal_"+uuid.uuid4().hex,self.world_id,source_actor_id,target_actor_id,ability_id,metadata.get("cast_id") if metadata else None,component_id,base,(metadata or {}).get("formula_id"),False,None,{},final,max(0,before+base-maxh),self.world_time(),[{**trace}],metadata or {})
         self._pub("ability_healing_applied", asdict(ev)); return ev
     def _apply_effect(self, actor: Actor, target: Actor, ab: AbilityDefinition, eff: dict[str,Any], cast_id: str) -> dict[str,Any]:
         eid="eff_"+uuid.uuid4().hex; cat=str(eff.get("category") or eff.get("disposition") or ("positive" if ab.ability_type in {"buff","defensive"} else "negative")); rec={"effect_instance_id":eid,"effect_template_id":eff.get("effect_template_id"),"target_actor_id":target.actor_id,"source_actor_id":actor.actor_id,"ability_id":ab.id,"cast_id":cast_id,"category":cat,"stacks":int(num(eff.get("stacks",1),1))}

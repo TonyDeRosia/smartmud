@@ -1754,20 +1754,42 @@ class MudCommandEngine:
     def _cmd_combatbreakdown(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if self._effective_role(character) not in {"builder","admin","owner"}: return CommandResult("Combat breakdown diagnostics require Builder access.", ok=False)
         rt=getattr(self, "runtime", None); cr=getattr(rt, "combat_runtime", None) if rt else None
+        if not cr: return CommandResult("Combat runtime diagnostics are not available.", ok=False)
         sub=(args[0].lower() if args else "last")
+        import sqlite3
+        def load_rows(where: str = "", params: tuple[Any, ...] = (), limit: int = 10):
+            with sqlite3.connect(cr.db_path) as con:
+                return con.execute("SELECT history_id,encounter_id,round_number,actor_id,target_actor_id,action_type,ability_id,outcome,damage,healing,result_json,world_time,created_at FROM combat_round_history " + where + " ORDER BY created_at DESC LIMIT ?", (*params, limit)).fetchall()
         if sub=="formula" and len(args)>=2:
             _,combat=self._stat_services(character); fid=args[1]
             return CommandResult(json.dumps({"formula_id":fid,"expression":combat.formulas.get(fid),"available":fid in combat.formulas}, indent=2), ok=fid in combat.formulas)
-        data=getattr(cr, "last_resolution", None) if cr else None
-        if not data and cr:
-            import sqlite3
-            with sqlite3.connect(cr.db_path) as con:
-                row=con.execute("SELECT result_json FROM combat_round_history ORDER BY created_at DESC LIMIT 1").fetchone()
-                if row:
-                    try: data=json.loads(row[0] or "{}")
-                    except Exception: data={"raw": row[0]}
+        if sub=="history":
+            rows=load_rows(limit=int(args[1]) if len(args)>1 and args[1].isdigit() else 10)
+            if not rows: return CommandResult("No combat history is available.", ok=False)
+            lines=["COMBAT BREAKDOWN HISTORY"]
+            for r in rows:
+                lines.append(f"{r[0]} round={r[2]} actor={r[3]} target={r[4]} result={r[7]} damage={r[8]} healing={r[9]} time={r[11]}")
+            return CommandResult("\n".join(lines))
+        if sub=="action" and len(args)>=2:
+            rows=load_rows("WHERE history_id=? OR json_extract(result_json, '$.action_id')=?", (args[1], args[1]), 1)
+            if not rows: return CommandResult("No combat action diagnostic matched that ID.", ok=False)
+            try: data=json.loads(rows[0][10] or "{}")
+            except Exception: data={"raw": rows[0][10]}
+            return CommandResult("COMBAT BREAKDOWN ACTION\n"+json.dumps({"history_id":rows[0][0],"round":rows[0][2],"actor":rows[0][3],"target":rows[0][4],"result":data}, indent=2, default=str))
+        if sub=="target" and len(args)>=2:
+            q=args[1]; aid=q if ':' in q else ('character:'+q)
+            rows=load_rows("WHERE actor_id=? OR target_actor_id=? OR actor_id LIKE ? OR target_actor_id LIKE ?", (aid, aid, '%'+q+'%', '%'+q+'%'), 10)
+            if not rows: return CommandResult("No recent diagnostics involved that target.", ok=False)
+            return CommandResult("COMBAT BREAKDOWN TARGET\n"+"\n".join(f"{r[0]} actor={r[3]} target={r[4]} result={r[7]} damage={r[8]}" for r in rows))
+        data=getattr(cr, "last_resolution", None)
+        if not data:
+            rows=load_rows(limit=1)
+            if rows:
+                try: data=json.loads(rows[0][10] or "{}")
+                except Exception: data={"raw": rows[0][10]}
+                data={"history_id":rows[0][0],"round":rows[0][2],"actor":rows[0][3],"target":rows[0][4],"result":data}
         if not data: return CommandResult("No combat resolution breakdown is available yet.", ok=False)
-        return CommandResult("COMBAT BREAKDOWN\n"+json.dumps(data, indent=2, default=str))
+        return CommandResult("COMBAT BREAKDOWN LAST\n"+json.dumps(data, indent=2, default=str))
 
     def _cmd_statbreakdown(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if not args: return CommandResult("Usage: statbreakdown <stat>", ok=False)
