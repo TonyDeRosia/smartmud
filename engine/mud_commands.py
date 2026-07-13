@@ -316,7 +316,7 @@ class MudCommandEngine:
             "whoami": self._cmd_whoami,
             "save": self._cmd_save,
             "desc": self._cmd_builder_edit,
-            "recall": self._cmd_generic,
+            "recall": self._cmd_direct_ability,
             "grantrole": self._cmd_grantrole,
             "help": self._cmd_help,
             "helpedit": self._cmd_helpedit,
@@ -1973,6 +1973,10 @@ class MudCommandEngine:
                 return self._format_ability_list([r], "Ability not found.", "ABILITY")
         return CommandResult("Ability not found.", ok=False)
 
+    def _cmd_direct_ability(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        cmd = raw.strip().split()[0].lower() if raw.strip() else ""
+        return self._cmd_use_ability(character, [cmd] + list(args), raw)
+
     def _cmd_use_ability(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if not args: return CommandResult("Use which ability?", ok=False)
         svc = self._ability_service(character)
@@ -1997,6 +2001,8 @@ class MudCommandEngine:
                 res=cr.queue_ability(character, str(best[1].get('id')), target)
                 return CommandResult('\n'.join(res.messages), ok=res.ok)
 
+        if args and args[0].lower() in {"use", "cast", "invoke", "perform"}:
+            args = args[1:]
         phrase = " ".join(args).lower().strip()
         aid = phrase.replace(" ", "_")
         target = "self"
