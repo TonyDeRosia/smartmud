@@ -56,3 +56,25 @@ Manual acceptance was not run in this Linux CI/container session. Suggested Wind
 10. Remove equipment/effect and confirm reversion.
 11. Restart and confirm persistence.
 12. Run `set camp`, `set camp`, `build campfire`, and `recall` to verify noncombat regressions.
+
+## Phase 13C3-A3E stale resource-state audit
+
+Generic `MudCharacter` persistence now treats identity, location, progression, builder/editor state, inventory/equipment compatibility data, and other non-resource JSON as its ownership boundary.  Canonical current and maximum combat resources are owned by `RuntimeResourceService` through `actor_resource_versions` plus its mutation request ledger.
+
+Audited reload/save paths and stale-write exposure:
+
+| Path | Reload/save behavior | Stale resource risk | Phase 13C3-A3E control |
+| --- | --- | --- | --- |
+| `MudRuntime.enter_world` | Loads `MudCharacter`, ensures starter progression, registers a live Actor, then saves. | A pre-combat JSON blob could restore hp/mana/stamina during login. | The loaded character is hydrated from `RuntimeResourceService.hydrate_character()` before Actor registration or save. |
+| `MudRuntime.handle_input` | Reloads the command-facing character for every command and saves at command completion. | A normal noncombat command after combat could save old hp/mana/stamina. | The command-facing object is hydrated before dispatch, and `MudStateStore.save_character()` overlays canonical resource rows before writing JSON/stats. |
+| `MudRuntime.play_view` | Reloads character for room/prompt rendering. | Prompt/resource display could render stale values. | The character projection is hydrated before rendering. |
+| Command completion saves | All ordinary command completion flows call `save_character`. | Any handler retaining an older object could persist stale resources. | `save_character` is now guarded at the persistence boundary and cannot blindly write stale current resources when canonical rows exist. |
+| Movement | Movement mutates room/location and then uses command completion save. | Location save could carry stale resource fields. | Resource overlay runs inside the generic save. |
+| Inventory/equipment commands | Item ownership/equipment state can trigger command completion save. | Equipment changes could carry stale hp/mana/stamina from the character JSON. | Resource overlay runs inside the generic save; equipment remains generic/runtime item ownership, not resource ownership. |
+| Ability commands | Ability execution may mutate resources and then command completion saves. | Ability costs/damage/healing could be overwritten by the older command object. | Resource mutations route through `RuntimeResourceService`; final generic save hydrates from canonical rows. |
+| Combat rounds | Combat runtime persists actor state and may reload character records. | Combat and command paths could race over health. | Resource mutation versions are the resource authority; stale expected versions are denied with `stale_resource_version`. |
+| Controller actions / NPC actions | Controllers create combat work while player command objects may still exist. | Direct controller payloads with final state could overwrite health. | Controllers must submit canonical requests; resource writes are protected by `actor_resource_versions`. |
+| Logout/session refresh/world reload | These paths reload characters and refresh runtime projections. | Reloaded JSON could contain older resource values. | Loading and saving now overlay canonical rows wherever the runtime persistence boundary is used. |
+| Persistence helpers | `MudStateStore.load_character` and `save_character` are shared by many systems. | They were the largest stale-write chokepoint. | Both now consult `actor_resource_versions`; generic character persistence does not own current resources after canonical rows exist. |
+
+Optimistic write rule: a resource mutation may include an expected version.  If the caller's expected version is older than the current `actor_resource_versions.version`, the mutation returns a structured denial with reason `stale_resource_version`, reloads the persisted current value into the Actor projection, and does not overwrite the newer value.

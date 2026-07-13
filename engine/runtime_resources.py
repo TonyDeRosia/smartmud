@@ -41,6 +41,7 @@ class ResourceMutationResult:
     persistence_version: int = 0
     events: tuple[dict[str, Any], ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    expected_version: int | None = None
 
 @dataclass(frozen=True)
 class LifecycleTransitionResult:
@@ -87,12 +88,61 @@ class RuntimeResourceService:
         close = con is None
         con = con or sqlite3.connect(self.db_path)
         col = {"health":"hp_current", "mana":"mana_current", "stamina":"stamina_current"}.get(resource)
-        if col: con.execute(f"UPDATE characters SET {col}=?,updated_at=? WHERE character_id=?", (after, _now(), cid))
-        con.execute("INSERT INTO character_stats(character_id,stat_name,stat_value) VALUES(?,?,?) ON CONFLICT(character_id,stat_name) DO UPDATE SET stat_value=excluded.stat_value", (cid, resource, after))
-        con.execute("INSERT INTO character_stats(character_id,stat_name,stat_value) VALUES(?,?,?) ON CONFLICT(character_id,stat_name) DO UPDATE SET stat_value=excluded.stat_value", (cid, f"maximum_{resource}", maximum))
+        if col:
+            try:
+                con.execute(f"UPDATE characters SET {col}=?,updated_at=? WHERE character_id=?", (after, _now(), cid))
+            except sqlite3.OperationalError:
+                pass
+        try:
+            con.execute("INSERT INTO character_stats(character_id,stat_name,stat_value) VALUES(?,?,?) ON CONFLICT(character_id,stat_name) DO UPDATE SET stat_value=excluded.stat_value", (cid, resource, after))
+            con.execute("INSERT INTO character_stats(character_id,stat_name,stat_value) VALUES(?,?,?) ON CONFLICT(character_id,stat_name) DO UPDATE SET stat_value=excluded.stat_value", (cid, f"maximum_{resource}", maximum))
+        except sqlite3.OperationalError:
+            cols = {"health": ("hp", "max_hp"), "mana": ("mana", "max_mana"), "stamina": ("stamina", "max_stamina")}.get(resource)
+            if cols:
+                con.execute(f"UPDATE character_stats SET {cols[0]}=?,{cols[1]}=?,updated_at=CURRENT_TIMESTAMP WHERE character_id=?", (after, maximum, cid))
         if close: con.commit(); con.close()
 
-    def mutate(self, actor: Actor, resource: str, operation: str, amount: int = 0, *, maximum: int | None = None, action_id: str = "", metadata: dict[str, Any] | None = None) -> ResourceMutationResult:
+    def _actor_ids(self, actor_or_character_id: Any) -> list[str]:
+        aid = str(getattr(actor_or_character_id, "actor_id", actor_or_character_id) or "")
+        out = [aid] if aid else []
+        if aid.startswith("character:"):
+            out.append(aid.split(":", 1)[1])
+        elif aid and ":" not in aid:
+            out.append("character:" + aid)
+        return list(dict.fromkeys(out))
+
+    def hydrate_character(self, character: Any) -> Any:
+        """Overlay command-facing character resources from canonical resource rows.
+
+        Generic character JSON may be loaded from an older command object.  This
+        method makes RuntimeResourceService the read authority for current and
+        maximum resources whenever actor_resource_versions contains a row.
+        """
+        if not self.db_path or character is None:
+            return character
+        ids = self._actor_ids(getattr(character, "id", ""))
+        if not ids:
+            return character
+        placeholders = ",".join("?" for _ in ids)
+        with sqlite3.connect(self.db_path) as con:
+            rows = con.execute(
+                f"SELECT actor_id,resource,value,maximum,version FROM actor_resource_versions WHERE actor_id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        for _aid, resource, value, maximum, version in rows:
+            if resource == "health":
+                setattr(character, "hp", _num(value, getattr(character, "hp", 0)))
+                setattr(character, "max_hp", _num(maximum, getattr(character, "max_hp", 0)))
+            elif resource == "mana":
+                setattr(character, "mana", _num(value, getattr(character, "mana", 0)))
+                setattr(character, "max_mana", _num(maximum, getattr(character, "max_mana", 0)))
+            elif resource == "stamina":
+                setattr(character, "stamina", _num(value, getattr(character, "stamina", 0)))
+                setattr(character, "max_stamina", _num(maximum, getattr(character, "max_stamina", 0)))
+            getattr(character, "actor_data", {}).setdefault("resource_versions", {})[str(resource)] = int(version or 0)
+        return character
+
+    def mutate(self, actor: Actor, resource: str, operation: str, amount: int = 0, *, maximum: int | None = None, action_id: str = "", metadata: dict[str, Any] | None = None, expected_version: int | None = None) -> ResourceMutationResult:
         resource = str(resource); operation = str(operation)
         meta = {str(k): v for k, v in (metadata or {}).items() if k in SAFE_META and isinstance(v, (str, int, float, bool, type(None)))}
         if action_id: meta["action_id"] = action_id
@@ -102,14 +152,25 @@ class RuntimeResourceService:
         self._publish("resource_mutation_requested", request_event)
         if resource not in RESOURCES or operation not in OPS:
             ev = {**request_event, "event":"resource_mutation_denied", "reason_code":"unsupported_resource_or_operation"}; self._publish("resource_mutation_denied", ev)
-            return ResourceMutationResult(False, actor.actor_id, cid, resource, operation, before, req, 0, before, maxv, False, "unsupported_resource_or_operation", 0, (request_event, ev), meta)
+            return ResourceMutationResult(False, actor.actor_id, cid, resource, operation, before, req, 0, before, maxv, False, "unsupported_resource_or_operation", 0, (request_event, ev), meta, expected_version)
+        persisted_version = 0
+        if self.db_path:
+            with sqlite3.connect(self.db_path) as con:
+                row = con.execute("SELECT value,maximum,version FROM actor_resource_versions WHERE actor_id=? AND resource=?", (actor.actor_id, resource)).fetchone()
+                if row:
+                    before = _num(row[0], before); maxv = _num(maximum if maximum is not None else row[1], maxv); persisted_version = int(row[2] or 0)
+                    setattr(actor.resources, resource, before); setattr(actor.resources, f"maximum_{resource}", maxv)
+        if expected_version is not None and int(expected_version) != int(persisted_version):
+            ev = {**request_event, "event":"resource_mutation_denied", "before":before, "after":before, "maximum":maxv, "reason_code":"stale_resource_version", "expected_version":int(expected_version), "persistence_version":persisted_version}
+            self._publish("resource_mutation_denied", ev)
+            return ResourceMutationResult(False, actor.actor_id, cid, resource, operation, before, req, 0, before, maxv, False, "stale_resource_version", persisted_version, (request_event, ev), meta, expected_version)
         if operation in {"damage", "cost"}: after = max(0, before - req)
         elif operation in {"healing", "regeneration"}: after = min(maxv, before + req)
         elif operation == "set": after = max(0, min(maxv, req))
         elif operation in {"clamp", "maximum_changed"}: after = max(0, min(maxv, before))
         else: after = before
         applied = abs(after - before); clamped = after != (before + req if operation in {"healing","regeneration"} else before - req if operation in {"damage","cost"} else req if operation=="set" else before)
-        version = 0
+        version = persisted_version
         if after != before and self.db_path:
             with sqlite3.connect(self.db_path) as con:
                 con.execute("BEGIN IMMEDIATE")
