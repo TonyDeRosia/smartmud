@@ -147,7 +147,10 @@ class CharacterAttributeService:
     def get_all_attributes(self, character, context=None):
         self.migrate_character(character); rows=self._rows(_cid(character)); mods=self.collect_modifiers(character,context); out={}
         for aid,d in sorted(self.definitions.items(), key=lambda kv:kv[1].get('display_order',99)):
-            row=rows.get(aid,{}); base=int(row.get('base_value',d.get('default_value',10))); perm=int(row.get('permanent_modifier',0)); rel=[m for m in mods if m.target_stat in {aid, 'attribute.'+aid}]; v,src=self._apply(base+perm, rel); final=max(int(d.get('minimum_value',1)), min(int(d.get('maximum_value',30)), int(math.floor(v))))
+            row=rows.get(aid,{})
+            legacy=getattr(character,'attributes',None) or (getattr(character,'actor_data',{}) or {}).get('attributes',{})
+            legacy_val=legacy.get(aid) if isinstance(legacy,dict) else None
+            base=int(row.get('base_value', legacy_val if legacy_val is not None else d.get('default_value',10))); perm=int(row.get('permanent_modifier',0)); rel=[m for m in mods if m.target_stat in {aid, 'attribute.'+aid}]; v,src=self._apply(base+perm, rel); final=max(int(d.get('minimum_value',1)), min(int(d.get('maximum_value',30)), int(math.floor(v))))
             sums={k:sum((m.value if m.operation=='add' else -m.value if m.operation=='subtract' else 0) for m in rel if m.source_type==k) for k in ['equipment','affect','temporary','situational']}
             out[aid]=CalculatedAttribute(aid,d.get('name',aid.title()),base,perm,sums['equipment'],sums['affect'],sums['temporary'],sums['situational'],final,int(d.get('minimum_value',1)),int(d.get('maximum_value',30)),src)
         return out
@@ -192,7 +195,8 @@ class CombatStatService:
         return {'stat_id':stat_id,'value':rounded,'formula':expr,'inputs':vars,'modifiers':src,'rounding':d.get('rounding','floor'),'clamping':[d.get('minimum_value',0),d.get('maximum_value',100000)]}
     def get_resistances(self,ch,context=None):
         mods=self.attribute_service.collect_modifiers(ch,context); out={t:0 for t in _load_json(self.world_root/'formulas/derived_stats.json',{}).get('resistance_types',[])}
-        for t in list(out): out[t]=int(self.attribute_service._apply(0,[m for m in mods if m.target_stat in {f'resistance.{t}',t+'_resistance'}])[0])
+        profile=getattr(ch,'resistance_profile',None) or getattr(ch,'resistances',None) or {}
+        for t in list(out): out[t]=int(self.attribute_service._apply(int(profile.get(t,0) or 0) if isinstance(profile,dict) else 0,[m for m in mods if m.target_stat in {f'resistance.{t}',t+'_resistance'}])[0])
         return out
     def get_encumbrance(self,ch,context=None):
         weight=self.get_stat(ch,'current_carry_weight',context); cap=max(1,self.get_stat(ch,'carry_capacity',context)); pct=int(weight/cap*100); state='unburdened'

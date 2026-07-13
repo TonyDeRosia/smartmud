@@ -179,6 +179,51 @@
       "expression": "(current_carry_weight / carry_capacity) * 100 if carry_capacity else 0",
       "enabled": true,
       "metadata": {}
+    },
+    {
+      "formula_id": "attack_hit_resolution",
+      "expression": "50 + accuracy + hit_bonus - evasion + posture_modifier + range_modifier",
+      "enabled": true,
+      "metadata": {
+        "phase": "13C3-A3",
+        "authoritative_combat_stage": true
+      }
+    },
+    {
+      "formula_id": "armor_mitigation",
+      "expression": "raw_damage - effective_armor",
+      "enabled": true,
+      "metadata": {
+        "phase": "13C3-A3",
+        "authoritative_combat_stage": true
+      }
+    },
+    {
+      "formula_id": "resistance_mitigation",
+      "expression": "post_armor_damage * (100 - resistance_percent) / 100",
+      "enabled": true,
+      "metadata": {
+        "phase": "13C3-A3",
+        "authoritative_combat_stage": true
+      }
+    },
+    {
+      "formula_id": "saving_throw_resolution",
+      "expression": "50 + save_rating - difficulty",
+      "enabled": true,
+      "metadata": {
+        "phase": "13C3-A3",
+        "authoritative_combat_stage": true
+      }
+    },
+    {
+      "formula_id": "critical_resolution",
+      "expression": "critical_rating - critical_avoidance",
+      "enabled": true,
+      "metadata": {
+        "phase": "13C3-A3",
+        "authoritative_combat_stage": true
+      }
     }
   ]
 }

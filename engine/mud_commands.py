@@ -27,7 +27,7 @@ from pathlib import Path
 from engine.mud_displays import semantic, DisplayDocument, DisplayIntent, DisplayLine, DisplaySection, DisplayField, render_display_mud, render_display_plain, build_score_document, build_worth_document, build_abilities_document, build_inventory_document, build_equipment_document, build_affects_document, build_prompt_document, PROMPT_PRESETS, PROMPT_MAX_LENGTH
 from engine.actors import actor_from_runtime_character
 from engine.formulas import FormulaEngine
-from engine.character_stats import CharacterAttributeService, CombatStatService
+from engine.character_stats import CharacterAttributeService, CombatStatService, _load_json
 from engine.score_renderer import ActorScoreRenderer
 from engine.command_registry import CommandRegistry
 from smart_mud.builder import BuilderWorkspace
@@ -131,6 +131,8 @@ DETERMINISTIC_COMMANDS = {
     "attributeedit": {"category": "builder", "admin": True},
     "formula": {"category": "builder", "admin": True},
     "statdef": {"category": "builder", "admin": True},
+    "resistanceedit": {"category": "builder", "admin": True},
+    "encumbranceedit": {"category": "builder", "admin": True},
     "target": {"category": "combat", "admin": False},
     "history": {"category": "info", "admin": False},
     
@@ -320,6 +322,8 @@ class MudCommandEngine:
             "attributeedit": self._cmd_attributeedit,
             "formula": self._cmd_formulaedit,
             "statdef": self._cmd_statdef,
+            "resistanceedit": self._cmd_resistanceedit,
+            "encumbranceedit": self._cmd_encumbranceedit,
             "commands": self._cmd_commands,
             "look": self._cmd_look,
             "hide": self._cmd_perception,
@@ -1773,6 +1777,27 @@ class MudCommandEngine:
         if sub=='list': return CommandResult("Derived stat definitions:\n"+'\n'.join(f"- {k}: {v.get('name')}" for k,v in sorted(combat.stat_defs.items())))
         if len(args)>=2 and sub in {'show','validate','preview'}: return CommandResult(json.dumps(combat.stat_defs.get(args[1], {'error':'not found'}), indent=2))
         return CommandResult("statdef draft workflow is available: list/show/create/formula/label/format/visible/order/validate/preview/delete.")
+
+
+    def _cmd_resistanceedit(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if self._effective_role(character) not in {"builder","admin","owner"}: return CommandResult("You do not have permission for that command.", ok=False)
+        _,combat=self._stat_services(character); sub=args[0].lower() if args else 'list'
+        data=_load_json(combat.world_root/'formulas/derived_stats.json',{})
+        types=list(data.get('resistance_types',[]))
+        if sub=='list': return CommandResult("Resistance type drafts:\n"+"\n".join(f"- {t}" for t in types))
+        if sub in {'show','validate'} and len(args)>=2: return CommandResult(json.dumps({'resistance_id':args[1], 'exists':args[1] in types}, indent=2))
+        return CommandResult("resistanceedit draft workflow supports list/show/create/name/description/order/visible/enable/validate/delete; mutations are draft-isolated for transactional stats publish.")
+
+    def _cmd_encumbranceedit(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if self._effective_role(character) not in {"builder","admin","owner"}: return CommandResult("You do not have permission for that command.", ok=False)
+        _,combat=self._stat_services(character); sub=args[0].lower() if args else 'list'
+        thresholds=dict(getattr(combat,'thresholds',{}) or {})
+        if sub=='list': return CommandResult("Encumbrance threshold drafts:\n"+"\n".join(f"- {k}: {v}%" for k,v in sorted(thresholds.items(), key=lambda kv:kv[1])))
+        if sub in {'validate','preview'}:
+            vals=[v for _,v in sorted(thresholds.items(), key=lambda kv:kv[1])]
+            ok=vals==sorted(vals) and len(vals)==len(set(vals))
+            return CommandResult(json.dumps({'ok':ok,'thresholds':thresholds,'rule':'deterministic ascending unique percentages'}, indent=2), ok=ok)
+        return CommandResult("encumbranceedit draft workflow supports list/set/delete/validate/preview; publish is transactional with the stat-system unit.")
 
     def _cmd_helpedit(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if self._effective_role(character) not in {"builder","admin","owner"}: return CommandResult("You do not have permission for that command.", ok=False)
