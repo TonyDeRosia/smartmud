@@ -22,6 +22,7 @@ from engine.formulas import FormulaEngine
 from engine.combat_equipment import CombatContentRegistry
 from engine.phase5f import ActorLifecycleManager, BodyProfileRegistry
 from engine.conditions import condition_key
+from engine.runtime_resources import RuntimeResourceService, ResourceMutationResult
 
 
 class CombatState(StrEnum):
@@ -134,7 +135,7 @@ class CombatResolutionResult:
     ok: bool; reason_code: str; attacker_id: str; defender_id: str; attack_kind: str
     ability_id: str | None = None; weapon_instance_id: str | None = None; hit: bool = False; miss_reason: str = ""
     critical: bool = False; critical_kind: str = ""; raw_amount: int = 0; mitigated_amount: int = 0; final_amount: int = 0
-    damage_type: str = "physical"; resource_changes: tuple[ResourceChange, ...] = (); affects_applied: tuple[dict[str, Any], ...] = ()
+    damage_type: str = "physical"; resource_changes: tuple[ResourceChange, ...] = (); resource_mutation: ResourceMutationResult | None = None; affects_applied: tuple[dict[str, Any], ...] = ()
     defender_defeated: bool = False; messages: dict[str, str] = field(default_factory=dict); events: tuple[dict[str, Any], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -393,14 +394,14 @@ class CombatResolutionService:
             mult=float(ctx.safe_metadata().get('critical_multiplier') or 1.5)
             raw=round(self._formula('healing_resolution','base_amount + healing_power * healing_coefficient', {'base_amount':base,'healing_power':heal_power,'healing_coefficient':coeff}))
             effective=int(raw*mult) if crit else int(raw)
-            rt=apply_healing(defender, effective, source='combat_healing', metadata={'attacker_id':attacker.actor_id})
-            actual=int(rt['after'])-int(rt['before']); overheal=max(0,effective-actual)
-            change=ResourceChange(defender.actor_id,str(ctx.safe_metadata().get('resource_target') or 'health'),int(rt['before']),actual,int(rt['after']),'healing')
+            rt=RuntimeResourceService(self.runtime, event_bus=self.event_bus).apply_healing(defender, effective, action_id=ctx.action_id, metadata={'source':'combat_healing','action_id':ctx.action_id})
+            actual=int(rt.after)-int(rt.before); overheal=max(0,effective-actual)
+            change=ResourceChange(defender.actor_id,str(ctx.safe_metadata().get('resource_target') or 'health'),int(rt.before),actual,int(rt.after),'healing')
             events.extend([{'event':'critical_resolved','critical':crit,'critical_kind':'critical_heal'},{'event':'healing_calculated','actor_id':defender.actor_id,'raw':raw,'effective':actual,'overheal':overheal},{'event':'healing_applied','actor_id':defender.actor_id,'amount':actual}])
             for ev in events: self._publish(ev.get('event','combat_event'), ev)
             trace.append({'step':'healing_calculated','formula_id':'healing_resolution','inputs':{'base_amount':base,'healing_power':heal_power,'healing_coefficient':coeff},'raw':raw,'effective':actual,'overheal':overheal,'critical':crit})
             self.engine.set_state(attacker, CombatState.RECOVERING)
-            return CombatResolutionResult(True,'healed',attacker.actor_id,defender.actor_id,attack_kind,ctx.ability_id,ctx.weapon_instance_id,True,'',crit,'critical_heal',raw,0,actual,'healing',(change,),(),False,{'attacker':f'You heal {defender.identity.name} for {actual}.','victim':f'{attacker.identity.name} heals you for {actual}.','observers':f'{attacker.identity.name} heals {defender.identity.name}.'},tuple(events),{'trace':trace,'attacker_source_version':a.source_version,'defender_source_version':d.source_version,'overheal':overheal})
+            return CombatResolutionResult(True,'healed',attacker.actor_id,defender.actor_id,attack_kind,ctx.ability_id,ctx.weapon_instance_id,True,'',crit,'critical_heal',raw,0,actual,'healing',(change,),rt,(),False,{'attacker':f'You heal {defender.identity.name} for {actual}.','victim':f'{attacker.identity.name} heals you for {actual}.','observers':f'{attacker.identity.name} heals {defender.identity.name}.'},tuple(events),{'trace':trace,'attacker_source_version':a.source_version,'defender_source_version':d.source_version,'overheal':overheal})
         acc=int(a.offense.get('accuracy',0)); hit_bonus=int(a.offense.get('hit_bonus',0)); evasion=int(d.defense.get('evasion',0))
         attacker_posture = self._posture_rule(ctx.attacker_position)
         defender_posture = self._posture_rule(ctx.defender_position)
@@ -445,11 +446,15 @@ class CombatResolutionService:
         resist_event={'event':'resistance_mitigation_resolved','damage_after_armor':after_armor,'resistance_value':resist,'final_damage':final}
         events.extend([armor_event,resist_event,{'event':'damage_calculated','raw_amount':raw,'final_amount':final,'damage_type':dtype}])
         trace.append({'step':'damage_mitigated','raw':raw,'armor':armor,'armor_penetration':penetration,'after_armor':after_armor,'resistance_value':resist,'order':'armor_then_resistance','final':final,'range':range_diag,'posture_rule':defender_posture,'saving_throw':asdict(save_result) if save_result else None})
-        rt=apply_healing(defender, final, source='combat_healing', metadata={'attacker_id':attacker.actor_id}) if attack_kind==AttackKind.HEALING.value else apply_damage(defender, final, metadata={'attacker_id':attacker.actor_id})
-        change=ResourceChange(defender.actor_id,'health',int(rt['before']),int(rt.get('amount',final)),int(rt['after']),str(rt['operation']))
+        rsvc=RuntimeResourceService(self.runtime, event_bus=self.event_bus)
+        rt=rsvc.apply_healing(defender, final, action_id=ctx.action_id, metadata={'source':'combat_healing','action_id':ctx.action_id}) if attack_kind==AttackKind.HEALING.value else rsvc.apply_damage(defender, final, action_id=ctx.action_id, metadata={'source':'combat_damage','action_id':ctx.action_id})
+        change=ResourceChange(defender.actor_id,'health',int(rt.before),int(rt.applied_amount),int(rt.after),str(rt.operation))
         defeated=defender.resources.health<=0 and attack_kind!=AttackKind.HEALING.value
-        if defeated: self.engine.set_state(defender, CombatState.DEAD); events.append({'event':'actor_defeated','actor_id':defender.actor_id})
+        lifecycle=None
+        if defeated:
+            lifecycle=rsvc.evaluate_zero_health(defender, trigger_action_id=ctx.action_id)
+            self.engine.set_state(defender, CombatState.DEAD); events.append({'event':'actor_defeated','actor_id':defender.actor_id,'transition_id':lifecycle.transition_id,'already_processed':lifecycle.already_processed})
         self.engine.set_state(attacker, CombatState.RECOVERING); evname='healing_applied' if attack_kind==AttackKind.HEALING.value else 'damage_applied'; events.extend([{'event':'attack_hit','attacker_id':attacker.actor_id,'defender_id':defender.actor_id},{'event':'critical_resolved','critical':crit,'critical_kind':crit_stat},{'event':evname,'actor_id':defender.actor_id,'amount':final}])
         de=DamageEvent(attacker.actor_id,defender.actor_id,atk.metadata.get('weapon',{}),asdict(atk),dtype,raw,crit,mitigated,final,self.engine.tick); messages=self.engine._messages(attacker,defender,'hit',de)
         for ev in events: self._publish(ev.get('event','combat_event'), ev)
-        return CombatResolutionResult(True,'hit',attacker.actor_id,defender.actor_id,attack_kind,ctx.ability_id,ctx.weapon_instance_id,True,'',crit,crit_stat,raw,mitigated,final,dtype,(change,),(),defeated,messages,tuple(events),{'trace':trace,'attacker_source_version':a.source_version,'defender_source_version':d.source_version})
+        return CombatResolutionResult(True,'hit',attacker.actor_id,defender.actor_id,attack_kind,ctx.ability_id,ctx.weapon_instance_id,True,'',crit,crit_stat,raw,mitigated,final,dtype,(change,),rt,(),defeated,messages,tuple(events),{'trace':trace,'attacker_source_version':a.source_version,'defender_source_version':d.source_version})
