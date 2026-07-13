@@ -34,6 +34,7 @@ from engine.schedules import ScheduleService
 from engine.combat_runtime import CombatRuntimeService, init_combat_runtime_schema
 from engine.agent_runtime import AgentRuntimeGateway, DeterministicControllerEvaluator, init_agent_runtime_schema
 from engine.character_stats import CharacterAttributeService, CombatStatService
+from engine.runtime_resources import RuntimeResourceService
 
 logger = logging.getLogger(__name__)
 
@@ -473,6 +474,12 @@ class MudStateStore:
 
     def save_character(self, char: MudCharacter, world_id: str) -> None:
         """Save character to SQLite."""
+        # Generic character persistence owns identity, location, progression,
+        # preferences, builder state, inventory/equipment compatibility data,
+        # and non-resource JSON.  RuntimeResourceService owns canonical current
+        # resource values.  If canonical rows exist, overlay them before writing
+        # JSON and do not let an older command object restore health/mana/stamina.
+        char = self._overlay_canonical_resources(char)
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO characters 
@@ -485,11 +492,33 @@ class MudStateStore:
                 """INSERT OR REPLACE INTO character_stats
                    (character_id, hp, max_hp, mana, max_mana, stamina, max_stamina, xp, level, gold, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-                (char.id, char.hp, char.max_hp, char.mana, char.max_mana, 
-                 char.stamina, char.max_stamina, char.xp, char.level, char.gold)
+                (char.id, char.hp, char.max_hp, char.mana, char.max_mana, char.stamina, char.max_stamina, char.xp, char.level, char.gold)
             )
             conn.commit()
         print(f"[mud-persistence] Saved character {char.name} ({char.id})")
+
+    def _overlay_canonical_resources(self, char: MudCharacter) -> MudCharacter:
+        ids = [char.id, "character:" + char.id]
+        with sqlite3.connect(self.db_path) as conn:
+            try:
+                rows = conn.execute(
+                    f"SELECT resource,value,maximum,version FROM actor_resource_versions WHERE actor_id IN ({','.join('?' for _ in ids)})",
+                    ids,
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+        versions = getattr(char, "actor_data", {}) if isinstance(getattr(char, "actor_data", {}), dict) else {}
+        rv = versions.setdefault("resource_versions", {})
+        for resource, value, maximum, version in rows:
+            if resource == "health":
+                char.hp, char.max_hp = int(value or 0), int(maximum or value or 0)
+            elif resource == "mana":
+                char.mana, char.max_mana = int(value or 0), int(maximum or value or 0)
+            elif resource == "stamina":
+                char.stamina, char.max_stamina = int(value or 0), int(maximum or value or 0)
+            rv[str(resource)] = int(version or 0)
+        char.actor_data = versions
+        return char
 
     def load_character(self, char_id: str) -> Optional[MudCharacter]:
         """Load character from SQLite."""
@@ -513,6 +542,7 @@ class MudStateStore:
                                 data["role"] = data["account_role"]
                 print(f"[mud-persistence] Loaded character {data.get('name')} ({char_id})")
                 ch = MudCharacter(**{k: v for k, v in data.items() if k in MudCharacter.__dataclass_fields__})
+                ch = self._overlay_canonical_resources(ch)
                 if hasattr(self, "presentation_preferences"):
                     self.presentation_preferences.apply_to_character(ch)
                 return ch
@@ -611,6 +641,7 @@ class MudRuntime:
         self.attribute_service = CharacterAttributeService(self.state_store, 'shattered_realms', event_bus=self.event_bus)
         self.attribute_service.runtime = self
         self.combat_stat_service = CombatStatService(self.attribute_service)
+        self.runtime_resources = RuntimeResourceService(self, world_id="shattered_realms")
         self.command_engine.presentation_preferences = self.presentation_preferences
         self.command_engine.character_display_snapshots = self.character_display_snapshots
         init_agent_runtime_schema(self.state_store.db_path)
@@ -959,6 +990,9 @@ class MudRuntime:
                 row = conn.execute("SELECT world_id FROM characters WHERE id = ?", (character_id,)).fetchone()
             if row and row[0]:
                 self.load_world(str(row[0]))
+        if getattr(self, "runtime_resources", None):
+            self.runtime_resources.world_id = self.active_world_id or self.runtime_resources.world_id
+            self.runtime_resources.hydrate_character(char)
         self._ensure_starter_progression(char)
         self.register_live_character(char)
         self.state_store.save_character(char, self.active_world_id or "")
@@ -984,6 +1018,8 @@ class MudRuntime:
         char = self.state_store.load_character(character_id) if character_id else None
         if char is None:
             return {"html": "", "text": "Create a character to enter the world.", "prompt": ">"}
+        if getattr(self, "runtime_resources", None):
+            self.runtime_resources.hydrate_character(char)
         room = self._current_room(char)
         colors = self.get_effective_mud_colors()
         html = render_room(room, colors, char)
@@ -1206,6 +1242,9 @@ class MudRuntime:
         char = self.state_store.load_character(character_id)
         if char is None:
             raise ValueError(f"Character not found: {character_id}")
+        if getattr(self, "runtime_resources", None):
+            self.runtime_resources.world_id = self.active_world_id or self.runtime_resources.world_id
+            self.runtime_resources.hydrate_character(char)
         self.register_live_character(char)
         if getattr(char, "builder_desc_editor_room_id", ""):
             from engine.mud_commands import CommandResult
