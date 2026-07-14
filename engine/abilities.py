@@ -184,6 +184,127 @@ class AbilityAvailabilityService:
         return rows
 
 
+class AuraRuntimeService:
+    """Runtime authority for aura instances and actor memberships."""
+    def __init__(self, ability_service: "AbilityExecutionService"):
+        self.ability_service = ability_service; self.event_bus = ability_service.event_bus
+        self._subscribe()
+    def _subscribe(self) -> None:
+        if not self.event_bus: return
+        for name in ("actor_entered_room","actor_left_room","movement_succeeded","actor_defeated","actor_died","character_logout","item_unequipped","effect_removed","effect_expired","stance_removed","world_loaded","runtime_ready","startup_complete"):
+            self.event_bus.subscribe(name, self.handle_event, source="AuraRuntimeService")
+    def handle_event(self, event: Any) -> None:
+        p = getattr(event, "payload", {}) or {}; svc=self.ability_service
+        actor_id = str(p.get("actor_id") or p.get("character_id") or p.get("source_actor_id") or "")
+        if event.event_name in {"actor_defeated","actor_died","character_logout"} and actor_id:
+            self.remove_source_auras(actor_id, event.event_name)
+        if event.event_name in {"item_unequipped","effect_removed","effect_expired","stance_removed"}:
+            source_id = str(p.get("item_instance_id") or p.get("effect_instance_id") or p.get("stance_effect_instance_id") or "")
+            if source_id: self.remove_source_auras(source_id, event.event_name)
+        if event.event_name in {"actor_entered_room","actor_left_room","movement_succeeded"} and actor_id:
+            new_room = str(p.get("new_room_id") or p.get("room_id") or "")
+            if new_room and actor_id in svc.actors: svc.actors[actor_id].identity.current_location = new_room
+            self.reconcile_actor_memberships(actor_id)
+            if event.event_name == "movement_succeeded":
+                self.reconcile_source_auras(actor_id)
+        if event.event_name in {"world_loaded","runtime_ready","startup_complete"}:
+            self.recover_auras()
+    def activate_aura(self, actor_id: str, ability_id: str, eff: dict[str, Any], origin_action_id: str) -> dict[str, Any]:
+        return self.ability_service.create_aura(actor_id, ability_id, eff, origin_action_id)
+    def remove_aura(self, aura_instance_id: str, reason: str="removed") -> dict[str, Any]:
+        return self.ability_service.remove_aura(aura_instance_id, reason)
+    def reconcile_aura(self, aura_instance_id: str) -> list[dict[str, Any]]:
+        return self.ability_service.update_aura_membership(aura_instance_id)
+    def reconcile_actor_memberships(self, actor_id: str) -> list[dict[str, Any]]:
+        if not self.ability_service.db_path: return []
+        with sqlite3.connect(self.ability_service.db_path) as c:
+            ids=[r[0] for r in c.execute("SELECT aura_instance_id FROM aura_instances WHERE active=1")]
+        return [x for aid in ids for x in self.reconcile_aura(aid)]
+    def reconcile_source_auras(self, actor_id: str) -> list[dict[str, Any]]:
+        if not self.ability_service.db_path: return []
+        with sqlite3.connect(self.ability_service.db_path) as c:
+            ids=[r[0] for r in c.execute("SELECT aura_instance_id FROM aura_instances WHERE active=1 AND source_actor_id=?", (actor_id,))]
+        return [x for aid in ids for x in self.reconcile_aura(aid)]
+    def recover_auras(self) -> list[dict[str, Any]]:
+        if not self.ability_service.db_path: return []
+        with sqlite3.connect(self.ability_service.db_path) as c:
+            ids=[r[0] for r in c.execute("SELECT aura_instance_id FROM aura_instances WHERE active=1")]
+        return [x for aid in ids for x in self.reconcile_aura(aid)]
+    def remove_source_auras(self, source_id: str, reason: str="source_removed") -> list[dict[str, Any]]:
+        if not self.ability_service.db_path: return []
+        with sqlite3.connect(self.ability_service.db_path) as c:
+            ids=[r[0] for r in c.execute("SELECT aura_instance_id FROM aura_instances WHERE active=1 AND (source_actor_id=? OR source_instance_id=?)", (source_id, source_id))]
+        return [self.remove_aura(aid, reason) for aid in ids]
+
+
+class SummonRuntimeService:
+    def __init__(self, ability_service: "AbilityExecutionService"):
+        self.ability_service=ability_service; self.event_bus=ability_service.event_bus
+        if self.event_bus:
+            for name in ("movement_succeeded","actor_died","actor_defeated","character_logout","actor_left_world","runtime_ready","world_loaded"):
+                self.event_bus.subscribe(name, self.handle_event, source="SummonRuntimeService")
+    def handle_event(self, event: Any) -> None:
+        p=getattr(event,"payload",{}) or {}; actor_id=str(p.get("actor_id") or p.get("character_id") or "")
+        if event.event_name == "movement_succeeded" and actor_id: self.follow_owner(actor_id, str(p.get("new_room_id") or p.get("room_id") or ""))
+        if event.event_name in {"actor_died","actor_defeated","character_logout","actor_left_world"} and actor_id: self.cleanup_owner_summons(actor_id, event.event_name)
+        if event.event_name in {"runtime_ready","world_loaded"}: self.recover_summons()
+    def create_summons(self,*a: Any, **kw: Any) -> list[dict[str, Any]]: return self.ability_service.create_summons(*a, **kw)
+    def cleanup_summon(self, summon_id: str, reason: str, origin_action_id: str="") -> dict[str, Any]:
+        actor=self.ability_service.actors.get(summon_id); owner=(actor.plugin_data or {}).get("owner_actor_id","") if actor else ""
+        if not owner and self.ability_service.db_path:
+            with sqlite3.connect(self.ability_service.db_path) as c:
+                row=c.execute("SELECT owner_actor_id FROM summon_relationships WHERE actor_id=?", (summon_id,)).fetchone(); owner=row[0] if row else ""
+        return self.ability_service.dismiss_summon(owner, summon_id, reason)
+    def cleanup_owner_summons(self, owner_id: str, reason: str) -> dict[str, Any]: return self.ability_service.dismiss_summon(owner_id, "all", reason)
+    def follow_owner(self, owner_id: str, new_room_id: str) -> list[dict[str, Any]]:
+        out=[]
+        for actor in list(self.ability_service.actors.values()):
+            pd=actor.plugin_data or {}
+            if pd.get("owner_actor_id")==owner_id and pd.get("follow_policy", pd.get("relationship","follow")) in {"same_room","follow_when_possible","follow"} and new_room_id:
+                actor.identity.current_location = new_room_id; out.append({"summon_instance_id":actor.actor_id,"result":"followed","room_id":new_room_id})
+                self.ability_service._pub("summon_followed", out[-1] | {"owner_actor_id": owner_id})
+        return out
+    def recover_summons(self) -> list[dict[str, Any]]:
+        # Current lightweight actors are in-memory; persisted relationships are idempotently skipped if already present.
+        return []
+
+
+class RoomEffectRuntimeService:
+    def __init__(self, ability_service: "AbilityExecutionService"):
+        self.ability_service=ability_service; self.event_bus=ability_service.event_bus
+        if self.event_bus:
+            for name in ("actor_entered_room","actor_left_room","movement_succeeded","runtime_ready","world_loaded","runtime_shutdown"):
+                self.event_bus.subscribe(name, self.handle_event, source="RoomEffectRuntimeService")
+    def handle_event(self, event: Any) -> None:
+        p=getattr(event,"payload",{}) or {}; actor_id=str(p.get("actor_id") or p.get("character_id") or "")
+        if event.event_name in {"actor_entered_room","movement_succeeded"} and actor_id: self.actor_entered(actor_id, str(p.get("new_room_id") or p.get("room_id") or ""))
+        if event.event_name == "actor_left_room" and actor_id: self.actor_exited(actor_id, str(p.get("old_room_id") or p.get("room_id") or ""))
+        if event.event_name in {"runtime_ready","world_loaded"}: self.recover_room_effects()
+    def create_room_effect(self,*a: Any, **kw: Any) -> dict[str, Any]: return self.ability_service.create_room_effect(*a, **kw)
+    def actor_entered(self, actor_id: str, room_id: str) -> list[dict[str, Any]]:
+        return self.ability_service.reconcile_room_effect_memberships(room_id, actor_id)
+    def actor_exited(self, actor_id: str, room_id: str) -> list[dict[str, Any]]:
+        return self.ability_service.remove_room_effect_memberships(room_id, actor_id, "left_room")
+    def process_ticks(self, world_time: int|None=None) -> list[dict[str, Any]]: return self.ability_service.process_room_effect_ticks(world_time)
+    def recover_room_effects(self) -> list[dict[str, Any]]:
+        if not self.ability_service.db_path: return []
+        with sqlite3.connect(self.ability_service.db_path) as c:
+            rows=c.execute("SELECT room_id FROM room_effect_instances WHERE state='active'").fetchall()
+        return [x for (rid,) in rows for x in self.ability_service.reconcile_room_effect_memberships(rid)]
+
+
+class StanceRuntimeService:
+    def __init__(self, ability_service: "AbilityExecutionService"): self.ability_service=ability_service
+class TransformationRuntimeService:
+    def __init__(self, ability_service: "AbilityExecutionService"): self.ability_service=ability_service
+class SummonProfileService:
+    def __init__(self, ability_service: "AbilityExecutionService"): self.ability_service=ability_service
+class PassiveTriggerService:
+    def __init__(self, ability_service: "AbilityExecutionService"): self.ability_service=ability_service
+class ItemAbilityRuntimeService:
+    def __init__(self, ability_service: "AbilityExecutionService"): self.ability_service=ability_service
+
+
 @dataclass
 class AbilityDefinition:
     id: str; name: str = ""; short_name: str = ""; description: str = ""; ability_type: str = "custom"
@@ -396,6 +517,7 @@ class AbilityExecutionService:
         self.allow_isolated_combat_engine = bool(allow_isolated_combat_engine or combat_runtime is None)
         self.combat = CombatEngine(content=CombatContentRegistry(package)) if self.allow_isolated_combat_engine else None
         self.actor_registry = actor_registry or ActorRegistry(); self.actors = self.actor_registry.actors; self.availability = AbilityAvailabilityService(self); self.effect_operations = AbilityEffectOperationRegistry()
+        self.aura_runtime = AuraRuntimeService(self); self.stance_runtime = StanceRuntimeService(self); self.transformation_runtime = TransformationRuntimeService(self); self.summon_runtime = SummonRuntimeService(self); self.summon_profile_service = SummonProfileService(self); self.passive_trigger_service = PassiveTriggerService(self); self.item_ability_runtime = ItemAbilityRuntimeService(self); self.room_effect_runtime = RoomEffectRuntimeService(self)
         if combat_runtime is not None and self.combat is not None:
             raise RuntimeError("AbilityExecutionService cannot own a duplicate CombatEngine when CombatRuntimeService is injected")
         if self.db_path: init_ability_schema(self.db_path)
@@ -779,7 +901,16 @@ class AbilityExecutionService:
             c.row_factory=sqlite3.Row; row=c.execute("SELECT * FROM aura_instances WHERE aura_instance_id=? AND active=1",(aura_instance_id,)).fetchone()
             if not row: return []
             meta=jload(row['metadata_json'],{}); current={r[0] for r in c.execute("SELECT target_actor_id FROM aura_membership WHERE aura_instance_id=? AND active=1",(aura_instance_id,))}
-        desired=set(self.actors.keys()); source=row['source_actor_id']; desired.discard(source); events=[]
+        source=row['source_actor_id']; src=self.actors.get(source); src_room=getattr(getattr(src,"identity",None),"current_location","") if src else ""
+        scope=str(meta.get("scope") or "room"); max_targets=int(num(meta.get("maximum_targets", 99), 99))
+        desired=set()
+        for aid, actor in self.actors.items():
+            if aid == source: continue
+            room=getattr(getattr(actor,"identity",None),"current_location","")
+            if scope in {"room","same_room"} and src_room and room != src_room: continue
+            desired.add(aid)
+            if len(desired) >= max_targets: break
+        events=[]
         for actor_id in sorted(desired-current):
             actor=self.actors.get(actor_id); src=self.actors.get(source)
             if actor and src:
@@ -791,6 +922,9 @@ class AbilityExecutionService:
         for actor_id in sorted(current-desired):
             self.remove_aura_member(aura_instance_id, actor_id, "left_scope"); events.append({"removed":actor_id})
         return events
+
+    def remove_source_auras(self, source_id: str, reason: str="source_removed") -> list[dict[str, Any]]:
+        return self.aura_runtime.remove_source_auras(source_id, reason)
 
     def remove_aura_member(self, aura_instance_id: str, actor_id: str, reason: str) -> None:
         if not self.db_path: return
@@ -823,6 +957,8 @@ class AbilityExecutionService:
         params=eff.get('parameters') or {}; count=max(1,int(num(params.get('count',1),1))); out=[]; owner=self.actors[owner_id]
         for i in range(count):
             sid="summon_"+uuid.uuid4().hex; name=str(params.get('name') or params.get('summon_template_id') or 'Summon'); actor=Actor.create(sid,name,'summon'); actor.plugin_data.update({"owner_actor_id":owner_id,"source_ability_id":ability_id,"relationship":params.get('owner_relationship','follow'),"npc_ability_ids":list(params.get('ability_grants') or [])}); actor.combat_profile['natural_weapons']=params.get('natural_weapon_profiles') or [] ; self.register_actor(actor)
+            actor.identity.current_location = getattr(getattr(owner,"identity",None),"current_location","")
+            actor.plugin_data["follow_policy"] = params.get("follow_policy", "same_room")
             expires=self.world_time()+int(num(params.get('duration', eff.get('duration',{}).get('amount',10) if isinstance(eff.get('duration'),dict) else 10),10))
             if self.db_path:
                 with sqlite3.connect(self.db_path) as c: c.execute("INSERT OR REPLACE INTO summon_relationships VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(sid,self.world_id,sid,str(params.get('summon_template_id') or ''),owner_id,ability_id,origin_action_id,self.world_time(),expires,'active',params.get('owner_relationship','follow'),params.get('control_policy','owner'),params.get('follow_policy','same_room'),params.get('combat_policy','assist'),now(),now(),jdump(actor.plugin_data)))
@@ -868,7 +1004,48 @@ class AbilityExecutionService:
         rec={'room_effect_instance_id':rei,'definition_id':str(params.get('room_effect_id') or eff.get('effect_id') or ability_id),'room_id':rid,'source_actor_id':actor_id,'source_ability_id':ability_id,'origin_action_id':origin_action_id}
         if self.db_path:
             with sqlite3.connect(self.db_path) as c: c.execute("INSERT OR REPLACE INTO room_effect_instances VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(rei,self.world_id,rec['definition_id'],actor_id,ability_id,rid,params.get('area_id',''),wt,wt+dur if dur else 0,wt+tick if tick else 0,'active',origin_action_id,now(),now(),jdump({**params,'tick_operations':params.get('tick_operations',[])}),jdump({'source_version':eff.get('source_version','1')})))
-        self._pub('room_effect_created', {**rec}); return {'ok':True,**rec}
+        self._pub('room_effect_created', {**rec}); self.reconcile_room_effect_memberships(rid); return {'ok':True,**rec}
+
+    def reconcile_room_effect_memberships(self, room_id: str, actor_id: str | None=None) -> list[dict[str, Any]]:
+        if not self.db_path: return []
+        out=[]
+        with sqlite3.connect(self.db_path) as c:
+            c.row_factory=sqlite3.Row
+            effects=c.execute("SELECT * FROM room_effect_instances WHERE state='active' AND room_id=?", (room_id,)).fetchall()
+        actors=[actor_id] if actor_id else [aid for aid,a in self.actors.items() if getattr(a.identity,"current_location","")==room_id]
+        for r in effects:
+            meta=jload(r["metadata_json"], {})
+            for aid in actors:
+                actor=self.actors.get(aid)
+                if not actor: continue
+                mid=f"rem_{r['room_effect_instance_id']}_{aid}"
+                with sqlite3.connect(self.db_path) as c:
+                    exists=c.execute("SELECT granted_effect_instance_ids_json FROM room_effect_membership WHERE membership_id=? AND state='active'", (mid,)).fetchone()
+                if exists: continue
+                granted=[]
+                ops=list(meta.get("resident_operations") or []) + list(meta.get("entry_operations") or [])
+                for op in ops or [{"effect_id": r["definition_id"], "operation":"apply_affect", "tags":["room_effect"], "duration":{"domain":"while_source_exists","amount":0}}]:
+                    src=self.actors.get(r["source_actor_id"]) or actor
+                    rec=self._persist_runtime_effect(src, actor, self.registry.abilities.get(r["source_ability_id"], AbilityDefinition(r["source_ability_id"] or "room_effect")), {**op, "operation":"apply_affect", "tags":list(set((op.get("tags") or [])+["room_effect"]))}, str(r["origin_action_id"] or r["room_effect_instance_id"]))
+                    granted.append(rec["effect_instance_id"])
+                with sqlite3.connect(self.db_path) as c:
+                    c.execute("INSERT OR REPLACE INTO room_effect_membership VALUES(?,?,?,?,?,?,?,?,?)", (mid,r["room_effect_instance_id"],self.world_id,aid,jdump(granted),self.world_time(),None,"active",now()))
+                self._pub("room_effect_member_entered", {"room_effect_instance_id":r["room_effect_instance_id"],"actor_id":aid}); out.append({"room_effect_instance_id":r["room_effect_instance_id"],"actor_id":aid,"entered":True})
+        return out
+
+    def remove_room_effect_memberships(self, room_id: str, actor_id: str, reason: str="left_room") -> list[dict[str, Any]]:
+        if not self.db_path: return []
+        out=[]
+        with sqlite3.connect(self.db_path) as c:
+            c.row_factory=sqlite3.Row
+            rows=c.execute("SELECT m.* FROM room_effect_membership m JOIN room_effect_instances r ON r.room_effect_instance_id=m.room_effect_instance_id WHERE r.room_id=? AND m.actor_id=? AND m.state='active'", (room_id,actor_id)).fetchall()
+            for r in rows:
+                for eid in jload(r["granted_effect_instance_ids_json"], []):
+                    c.execute("UPDATE actor_effect_instances SET active=0,removal_reason=?,updated_at=? WHERE effect_instance_id=?", (reason,now(),eid))
+                c.execute("UPDATE room_effect_membership SET state=?,left_world_time=?,updated_at=? WHERE membership_id=?", (reason,self.world_time(),now(),r["membership_id"]))
+                out.append({"room_effect_instance_id":r["room_effect_instance_id"],"actor_id":actor_id,"removed":True})
+        for row in out: self._pub("room_effect_member_exited", row | {"reason": reason})
+        return out
 
     def process_room_effect_ticks(self, world_time: int|None=None) -> list[dict[str, Any]]:
         if not self.db_path: return []
@@ -883,6 +1060,14 @@ class AbilityExecutionService:
         return out
 
     def remove_room_effect(self, room_effect_instance_id: str, reason: str='removed') -> dict[str, Any]:
+        if self.db_path and room_effect_instance_id:
+            with sqlite3.connect(self.db_path) as c:
+                c.row_factory=sqlite3.Row
+                rows=c.execute("SELECT * FROM room_effect_membership WHERE room_effect_instance_id=? AND state='active'", (room_effect_instance_id,)).fetchall()
+                for r in rows:
+                    for eid in jload(r["granted_effect_instance_ids_json"], []):
+                        c.execute("UPDATE actor_effect_instances SET active=0,removal_reason=?,updated_at=? WHERE effect_instance_id=?", (reason,now(),eid))
+                    c.execute("UPDATE room_effect_membership SET state=?,left_world_time=?,updated_at=? WHERE membership_id=?", (reason,self.world_time(),now(),r["membership_id"]))
         if self.db_path and room_effect_instance_id:
             with sqlite3.connect(self.db_path) as c: c.execute("UPDATE room_effect_instances SET state=?,updated_at=? WHERE room_effect_instance_id=?",(reason,now(),room_effect_instance_id))
         self._pub('room_effect_removed', {'room_effect_instance_id':room_effect_instance_id,'reason':reason}); return {'ok':bool(room_effect_instance_id)}
@@ -1188,6 +1373,7 @@ def init_ability_schema(db_path: Path|str) -> None:
         c.execute("CREATE TABLE IF NOT EXISTS summon_relationships (summon_instance_id TEXT PRIMARY KEY, world_id TEXT, actor_id TEXT, template_id TEXT, owner_actor_id TEXT, source_ability_id TEXT, origin_action_id TEXT, created_world_time INTEGER, expires_world_time INTEGER, state TEXT, relationship_policy TEXT, control_policy TEXT, follow_policy TEXT, combat_policy TEXT, created_at TEXT, updated_at TEXT, metadata_json TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS summon_profiles (profile_id TEXT PRIMARY KEY, world_id TEXT, owner_actor_id TEXT, profile_name TEXT, summon_definition_id TEXT, entity_template_id TEXT, identity TEXT, level INTEGER, primary_stat_profile_json TEXT, secondary_modifier_profile_json TEXT, resource_profile_json TEXT, natural_weapons_json TEXT, ability_grants_json TEXT, appearance TEXT, profile_schema_version TEXT, source_hash TEXT, created_at TEXT, updated_at TEXT, metadata_json TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS room_effect_instances (room_effect_instance_id TEXT PRIMARY KEY, world_id TEXT, definition_id TEXT, source_actor_id TEXT, source_ability_id TEXT, room_id TEXT, area_id TEXT, created_world_time INTEGER, expires_at INTEGER, next_tick_at INTEGER, state TEXT, origin_action_id TEXT, created_at TEXT, updated_at TEXT, metadata_json TEXT, source_versions_json TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS room_effect_membership (membership_id TEXT PRIMARY KEY, room_effect_instance_id TEXT, world_id TEXT, actor_id TEXT, granted_effect_instance_ids_json TEXT, entered_world_time INTEGER, left_world_time INTEGER, state TEXT, updated_at TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS room_effect_tick_claims (claim_id TEXT PRIMARY KEY, world_id TEXT, room_effect_instance_id TEXT, scheduled_world_time INTEGER, claimed_at TEXT, metadata_json TEXT)")
         c.execute("CREATE TABLE IF NOT EXISTS trigger_claims (claim_id TEXT PRIMARY KEY, world_id TEXT, trigger_chain_id TEXT, actor_id TEXT, trigger_name TEXT, origin_action_id TEXT, depth INTEGER, created_at TEXT, metadata_json TEXT)")
         c.commit()

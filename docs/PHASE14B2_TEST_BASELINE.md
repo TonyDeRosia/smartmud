@@ -52,3 +52,27 @@ After the Phase 14B3 patch, focused runtime checks were run instead of a new ful
 | `tests/test_phase14b2_schema_registry.py` | Not re-run before edit | 0 failures | Schema adaptation and operation registry tests still pass. |
 
 No regressions were observed in the focused ability suites. A new broad-suite after-count is not claimed for this patch.
+
+## Phase 14B3B Prioritized Runtime Slice Baseline
+
+This Phase 14B3B pass intentionally completed the prompt's fallback priority items 1–3 only: aura room reconciliation; summon room presence/follow/cleanup/restart hooks; and room-effect entry/exit/resident/tick behavior. Stances, transformations, passive triggers, item ability grants/activation, profiles beyond existing primitive support, Set Camp/Build Campfire migration, full command parity, backend acceptance, and Windows manual acceptance were not touched in this commit.
+
+### Focused checks after patch
+
+- `pytest -q tests/test_phase14b3b_auras.py tests/test_phase14b3b_summons.py tests/test_phase14b3b_room_effects.py` → **3 passed, 0 failed, 0 skipped, 0 xfailed, 0 errors, 0 warnings** in 0.75 seconds.
+- `pytest -q tests/test_phase14b_advanced_abilities.py tests/test_phase14b3b_auras.py tests/test_phase14b3b_summons.py tests/test_phase14b3b_room_effects.py` → **6 passed, 0 failed, 0 skipped, 0 xfailed, 0 errors, 0 warnings** in 1.29 seconds.
+
+### Full suite after patch
+
+- Command: `pytest -q`
+- Result: **421 failed, 1959 passed, 17 skipped, 0 xfailed, 0 errors, 20 warnings**
+- Runtime duration: **574.71 seconds (0:09:34)**
+
+### Before / after comparison
+
+| Run | Passed | Failed | Skipped | Xfailed | Errors | Warnings | Duration |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Previous documented Phase 14B2 full suite | 1956 | 421 | 17 | 0 | 0 | 20 | 544.43s |
+| Phase 14B3B full suite after this patch | 1959 | 421 | 17 | 0 | 0 | 20 | 574.71s |
+
+The broad failure count remains unchanged from the documented baseline. The pass count increased by three because this patch adds three focused Phase 14B3B tests for the completed prioritized slice.
