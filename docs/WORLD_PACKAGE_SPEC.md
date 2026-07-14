@@ -236,3 +236,7 @@ Cooking is a canonical CraftingService specialization. The runtime uses recipe d
 
 ## Reset profiles
 Status: **Implemented/Partial**. World packages may provide `resets/resets.json`; Builder drafts use `builder/resets.json`. SQLite is not a reset-definition source. Reset profile definitions are typed, validated, versioned, and compiled before execution.
+
+## Emberwood Forest package ownership example
+
+The Shattered Realms package now keeps Emberwood rooms, area, zone, NPC templates, loot links, and reset profile in live package files. Builder drafts mirror the same IDs and VNUMs. Runtime creature instances are not authored in room `npcs`; `ZoneResetService` reconciles population.

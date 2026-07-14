@@ -42,3 +42,7 @@ Current Shattered Realms population sources found: live room `npcs`/`objects` ar
 
 ## Windows manual status
 Not performed in this Linux container. See `docs/BUILDER_RESETS.md` for exact Windows steps.
+
+## Emberwood Forest population profile
+
+`emberwood_forest_population` is the canonical recurring population profile for `shattered_realms` zone `emberwood_forest`. It uses `when_empty`, a 600 second interval, typed `SPAWN_ENTITY` commands, room-scoped limits for common wildlife, zone-scoped limits for `dire_forest_wolf`, and a zone maximum of one `ashback_bear`.
