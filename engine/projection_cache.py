@@ -62,6 +62,8 @@ class ProjectionCacheRegistry:
         "inventory": {"inventory", "carrying", "score", "worth"},
         "effects": {"effects", "primary_stats", "combat_stats", "score", "ability_availability", "prompt"},
         "progression": {"progression", "worth", "score", "ability_availability"},
+        "progression_identity": {"score", "worth", "ability_availability"},
+        "birth_state": {"score"},
         "currency": {"worth", "currency_display"},
         "movement": {"room_render", "location", "prompt", "score"},
         "world_definition": {"*"},
@@ -114,6 +116,12 @@ class ProjectionCacheRegistry:
 
     def mark_pending(self, character_id: str, world_id: str, projection_type: str, source_key: tuple[Any, ...]) -> None:
         self.entries[(character_id, projection_type)] = ProjectionCacheEntry(character_id, world_id, projection_type, source_key, generation=self.generation(character_id), status="pending")
+
+    def mark_failed(self, character_id: str, world_id: str, projection_type: str, error: str) -> None:
+        entry = self.entries.get((character_id, projection_type))
+        if entry and entry.status == "ready":
+            return
+        self.entries[(character_id, projection_type)] = ProjectionCacheEntry(character_id, world_id, projection_type, (), generation=self.generation(character_id), status="failed", error=str(error)[:240])
 
     def invalidate(self, character_id: str, reason: str) -> set[str]:
         affected = set(self.INVALIDATION_GRAPH.get(reason, {reason}))

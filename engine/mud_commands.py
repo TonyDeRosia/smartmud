@@ -252,6 +252,8 @@ class MudCommandEngine:
         self.command_handlers: dict[str, Callable] = {
             # Info commands
             "score": self._cmd_score,
+            "progressioninspect": self._cmd_progression_repair,
+            "progressionrepair": self._cmd_progression_repair,
             "display": self._cmd_display,
             "displaytheme": self._cmd_displaytheme,
             "recipes": self._cmd_crafting_player,
@@ -1609,7 +1611,20 @@ class MudCommandEngine:
         theme = resolve_effective_display_theme(character, family="score")
         try:
             doc = build_score_document(character, snapshot=snap, theme=theme, mode=mode, detailed_allowed=self._is_score_admin(character))
-        except (ValueError, PermissionError) as exc:
+        except PermissionError as exc:
+            return CommandResult(str(exc), ok=False, display_intent="WARNING", semantic_role="warning")
+        except ValueError as exc:
+            text = str(exc)
+            if text.startswith("score_projection_incomplete"):
+                missing = text.split("field=", 1)[1] if "field=" in text else "unknown"
+                rt = getattr(self, "runtime", None)
+                entry = getattr(character, "entry_context", None)
+                gen = getattr(getattr(rt, "projection_cache", None), "generation", lambda _cid: 0)(str(getattr(character, "id", ""))) if rt else 0
+                logger.error("score_projection_incomplete", extra={"character_id": getattr(character, "id", ""), "world_id": getattr(rt, "active_world_id", "") if rt else "", "entry_id": getattr(entry, "entry_id", ""), "projection_generation": gen, "missing_field": missing})
+                cache = getattr(rt, "projection_cache", None) if rt else None
+                if cache and hasattr(cache, "mark_failed"):
+                    cache.mark_failed(str(getattr(character, "id", "")), getattr(rt, "active_world_id", ""), "score", text)
+                return CommandResult("Your character data could not be loaded completely. Please contact an administrator.", ok=False, display_intent="ERROR", semantic_role="error")
             return CommandResult(str(exc), ok=False, display_intent="WARNING", semantic_role="warning")
         return CommandResult(
             narrative=render_display_mud(doc, color_enabled=theme.color_enabled),
@@ -1617,6 +1632,39 @@ class MudCommandEngine:
             display_intent="SCORE",
             state_updates={"snapshot_version": doc.debug_metadata.get("snapshot_version"), "display_mode": mode},
         )
+
+    def _cmd_progression_repair(self, character: Any, args: list[str], raw: str) -> CommandResult:
+        if not self._is_score_admin(character):
+            return CommandResult("You are not allowed to repair progression state.", ok=False, display_intent="WARNING", semantic_role="warning")
+        rt = getattr(self, "runtime", None)
+        if not rt or not hasattr(rt, "_progression_service"):
+            return CommandResult("Progression service is unavailable.", ok=False, display_intent="ERROR", semantic_role="error")
+        target = args[0] if args else getattr(character, "id", "")
+        apply = "--apply" in args or raw.split()[0].lower() == "progressioninspect" and False
+        if raw.split()[0].lower() == "progressionrepair" and "--dry-run" not in args and "--apply" not in args:
+            apply = False
+        try:
+            target_char = rt.state_store.load_character(target) if hasattr(rt.state_store, "load_character") else None
+            if target_char is None and target != getattr(character, "id", ""):
+                return CommandResult(f"Character not found: {target}", ok=False, display_intent="ERROR", semantic_role="error")
+            target_char = target_char or character
+            result = rt._progression_service().repair_legacy_progression_identity(target_char, apply=apply)
+            if apply and hasattr(rt, "invalidate_character_projections"):
+                rt.invalidate_character_projections(result["character_id"], "progression_identity")
+            lines=[
+                f"Character ID: {result['character_id']}",
+                f"Current progression row: {'present' if result['row_exists'] else 'missing'}",
+                f"Proposed race ID: {result['proposed_race_id']}",
+                f"Proposed class ID: {result['proposed_class_id']}",
+                f"Proposed track ID: {result['proposed_track_id'] or '(none)'}",
+                f"Definition validation: {result['definition_validation']}",
+                f"Fields that would change: {', '.join(result['changed_fields']) or '(none)'}",
+                f"Applied: {result['applied']}",
+            ]
+            return CommandResult("\n".join(lines), display_intent="ADMIN", semantic_role="admin")
+        except Exception as exc:
+            logger.exception("progression_repair_failed", extra={"target": target})
+            return CommandResult(f"Progression repair failed: {exc}", ok=False, display_intent="ERROR", semantic_role="error")
 
 
     def _cmd_phase7a_reward(self, character: Any, args: list[str], raw: str) -> CommandResult:

@@ -31,6 +31,11 @@ def _loads(v: Any, default: Any) -> Any:
 def safe_id(value: str) -> bool: return bool(value and SAFE_ID_RE.match(str(value)))
 
 
+class ProgressionIdentityError(ValueError):
+    pass
+
+
+
 def character_field(record: Any, *names: str, default: Any = None) -> Any:
     """Safely read character/actor fields from mappings, rows, and runtime objects."""
     if record is None:
@@ -248,6 +253,69 @@ class ProgressionService:
     def get_ability_rank(self, actor_id, ability_id):
         with self.store.connect() as con:
             r=con.execute("SELECT rank FROM actor_ability_progression WHERE actor_id=? AND ability_id=?",(actor_id,ability_id)).fetchone(); return int(r["rank"]) if r else 0
+    def progression_identity_snapshot(self, actor_id: str, actor_type: str="player", *, state: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Return typed, validated canonical progression identity for displays."""
+        s = state if state is not None else self.get_actor_progression(actor_id, actor_type)
+        if not s:
+            raise ProgressionIdentityError(f"progression_identity_missing actor_id={actor_id}")
+        source_version = str(s.get("updated_at") or s.get("created_at") or "")
+        species_id = str(s.get("species_id") or "")
+        race_id = str(s.get("race_id") or "")
+        class_id = str(s.get("primary_class_id") or "")
+        track_id = str(s.get("primary_class_track_id") or "")
+        species = self.content.get("species_profiles", species_id) if species_id else None
+        race = self.content.get("race_profiles", race_id) if race_id else None
+        cls = self.content.get("class_profiles", class_id) if class_id else None
+        if species_id and not species: raise ProgressionIdentityError(f"invalid_progression_identity field=species_id id={species_id}")
+        if not race: raise ProgressionIdentityError(f"invalid_progression_identity field=race_id id={race_id}")
+        if not cls: raise ProgressionIdentityError(f"invalid_progression_identity field=primary_class_id id={class_id}")
+        track = None
+        if track_id:
+            track = self.content.get("class_tracks", track_id)
+            if not track: raise ProgressionIdentityError(f"invalid_progression_identity field=primary_class_track_id id={track_id}")
+            if str(track.get("class_id") or "") != class_id:
+                raise ProgressionIdentityError(f"invalid_progression_identity field=primary_class_track_id id={track_id} class_id={class_id}")
+        display_class_name = str((track or {}).get("name") or cls.get("name") or "")
+        return {
+            "species_id": species_id, "species_name": str((species or {}).get("name") or ""),
+            "race_id": race_id, "race_name": str(race.get("name") or ""),
+            "primary_class_id": class_id, "primary_class_name": str(cls.get("name") or ""),
+            "primary_class_track_id": track_id, "primary_class_track_name": str((track or {}).get("name") or ""),
+            "display_class_name": display_class_name,
+            "level": int(s.get("level") or 1), "experience": int(s.get("experience") or 0),
+            "experience_to_next": int(s.get("experience_to_next") if s.get("experience_to_next") is not None else self.get_experience_to_next_value(class_id, int(s.get("level") or 1), int(s.get("experience") or 0))),
+            "xp_to_next_level": int(s.get("experience_to_next") if s.get("experience_to_next") is not None else self.get_experience_to_next_value(class_id, int(s.get("level") or 1), int(s.get("experience") or 0))),
+            "practice_sessions": int(s.get("practice_sessions") or 0), "training_sessions": int(s.get("training_sessions") or 0),
+            "remort_count": int(s.get("remort_count") or 0), "source_version": source_version,
+        }
+
+    def repair_legacy_progression_identity(self, character: Any, actor_type: str="player", *, apply: bool = True) -> dict[str, Any]:
+        """Idempotently repair missing canonical identity from legacy fields/default profile."""
+        actor_id = str(character_field(character, "id", "character_id", default=""))
+        if not actor_id: raise ProgressionIdentityError("missing actor id")
+        existing = self.get_actor_progression(actor_id, actor_type)
+        profile = self.content.get("progression_profiles", str(character_field(character, "progression_profile_id", default="player_starter"))) or self.content.get("progression_profiles", "player_starter") or {}
+        def valid(coll, val): return str(val) if val and self.content.get(coll, str(val)) else ""
+        race = valid("race_profiles", (existing or {}).get("race_id")) or valid("race_profiles", character_field(character,"race_id")) or valid("race_profiles", character_field(character,"race")) or valid("race_profiles", profile.get("race_id"))
+        cls = valid("class_profiles", (existing or {}).get("primary_class_id")) or valid("class_profiles", character_field(character,"primary_class_id")) or valid("class_profiles", character_field(character,"class_id")) or valid("class_profiles", character_field(character,"character_class","char_class","profession")) or valid("class_profiles", profile.get("primary_class_id"))
+        species = valid("species_profiles", (existing or {}).get("species_id")) or valid("species_profiles", character_field(character,"species_id")) or valid("species_profiles", (self.content.get("race_profiles", race) or {}).get("species_id")) or valid("species_profiles", profile.get("species_id"))
+        track = valid("class_tracks", (existing or {}).get("primary_class_track_id")) or valid("class_tracks", character_field(character,"primary_class_track_id","class_track_id","track_id")) or valid("class_tracks", profile.get("primary_class_track_id"))
+        if track and str((self.content.get("class_tracks", track) or {}).get("class_id") or "") != cls: raise ProgressionIdentityError(f"invalid_progression_identity field=primary_class_track_id id={track} class_id={cls}")
+        if not race or not cls or not species: raise ProgressionIdentityError("no_valid_progression_identity_default")
+        changes={}
+        if not existing:
+            if apply: self.initialize_actor_progression(character, actor_type=actor_type, defaults={"species_id":species,"race_id":race,"primary_class_id":cls,"primary_class_track_id":track,"attribute_points":30})
+            existing = self.get_actor_progression(actor_id, actor_type) or {}
+        for k,v in {"species_id":species,"race_id":race,"primary_class_id":cls,"primary_class_track_id":track}.items():
+            if not (existing or {}).get(k) and v is not None: changes[k]=v
+        metadata = dict((existing or {}).get("metadata") or {})
+        metadata["legacy_identity_migration"]={"version":"score_identity_2026_07_14","selected_race_id":race,"selected_class_id":cls,"selected_track_id":track,"used_default": not any(character_field(character,*names) for names in (("race_id","race"),("primary_class_id","class_id","character_class","char_class","profession"))),"timestamp":utc_now()}
+        if apply and (changes or "legacy_identity_migration" not in metadata):
+            changes["metadata_json"] = metadata
+            self.update_actor_progression(actor_id, changes, actor_type)
+        final = self.get_actor_progression(actor_id, actor_type) or existing or {}
+        return {"character_id": actor_id, "row_exists": bool(final), "changed_fields": sorted(changes), "proposed_race_id": race, "proposed_class_id": cls, "proposed_track_id": track, "definition_validation": "valid", "applied": bool(apply and changes), "state": final}
+
     def trace_ability_learning(self, actor_id, ability_id, actor_type="player"):
         with self.store.connect() as con: r=con.execute("SELECT * FROM actor_ability_progression WHERE actor_id=? AND ability_id=?",(actor_id,ability_id)).fetchone()
         return {"actor_id":actor_id,"ability_id":ability_id,"known":bool(r),"grant":dict(r) if r else None}

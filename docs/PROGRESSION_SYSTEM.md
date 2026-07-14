@@ -17,3 +17,7 @@ Phase 7C adds `engine.crafting.CraftingService` as the single canonical crafting
 ## Phase 9A training integration
 
 Canonical trainer and advancement interactions now route through `engine.training.TrainingService`. Builder/world-package collections include `trainer_definitions`, `training_offer_definitions`, `training_requirement_profiles`, `training_cost_profiles`, `training_result_profiles`, `trainer_availability_profiles`, `class_track_training_profiles`, `advancement_conversion_profiles`, `respec_profiles`, `training_refund_profiles`, `training_cooldown_profiles`, and `training_message_profiles`. Training uses immutable SQLite quotes and transactions, delegates money to `EconomyService`, delegates ability and advancement-currency state to `ProgressionService`, records restart-safe history, and publishes training EventBus events.
+
+## Legacy SCORE identity repair
+
+Character entry now runs `ProgressionService.repair_legacy_progression_identity()` before SCORE projection warmup. The repair is idempotent, validates IDs through `ProgressionContent`, preserves valid existing `actor_progression_state` values, and only falls back to the validated `player_starter` progression profile when no valid legacy identity assignment exists. `ProgressionService.progression_identity_snapshot()` is the typed display adapter for Race, Species, Class, Class Track, level, XP, TNL, training/practice, remort, and source-version data.

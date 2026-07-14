@@ -93,11 +93,17 @@ class ProgressionDisplayAdapter:
     """Single compatibility boundary for progression display values."""
     def __init__(self, runtime: Any = None) -> None: self.runtime = runtime
     def snapshot(self, character: Any) -> dict[str, Any]:
-        state = None
+        state = None; ident = {}
         rt = self.runtime
         if rt and hasattr(rt, "_progression_service"):
-            try: state = rt._progression_service().get_actor_progression(str(_field(character, "id", "character_id", default="")))
-            except Exception: state = None
+            try:
+                svc = rt._progression_service()
+                actor_id = str(_field(character, "id", "character_id", default=""))
+                state = svc.get_actor_progression(actor_id, "player")
+                if state: ident = svc.progression_identity_snapshot(actor_id, "player", state=state)
+            except Exception:
+                logger.exception("progression_display_snapshot_failed")
+                state = None; ident = {}
         xp = _field(state, "experience", default=_field(character, "xp", "experience", default=0))
         level = _field(state, "level", default=_field(character, "level", default=None))
         direct_tnl = _field(character, "xp_to_next_level", "tnl", "experience_to_next_level", default=None)
@@ -112,7 +118,8 @@ class ProgressionDisplayAdapter:
             "level_progress_percent": percent,
             "practice_points": _field(state, "practice_sessions", default=_field(character, "practice_points", default=None)),
             "training_points": _field(state, "training_sessions", default=_field(character, "training_points", default=None)),
-            "quest_points": _field(character, "quest_points", default=None),
+            "quest_points": _field(character, "quest_points", default=0),
+            **ident,
         }.items() if v is not None}
 
 
@@ -165,13 +172,18 @@ class CurrencyDisplaySource:
                 balances=svc.get_currency_balances("actor", actor_id)
                 profiles={p.get("id"):p for p in svc.content.list("currency_profiles")}
                 ordered=sorted(balances, key=lambda k:int((profiles.get(k) or {}).get("display_order", {"gold":10,"silver":20,"copper":30}.get(k,999)) or 999))
-                return {k:balances[k] for k in ordered if k in profiles or k in {"gold","silver","copper"}}
+                out = {k:balances[k] for k in ordered if k in profiles or k in {"gold","silver","copper"}}
+                for fixed in ("gold","diamonds","glory","bank"):
+                    out.setdefault(fixed, 0)
+                return out
             except Exception:
                 logger.exception("currency_display_source_failed")
         cur=dict(_field(c,"currency", default={}) or {}) if isinstance(_field(c,"currency", default={}), Mapping) else {}
         for key in ("gold","diamonds","glory","bank","silver","copper"):
             val=_field(c,key)
             if val is not None: cur.setdefault(key, val)
+        for fixed in ("gold","diamonds","glory","bank"):
+            cur.setdefault(fixed, 0)
         return {k:v for k,v in cur.items() if v is not None and not str(k).startswith(("ledger", "premium"))}
 
 class SurvivalDisplaySource:
@@ -251,7 +263,7 @@ class CharacterDisplaySnapshotService:
         currency = self.currency.snapshot(character)
         identity={k:v for k,v in {
                 "character_id": _field(character,"id","character_id"), "display_name": _field(character,"name","display_name", default="Adventurer"),
-                "title": _field(character,"title"), "race_name": _field(character,"race_name","race"), "class_name": _field(character,"class_name","character_class","char_class"),
+                "title": _field(character,"title"), "race_name": prog.get("race_name") or _field(character,"race_name"), "class_name": prog.get("display_class_name") or prog.get("primary_class_name") or _field(character,"class_name","character_class","char_class"),
                 "level": prog.get("level"), "alignment": _field(character,"alignment"), "age": self._natural_age(character), "birthday": _field(character,"birthday"),
             }.items() if v not in (None, "")}
         resources={}
@@ -270,8 +282,8 @@ class CharacterDisplaySnapshotService:
             generated_at=datetime.now(timezone.utc).isoformat(),
             identity=identity,
             title=str(identity.get("title") or ""),
-            race={"name": identity.get("race_name"), "availability": "available" if identity.get("race_name") else "unavailable"},
-            character_class={"name": identity.get("class_name"), "availability": "available" if identity.get("class_name") else "unsupported"},
+            race={"id": prog.get("race_id"), "name": prog.get("race_name"), "availability": "available" if prog.get("race_name") else "unavailable", "source_version": prog.get("source_version")},
+            character_class={"id": prog.get("primary_class_id"), "name": prog.get("display_class_name") or prog.get("primary_class_name"), "base_class_name": prog.get("primary_class_name"), "track_id": prog.get("primary_class_track_id"), "track_name": prog.get("primary_class_track_name"), "availability": "available" if prog.get("primary_class_name") else "unsupported", "source_version": prog.get("source_version")},
             level=int(prog.get("level") or identity.get("level") or 1),
             alignment=str(identity.get("alignment") or ""),
             age={"display": identity.get("age"), "birthday": identity.get("birthday")},
@@ -283,9 +295,9 @@ class CharacterDisplaySnapshotService:
             unarmed_profile=combat.get("unarmed_profile", {}) if isinstance(combat.get("unarmed_profile", {}), Mapping) else (combat.get("unarmed_damage_summary", {}) if isinstance(combat.get("unarmed_damage_summary", {}), Mapping) else {"summary": combat.get("unarmed_damage_summary", "")}),
             speed=combat.get("speed", {k: combat.get(k) for k in ("initiative","attack_speed","casting_speed","movement_speed","recovery_speed") if k in combat}),
             encumbrance={k: carrying.get(k) for k in ("encumbrance_text","encumbrance_state","encumbrance_percent") if k in carrying},
-            survival=self.survival.snapshot(character),
+            survival=self._canonical_survival(character),
             conditions=list(_field(character, "conditions", "status_conditions", default=[]) or []),
-            time=self.time_source.snapshot(self, character),
+            time=self._canonical_time(character),
             effects=self.effects.snapshot(character), inventory=list(_field(character,"inventory", default=[]) or []), equipment=list(_field(character,"equipment", default=[]) or []),
             active_affects=self.effects.snapshot(character),
             quest_summary=_field(character, "quest_summary", "quests", default={}) or {},
@@ -320,6 +332,18 @@ class CharacterDisplaySnapshotService:
         return snap
 
 
+    def _canonical_survival(self, character: Any) -> dict[str, Any]:
+        data = self.survival.snapshot(character)
+        if data.get("hunger") in (None, ""): data["hunger"] = "Full"
+        if data.get("thirst") in (None, ""): data["thirst"] = "Hydrated"
+        data.setdefault("posture", "standing")
+        return data
+
+    def _canonical_time(self, character: Any) -> dict[str, Any]:
+        data = self.time_source.snapshot(self, character)
+        data.setdefault("played_seconds", _field(character,"played_seconds","play_seconds", default=0) or 0)
+        return data
+
     def _stat_entry(self, stat_id: str, label: str, value: Any, source_version: str, *, order: int = 0, unit: str = "") -> dict[str, Any]:
         return {"stat_id": stat_id, "label": label, "value": value, "display_order": order, "unit": unit, "active": True, "source_version": source_version}
 
@@ -336,8 +360,13 @@ class CharacterDisplaySnapshotService:
             return {k:self._stat_entry(k, k.replace("_"," ").title(), v, sv, order=i*10+10) for i,(k,v) in enumerate((mapping or {}).items())}
         weapon=getattr(snap,"weapon_profile",None); unarmed=getattr(snap,"unarmed_profile",None)
         def prof(p):
-            return {} if not p else {"name": getattr(p,"source", ""), "weapon_name": getattr(p,"source", ""), "minimum_damage": getattr(p,"minimum_damage",0), "maximum_damage": getattr(p,"maximum_damage",0), "damage_type": getattr(p,"damage_type", "physical"), "attack_speed": getattr(p,"attack_speed",0), "reach": getattr(p,"reach",0), "range": getattr(p,"range",0), "active": True, "source_version": sv}
-        return {"offense": entries(getattr(snap,"offense",{})), "defense": entries(getattr(snap,"defense",{})), "saves": entries(getattr(snap,"saves",{})), "resistances": {k:self._stat_entry(k,k.replace("_"," ").title(),v,sv,order=i*10+10,unit="percentage") for i,(k,v) in enumerate((getattr(snap,"resistances",{}) or {}).items())}, "criticals": entries(getattr(snap,"critical",{})), "speed": entries(getattr(snap,"speed",{})), "weapon_profile": prof(weapon), "unarmed_profile": prof(unarmed), "mechanics": {"parry":{"label":"Parry","value":0,"active":False,"inactive_reason":"Parry is not an active combat mechanic in this ruleset yet."}, "block":{"label":"Block","value":0,"active":False,"inactive_reason":"Block is not an active combat mechanic in this ruleset yet."}}, "source_version": sv}
+            return {} if not p else {"name": getattr(p,"source", ""), "weapon_name": getattr(p,"source", ""), "minimum_damage": getattr(p,"minimum_damage",0), "maximum_damage": getattr(p,"maximum_damage",0), "dice_count": getattr(p,"dice_count", 1), "die_size": getattr(p,"die_size", getattr(p,"maximum_damage",0)), "flat_bonus": getattr(p,"flat_bonus", 0), "average_damage": getattr(p,"average_damage", 0), "damage_type": getattr(p,"damage_type", "physical"), "attack_speed": getattr(p,"attack_speed",0), "reach": getattr(p,"reach",0), "range": getattr(p,"range",0), "active": True, "source_version": sv}
+        saves = entries(getattr(snap,"saves",{}))
+        if "spell" not in saves and "spell_saves" not in saves: saves["spell"] = self._stat_entry("spell", "Spell Saves", 0, sv)
+        crits = entries(getattr(snap,"critical",{}))
+        for k in ("critical_melee", "critical_spell", "critical_heal"):
+            crits.setdefault(k, self._stat_entry(k, k.replace("_"," ").title(), 0, sv))
+        return {"offense": entries(getattr(snap,"offense",{})), "defense": entries(getattr(snap,"defense",{})), "saves": saves, "resistances": {k:self._stat_entry(k,k.replace("_"," ").title(),v,sv,order=i*10+10,unit="percentage") for i,(k,v) in enumerate((getattr(snap,"resistances",{}) or {}).items())}, "criticals": crits, "speed": entries(getattr(snap,"speed",{})), "weapon_profile": prof(weapon), "unarmed_profile": prof(unarmed), "mechanics": {"parry":{"label":"Parry","value":0,"active":False,"inactive_reason":"Parry is not an active combat mechanic in this ruleset yet."}, "block":{"label":"Block","value":0,"active":False,"inactive_reason":"Block is not an active combat mechanic in this ruleset yet."}}, "source_version": sv}
 
     def _canonical_carrying(self, snap: Any) -> dict[str, Any]:
         sv=getattr(snap,"source_version","")
@@ -374,6 +403,8 @@ class CharacterDisplaySnapshotService:
         for key in ("gold","diamonds","glory","bank","silver","copper"):
             val=_field(c,key)
             if val is not None: cur.setdefault(key, val)
+        for fixed in ("gold","diamonds","glory","bank"):
+            cur.setdefault(fixed, 0)
         return {k:v for k,v in cur.items() if v is not None and not str(k).startswith(("ledger", "premium"))}
 
     def _visible_effects(self, c: Any) -> list[dict[str, Any]]:
