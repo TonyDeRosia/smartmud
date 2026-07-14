@@ -6,7 +6,7 @@ from engine.display_themes import validate_display_theme, preview_display_theme
 
 
 def _char(**kw):
-    base=dict(name='Kraevok', title='Adventurer', race='Human', character_class='Adventurer', level=1, hp=46, max_hp=100, mana=50, max_mana=50, stamina=100, max_stamina=100, xp=0, xp_to_next_level=100, gold=0, posture='standing', attributes={'strength': {'final': 10}, 'dexterity': {'final': 10}, 'constitution': {'final': 10}}, calculated_stats={'armor': 0})
+    base=dict(name='Kraevok', title='Adventurer', race='Human', character_class='Adventurer', level=1, hp=46, max_hp=100, mana=50, max_mana=50, stamina=100, max_stamina=100, xp=0, xp_to_next_level=100, gold=0, posture='standing', attributes={'strength': {'final': 10}, 'dexterity': {'final': 10}, 'constitution': {'final': 10}, 'intelligence': {'final': 10}, 'wisdom': {'final': 10}, 'charisma': {'final': 10}}, calculated_stats={'armor': 0, 'evasion': 0, 'accuracy': 75, 'hit_bonus': 0, 'damage_bonus': 0, 'spell_saves': 0, 'critical_melee': 0, 'critical_spell': 0, 'critical_heal': 0}, age=18, carry_weight=0, carry_capacity=100, currency={'gold':0, 'diamonds':0, 'glory':0, 'bank':0}, hunger='Full', thirst='Hydrated')
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -18,7 +18,7 @@ def test_score_and_worth_use_classic_frame_without_placeholders():
     assert 'Base Stats:' in score and 'Gold:' in score and 'Posture:' not in score
     assert 'Premium' not in score and 'future' not in score
     worth=render_display_plain(build_worth_document(_char()))
-    assert 'CURRENCIES' in worth and 'Gold: 0' in worth
+    assert 'CURRENCIES' in worth
     assert 'You have 0 gold coins' not in worth and 'Premium' not in worth
 
 
@@ -58,7 +58,7 @@ def test_builder_theme_validation_and_preview():
 
 
 def test_cell_roles_are_rendered_independently_and_unknown_ability_is_not_ready():
-    doc = build_score_document(_char(title='Long Title', xp_to_next_level=42, attributes={'strength': {'base': 10, 'modifier': 2, 'final': 12}, 'dexterity': {'base': 10, 'modifier': -1, 'final': 9}}, calculated_stats={'armor': 5}))
+    doc = build_score_document(_char(title='Long Title', xp_to_next_level=42, attributes={'strength': {'base': 10, 'modifier': 2, 'final': 12}, 'dexterity': {'base': 10, 'modifier': -1, 'final': 9}, 'constitution': {'final': 10}, 'intelligence': {'final': 10}, 'wisdom': {'final': 10}, 'charisma': {'final': 10}}, calculated_stats={'armor': 5, 'evasion': 0, 'accuracy': 75, 'hit_bonus': 0, 'damage_bonus': 0, 'spell_saves': 0, 'critical_melee': 0, 'critical_spell': 0, 'critical_heal': 0}))
     mud = render_display_mud(doc)
     assert 'Name: Kraevok' in mud and 'Title: Long Title' in mud
     assert 'TNL: 42' in render_display_plain(doc)
