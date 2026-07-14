@@ -1,42 +1,78 @@
 # Smart MUD SCORE Parity
 
-## Adventurer's Lair audit
+Status: Partial. This pass corrects the existing SCORE renderer and snapshot contract without starting Phase 15A or zone reset work.
 
-Reference inspected: `src/act.informative.c`, especially `ACMD(do_score)`, `encumbrance_text()`, condition label helpers, class/race/progression accessors, carry macros, and immortal conditionals. The upstream raw file is minified in this environment, so this audit records the player-visible contract rather than C implementation details.
+## Approved visible mortal fixture
 
-The normal SCORE is a boxed `Score` sheet. It presents, in order: name/title, race/class/level, age/alignment, optional birthday text, experience/TNL, practice/train/quest/remort advancement currencies, carrying weight and item count with encumbrance text, six base attributes, AL combat summary values, currencies, quest summary when present, played time, hunger/thirst, condition messages, and immortal-only diagnostics.
+```text
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║ CHARACTER STATUS                                                              ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Name: Aster                  Title: the Bold                                  ║
+║ Race: Human                  Class: Warrior                                   ║
+║ Level: 7                     Age: 22 years old                                ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║ Exp: 12345                           TNL: 55                                  ║
+║                                                                               ║
+║ Carry Capacity: 42 / 100 (Moderate)                                           ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Base Stats: Str 14 (+0) Dex 13 (+0) Con 12 (+0)                               ║
+║             Int 11 (+0) Wis 10 (+0) Cha 8 (+0)                                ║
+║                                                                               ║
+║ Armor: 12       Evasion: 7     Spell Saves: 10                                ║
+║                                                                               ║
+║ Offense: Hitroll +4 Damroll +3 Accuracy: 82%                                  ║
+║                                                                               ║
+║ Critical hit: 5 Critical Spell: 2 Critical Heal: 1                            ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Currencies                                                                    ║
+║ Gold:       99 Diamonds:      0 Glory:      0 Bank:        4                  ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Quests completed: 0                                           Quest Points: 9 ║
+║ Not currently on a quest.                                                     ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Play time: 1 day, 2 hours                                                     ║
+║ Status: Standing Hunger: Satisfied Thirst: Quenched                           ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+```
 
-## Displayed lines and ownership
+## Intentional Smart MUD divergence
 
-| Line | Canonical runtime owner | Builder ownership | Gameplay owner | Projection dependency | Notes |
-|---|---|---|---|---|---|
-| Name/title | `CharacterDisplaySnapshot.identity` | `build_score_document()` | Resident actor identity | `score` projection | Title is appended to name like AL visible identity. |
-| Race/class/level | snapshot race/class/progression | `build_score_document()` | race/class/progression authorities | `score` projection | Availability states are shown only until full gameplay systems exist. |
-| Age/alignment | snapshot age/alignment | `build_score_document()` | lifecycle/identity/alignment authorities | `score` projection | Birthday message is conditional. |
-| Experience/TNL | `ProgressionDisplayAdapter` | `build_score_document()` | progression service | `score` projection | Display formats only. |
-| Practices/trains/quest points/remorts | progression snapshot | `build_score_document()` | progression/training/quest authorities | `score` projection | Defaults to zero when the canonical snapshot omits optional currencies. |
-| Carrying/items/encumbrance | `CombatStatService` carrying snapshot or runtime carrying fields | `build_score_document()` | item ownership/carry authority | `score` projection | Display no longer sums inventory weights. |
-| STR/INT/WIS/DEX/CON/CHA | `CombatStatService` attributes | `build_score_document()` | attribute authority | `score` projection | Only formatted from canonical attribute entries. |
-| Armor/hitroll/damroll/spell save/critical | `CombatStatService` combat sections | `build_score_document()` | combat stat service | `score` projection | Modern offense/defense/speed/resistance sections are removed from normal SCORE. |
-| Currency | `CurrencyDisplaySource`/economy service | `build_score_document()` | economy service | `score` projection | Data-driven currency order remains canonical. |
-| Quest summary | `CharacterDisplaySnapshot.quest_summary` | `build_score_document()` | quest runtime | `score` projection | Displayed only if supplied. |
-| Played time | snapshot time source | `build_score_document()` | lifecycle/play-time authority | `score` projection | AL-style sentence. |
-| Hunger/thirst | survival snapshot | `build_score_document()` | runtime needs authority | `score` projection | No generalized survival panel. |
-| Conditions | snapshot conditions | `build_score_document()` | lifecycle/effect authority | `score` projection | Only condition lines, not a modern effects dashboard. |
-| Immortal information | snapshot source versions, detailed/admin mode only | `build_score_document()` | runtime authorities | `score` projection | Normal players do not see diagnostics. |
+Implemented: normal SCORE omits current HP, maximum HP, current Mana, maximum Mana, current Move/Stamina, maximum Move/Stamina, and Alignment. These systems remain canonical prompt/resource/combat systems and are not moved elsewhere in SCORE.
 
-## Removed from normal SCORE
+## Field authority matrix
 
-Primary Statistics heading, Secondary Combat Statistics headings, Damage Profile, Criticals section, Resistance section, Speed section, Mechanics section, Location section, Companions section, dashboard grouping, snapshot diagnostics for normal players, active effects panel, resource HP/Mana/Move rows, and display-only carry weight summing.
+| Field | Status | Canonical authority | Persistence source | Gameplay consumer | Projection dependency | Invalidation reason |
+|---|---|---|---|---|---|---|
+| Name/title | Implemented | CharacterDisplaySnapshotService | characters/data identity | command/session identity | identity,title | identity/title mutation |
+| Race | Partial | progression/race assignment surfaced through CharacterDisplaySnapshotService | actor_progression_state.race_id or character data | attributes/progression | race, world definitions | race mutation |
+| Class/class track | Partial | progression/class-track assignment surfaced through CharacterDisplaySnapshotService | actor_progression_state primary_class_id/primary_class_track_id or character data | progression/abilities | class,class track, world definitions | class mutation |
+| Level/XP/TNL | Implemented | ProgressionDisplayAdapter/ProgressionService | actor_progression_state or legacy character fields | leveling | progression | XP/level mutation |
+| Age/birthday | Partial | snapshot age provider | character birth fields plus world calendar when available | calendar/lifecycle | birth state, calendar | calendar/birth mutation |
+| Carrying | Implemented | CombatStatService carrying snapshot / CarryingDisplaySource | inventory/equipment runtime | encumbrance | carrying,equipment,inventory | item/equipment mutation |
+| Attributes | Implemented | CombatStatService/AttributeDisplaySource | character attributes/equipment/effects | combat/resource formulas | attributes,effects,equipment | stat/effect/equipment mutation |
+| Armor/evasion/spell saves | Implemented | CombatStatService | formula definitions and actor state | combat hit/spell resolution | combat statistics | combat-stat mutation |
+| Hitroll/damroll/accuracy | Implemented | CombatStatService | formula definitions and actor state | hit/damage resolution | combat statistics | combat-stat mutation |
+| Unarmed dice | Partial | CombatStatService unarmed_profile | body/combat formulas | unarmed attacks | weapon state, unarmed profile | equipment/combat formula mutation |
+| Criticals | Implemented | CombatStatService | formula definitions and actor state | melee/spell/heal critical resolution | critical statistics | combat-stat mutation |
+| Currencies | Implemented | EconomyService/CurrencyDisplaySource | economy balances | shops/rewards/banking | currencies, bank balance | economy mutation |
+| Quests | Partial | QuestService snapshot data | actor_quest_instances/history | journal/rewards | quest history, active quest, Show VNUMs | quest mutation |
+| Play time | Implemented | session lifecycle snapshot time | accumulated played seconds plus active session | session accounting | play-time display generation | session tick/save |
+| Status/survival/conditions | Partial | actor runtime/survival snapshot | actor posture/survival state | movement/combat/survival | position,target,hunger,thirst,intoxication | actor/survival mutation |
+| Summonable/show VNUMs | Partial | player preference authority | preferences/identity snapshot | summon permission/builder display | preferences | preference mutation |
+| Immortal poof/builder zone | Partial | identity and Builder editing context snapshot | character prefs/builder context | immortal movement/builder | poof text,builder zone | preference/builder mutation |
 
-## Remaining differences and deferred fields
+## Golden fixture coverage
 
-* The exact Adventurer's Lair color tokens are approximated through Smart MUD semantic roles; themes may recolor but should not reorganize default SCORE.
-* Race/class gameplay is still surfaced through snapshot availability if canonical data is absent.
-* Quest details, birthdays, remorts, and condition wording depend on canonical runtime snapshots being populated.
-* Windows manual testing was not performed in this Linux container.
+Implemented focused coverage: framed width, left-aligned title, exact dividers and blank rows, no HP/Mana/Move/Alignment row, no modern sections, no unavailable/not implemented placeholders, fixed currency order, numeric spell saves, zero/normal play-time formatting, immortal poof and Builder zone rows.
 
-## Testing performed
+Partial remaining fixture expansion: separate complete-string cases for every requested encumbrance threshold, active quest VNUM, birthday, sitting/fighting, condition notices, and transport visible-text equivalence.
 
-* Visual parity unit coverage strips color through `render_display_plain()` and verifies line order, labels, removed headings, omitted prompt resources, frame width, and immortal-only diagnostics.
-* Snapshot authority coverage verifies the renderer consumes `CharacterDisplaySnapshot` values and the carrying collector no longer performs display-layer inventory summing.
+## Windows testing status
+
+Not run in this Linux container. Manual Windows acceptance should enter existing `Kraevok`, run `score`, and compare visible text after stripping ANSI/HTML to the fixed 81-column contract. No SQLite reset, world recreation, or character recreation is required by this code change.
+
+## Remaining differences
+
+Partial: canonical persisted Kraevok data was not present in this container, so no one-time repair command was applied. If live Windows Kraevok still lacks race/class/birth fields, use existing progression/admin tools to assign valid world definitions without changing the renderer. Valid IDs must be selected from `data/worlds/shattered_realms` progression definitions in the target checkout.

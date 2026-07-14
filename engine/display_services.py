@@ -391,7 +391,7 @@ class CharacterDisplaySnapshotService:
         try: total=int(seconds)
         except Exception: return str(seconds)
         days, rem=divmod(total, 86400); hours=rem//3600
-        return ", ".join([p for p in (f"{days} day{'s' if days!=1 else ''}" if days else "", f"{hours} hour{'s' if hours!=1 else ''}" if hours else "") if p]) or "0 hours"
+        return f"{days} day{'s' if days!=1 else ''}, {hours} hour{'s' if hours!=1 else ''}"
     def _natural_age(self, c: Any) -> Any: return _field(c,"age")
     def _natural_last_login(self, value: Any) -> str:
         if not value: return ""

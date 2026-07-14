@@ -124,10 +124,10 @@ def preview_display_theme(raw: dict[str, Any], family: str = "score") -> dict[st
     sample = SimpleNamespace(
         id="preview", name="Kraevok", title="Adventurer", race="Human", character_class="Ranger",
         level=12, age=31, alignment="Neutral Good", hp=84, max_hp=100, mana=32, max_mana=45,
-        stamina=51, max_stamina=60, xp=4242, xp_to_next_level=758, gold=25, silver=3,
+        stamina=51, max_stamina=60, xp=4242, xp_to_next_level=758, gold=25, diamonds=1, glory=2, bank=100,
         posture="standing", hunger="sated", thirst="quenched", played_time="2 days", last_login="today",
-        attributes={"strength":{"base":10,"modifier":2,"final":12},"dexterity":{"base":14,"modifier":1,"final":15},"constitution":{"final":11}},
-        calculated_stats={"armor":18,"evasion":12,"accuracy":7,"hit_bonus":4,"damage_bonus":3,"critical_melee":"5%"},
+        attributes={"strength":{"base":10,"modifier":2,"final":12},"dexterity":{"base":14,"modifier":1,"final":15},"constitution":{"final":11},"intelligence":{"final":10},"wisdom":{"final":9},"charisma":{"final":8}},
+        calculated_stats={"armor":18,"evasion":12,"accuracy":7,"hit_bonus":4,"damage_bonus":3,"spell_saves":0,"critical_melee":5,"critical_spell":1,"critical_heal":1},
         carry_weight=22, carry_capacity=80, encumbrance="light", prompt_preset="classic",
     )
     abilities=[{"name":"Build Campfire","rank":1,"maximum_rank":1,"status_text":"Requires an established campsite.","category":"Survival","description":"Builds a safe campfire when camp conditions permit."}]
