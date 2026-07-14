@@ -1600,7 +1600,8 @@ class MudCommandEngine:
             return CommandResult("Detailed SCORE is available to Builder/admin characters only.", ok=False, display_intent="WARNING", semantic_role="warning")
         svc = getattr(self, "character_display_snapshots", None) or getattr(getattr(self, "runtime", None), "character_display_snapshots", None) or CharacterDisplaySnapshotService(getattr(self, "runtime", None))
         try:
-            snap = svc.build_snapshot(character)
+            rt = getattr(self, "runtime", None)
+            snap = rt.build_projection(character, "score") if rt and hasattr(rt, "build_projection") else svc.build_snapshot(character)
         except Exception:
             return CommandResult("Your character sheet is temporarily unavailable.", ok=False, display_intent="ERROR", semantic_role="error")
         theme = resolve_effective_display_theme(character, family="score")
@@ -1687,21 +1688,16 @@ class MudCommandEngine:
 
     def _cmd_inventory(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display inventory."""
-        if not character.inventory:
-            narrative = semantic("system", "You are not carrying anything.")
-        else:
-            items = "\n".join([f"  {semantic('item_' + str(i.get('rarity', 'common')), i.get('name', 'unknown'))} x{i.get('quantity', 1)}" 
-                              for i in character.inventory])
-            narrative = f"{semantic('system', 'You are carrying:')}\n{items}"
-        
-        print(f"[mud-command] Inventory for {character.name}")
+        rt = getattr(self, "runtime", None)
+        inv = rt.build_projection(character, "inventory") if rt and hasattr(rt, "build_projection") else list(getattr(character, "inventory", []) or [])
         theme = resolve_effective_display_theme(character, family="inventory")
-        doc = build_inventory_document(list(getattr(character, "inventory", []) or []), theme=theme)
+        doc = build_inventory_document(list(inv or []), theme=theme)
         return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="INVENTORY")
 
     def _cmd_equipment(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display equipped items through the single score renderer."""
-        items=list((getattr(character, "equipment", {}) or {}).values()) if isinstance(getattr(character, "equipment", None), dict) else list(getattr(character, "equipment", []) or [])
+        rt = getattr(self, "runtime", None)
+        items = rt.build_projection(character, "equipment") if rt and hasattr(rt, "build_projection") else (list((getattr(character, "equipment", {}) or {}).values()) if isinstance(getattr(character, "equipment", None), dict) else list(getattr(character, "equipment", []) or []))
         theme = resolve_effective_display_theme(character, family="equipment")
         doc=build_equipment_document(items, ["head","body","main_hand","off_hand","legs","feet"], theme=theme)
         return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="EQUIPMENT")
@@ -2125,7 +2121,9 @@ class MudCommandEngine:
 
     def _cmd_abilities(self, character: Any, args: list[str], raw: str) -> CommandResult:
         svc = self._ability_service(character)
-        rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "abilities")) if svc else []
+        rt = getattr(self, "runtime", None)
+        warmed = rt.build_projection(character, "abilities") if rt and hasattr(rt, "build_projection") else None
+        rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "abilities")) if svc else (warmed or [])
         doc = build_abilities_document(rows, title="ABILITIES", empty="You have no abilities.", theme=resolve_effective_display_theme(character, family="abilities"))
         return CommandResult(render_display_mud(doc), display_document=doc, display_intent="ABILITIES")
 
@@ -2242,7 +2240,8 @@ class MudCommandEngine:
 
     def _cmd_affects(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display active visible affects through the unified themed frame family."""
-        raw_affects = getattr(character, "affects", {}) or getattr(character, "effects", {}) or {}
+        rt = getattr(self, "runtime", None)
+        raw_affects = rt.build_projection(character, "effects") if rt and hasattr(rt, "build_projection") else (getattr(character, "affects", {}) or getattr(character, "effects", {}) or {})
         if isinstance(raw_affects, dict):
             effects = [dict(v if isinstance(v, dict) else {"name": k}, name=(v.get("name") if isinstance(v, dict) else k) or k) for k, v in raw_affects.items()]
         else:
@@ -2254,7 +2253,8 @@ class MudCommandEngine:
     def _cmd_worth(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display net worth through the unified character display suite."""
         svc = getattr(self, "character_display_snapshots", None) or getattr(getattr(self, "runtime", None), "character_display_snapshots", None) or CharacterDisplaySnapshotService(getattr(self, "runtime", None))
-        worth_snapshot = svc.build_worth_snapshot(character) if hasattr(svc, "build_worth_snapshot") else None
+        rt = getattr(self, "runtime", None)
+        worth_snapshot = rt.build_projection(character, "worth") if rt and hasattr(rt, "build_projection") else (svc.build_worth_snapshot(character) if hasattr(svc, "build_worth_snapshot") else None)
         doc = build_worth_document(character, worth_snapshot=worth_snapshot, theme=resolve_effective_display_theme(character, family="worth"))
         return CommandResult(narrative=render_display_mud(doc, color_enabled=getattr(doc.frames[0] if doc.frames else None, "color_enabled", True)), display_document=doc, display_intent="WORTH")
 

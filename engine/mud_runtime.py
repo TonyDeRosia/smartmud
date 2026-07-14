@@ -8,6 +8,7 @@ import re
 import uuid
 import hashlib
 import logging
+import time
 from types import MappingProxyType
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -35,6 +36,7 @@ from engine.combat_runtime import CombatRuntimeService, init_combat_runtime_sche
 from engine.agent_runtime import AgentRuntimeGateway, DeterministicControllerEvaluator, init_agent_runtime_schema
 from engine.character_stats import CharacterAttributeService, CombatStatService
 from engine.runtime_resources import RuntimeResourceService
+from engine.projection_cache import CharacterEntryContext, ProjectionCacheRegistry, ProjectionWarmupService, ActiveCharacterAutosaveService
 
 logger = logging.getLogger(__name__)
 
@@ -634,10 +636,14 @@ class MudRuntime:
         self.active_characters: dict[str, MudCharacter] = {}
         self.session_active_character: dict[str, str] = {}
         self.character_session_ids: dict[str, str] = {}
-        self.performance_counters = {k: 0 for k in ["play_view_requests","async_message_requests","character_sql_loads","character_sql_saves","world_package_loads","room_renders","prompt_renders","display_snapshot_builds","commands_processed","messages_delivered","overlapping_requests_prevented","command_requests","direct_command_responses","command_outputs_enqueued_async","duplicate_command_outputs_filtered","async_messages_delivered","character_saves","save_coalesced","save_skipped_clean","quit_final_saves"]}
+        self.performance_counters = {k: 0 for k in ["play_view_requests","async_message_requests","character_sql_loads","character_sql_saves","world_package_loads","room_renders","prompt_renders","display_snapshot_builds","commands_processed","messages_delivered","overlapping_requests_prevented","command_requests","direct_command_responses","command_outputs_enqueued_async","duplicate_command_outputs_filtered","async_messages_delivered","character_saves","save_coalesced","save_skipped_clean","quit_final_saves","character_entry_total_ms","inventory_load_ms","equipment_load_ms","effect_load_ms","ability_load_ms","actor_registration_ms","essential_snapshot_ms","initial_room_render_ms","prompt_render_ms","warmup_queue_ms","warmup_build_ms","warmup_cache_hits","warmup_cancelled","stale_task_rejected","projection_cache_hits","projection_cache_misses","projection_invalidations","autosave_attempts","autosave_successes","autosave_skipped_clean","autosave_failures"]}
         self._dirty_characters: dict[str, set[str]] = {}
         self._save_locks: dict[str, Any] = {}
         self._quit_final_saved: set[str] = set()
+        self.character_dirty_state: dict[str, dict[str, Any]] = {}
+        self.projection_cache = ProjectionCacheRegistry(self)
+        self.projection_warmup = ProjectionWarmupService(self, self.projection_cache)
+        self.autosave_service = ActiveCharacterAutosaveService(self)
         self._async_sequences: dict[str, int] = {}
         self._async_messages: dict[str, list[dict[str, Any]]] = {}
         self._play_view_inflight: set[str] = set()
@@ -719,14 +725,14 @@ class MudRuntime:
     def _active_character_ids_in_room(self, room_id: str, *, exclude: set[str] | None = None) -> list[str]:
         exclude = exclude or set()
         ids: list[str] = []
-        for session in getattr(self, "sessions", {}).values():
-            if getattr(session, "state", "playing") == "disconnected":
+        for cid, ch in getattr(self, "active_characters", {}).items():
+            if cid in exclude or cid in ids:
                 continue
-            cid = getattr(session, "character_id", "")
-            if not cid or cid in exclude or cid in ids:
+            sid = getattr(self, "character_session_ids", {}).get(cid, "")
+            sess = getattr(self, "sessions", {}).get(sid)
+            if sess is not None and getattr(sess, "state", "playing") == "disconnected":
                 continue
-            ch = self.state_store.load_character(cid)
-            if ch and ch.room_id == room_id:
+            if getattr(ch, "room_id", "") == room_id:
                 ids.append(cid)
         return ids
 
@@ -1002,6 +1008,84 @@ class MudRuntime:
         if getattr(self, "abilities", None):
             self.abilities.unregister_actor(character_id)
 
+
+    def _source_versions_for_character(self, character: MudCharacter) -> dict[str, Any]:
+        data = getattr(character, "actor_data", {}) or {}
+        versions = data.get("source_versions", {}) if isinstance(data, dict) else {}
+        return {
+            "character": versions.get("character", getattr(character, "updated_at", "runtime")),
+            "attributes": versions.get("attributes", "attributes-runtime"),
+            "progression": versions.get("progression", getattr(character, "xp", 0)),
+            "currency": versions.get("currency", getattr(character, "gold", 0)),
+            "inventory": versions.get("inventory", len(getattr(character, "inventory", []) or [])),
+            "equipment": versions.get("equipment", len(getattr(character, "equipment", []) or [])),
+            "effects": versions.get("effects", len(getattr(character, "effects", getattr(character, "affects", [])) or [])),
+            "cooldowns": versions.get("cooldowns", "cooldowns-runtime"),
+            "ability_grants": versions.get("ability_grants", tuple(getattr(character, "abilities", []) or [])),
+            "resource_maxima": versions.get("resource_maxima", (getattr(character, "max_hp", 0), getattr(character, "max_mp", 0), getattr(character, "max_stamina", 0))),
+            "location": versions.get("location", getattr(character, "room_id", "")),
+            "world_definitions": getattr(getattr(self, "active_world", None), "content_hash", getattr(self, "active_world_id", "")),
+        }
+
+    def build_projection(self, character: MudCharacter, projection_type: str, *, origin: str = "sync") -> Any:
+        projection_type = {"score_compact": "score", "effects_display": "effects", "equipment_display": "equipment"}.get(projection_type, projection_type)
+        deps = {
+            "score": ("character", "attributes", "progression", "currency", "inventory", "equipment", "effects", "location", "world_definitions"),
+            "worth": ("progression", "currency", "world_definitions"),
+            "equipment": ("equipment", "world_definitions"),
+            "inventory": ("inventory", "world_definitions"),
+            "effects": ("effects", "world_definitions"),
+            "abilities": ("ability_grants", "cooldowns", "world_definitions"),
+            "combatstats": ("attributes", "equipment", "effects", "resource_maxima", "world_definitions"),
+            "attributes": ("attributes", "world_definitions"),
+            "prompt": ("resource_maxima", "location"),
+            "room_render": ("location", "world_definitions"),
+            "location": ("location", "world_definitions"),
+            "primary_stats": ("attributes", "effects"),
+            "combat_stats": ("attributes", "equipment", "effects", "resource_maxima", "world_definitions"),
+            "ability_availability": ("ability_grants", "cooldowns", "equipment", "effects", "world_definitions"),
+        }.get(projection_type, (projection_type,))
+        key = self.projection_cache.source_key(character, projection_type, deps)
+        cached = self.projection_cache.get(character, projection_type, key)
+        if cached is not None:
+            if origin == "background": self.performance_counters["warmup_cache_hits"] += 1
+            return cached
+        started = time.monotonic()
+        if projection_type in {"score", "primary_stats", "combat_stats"}:
+            value = self.character_display_snapshots.build_snapshot(character)
+        elif projection_type == "worth":
+            value = self.character_display_snapshots.build_worth_snapshot(character)
+        elif projection_type == "equipment":
+            value = list((getattr(character, "equipment", {}) or {}).values()) if isinstance(getattr(character, "equipment", None), dict) else list(getattr(character, "equipment", []) or [])
+        elif projection_type == "inventory":
+            value = list(getattr(character, "inventory", []) or [])
+        elif projection_type == "effects":
+            value = getattr(character, "affects", {}) or getattr(character, "effects", {}) or {}
+        elif projection_type == "abilities":
+            svc = getattr(self.command_engine, "ability_service", None) or getattr(self, "abilities", None)
+            value = svc.get_actor_abilities(character.id) if svc and hasattr(svc, "get_actor_abilities") else list(getattr(character, "abilities", []) or [])
+        elif projection_type in {"combatstats", "attributes"}:
+            value = self.character_display_snapshots.build_snapshot(character)
+        elif projection_type == "prompt":
+            colors = self.get_effective_mud_colors(); value = {"prompt_html": render_prompt(character, colors), "prompt_text": render_semantic_plain(render_prompt(character, colors))}
+        elif projection_type == "room_render":
+            room = self._current_room(character); colors = self.get_effective_mud_colors(); value = {"html": render_room(room, colors, character), "text": self._room_text(room), "room_id": character.room_id}
+        elif projection_type == "location":
+            room = self._current_room(character); value = {"room_id": character.room_id, "room_name": getattr(room, "title", "")}
+        else:
+            value = None
+        self.projection_cache.put(character, projection_type, key, value, origin=origin)
+        if origin == "background": self.performance_counters["warmup_build_ms"] += int((time.monotonic()-started)*1000)
+        return value
+
+    def invalidate_character_projections(self, character_id: str, reason: str) -> None:
+        affected = self.projection_cache.invalidate(character_id, reason)
+        self.performance_counters["projection_invalidations"] += len(affected)
+        if hasattr(self, "character_display_snapshots") and ({"*", "score", "worth", "combat_stats", "primary_stats"} & affected):
+            self.character_display_snapshots.invalidate(character_id)
+        if hasattr(self, "projection_warmup"):
+            self.projection_warmup.cancel(character_id)
+
     def enter_world(self, character_id: str, account_id: str = "", session_id: str = "") -> dict[str, Any]:
         """Enter the loaded world as a SQLite-backed character."""
         if account_id:
@@ -1019,17 +1103,33 @@ class MudRuntime:
                 row = conn.execute("SELECT world_id FROM characters WHERE id = ?", (character_id,)).fetchone()
             if row and row[0]:
                 self.load_world(str(row[0]))
+        entry_started = time.monotonic()
+        entry_id = "entry_" + uuid.uuid4().hex
         if getattr(self, "runtime_resources", None):
             self.runtime_resources.world_id = self.active_world_id or self.runtime_resources.world_id
             self.runtime_resources.hydrate_character(char)
         self._ensure_starter_progression(char)
+        actor_start = time.monotonic()
         self.register_live_character(char)
+        self.performance_counters["actor_registration_ms"] += int((time.monotonic() - actor_start) * 1000)
         self.active_characters[character_id] = char
         if session_id:
             self.session_active_character[session_id] = character_id
             self.character_session_ids[character_id] = session_id
-        self.performance_counters["character_sql_saves"] += 1
-        self.state_store.save_character(char, self.active_world_id or "")
+        ctx = CharacterEntryContext(
+            entry_id=entry_id, session_id=session_id, account_id=account_id, character_id=character_id, world_id=self.active_world_id or "",
+            character=char, actor=self.actor_registry.get(character_id) if getattr(self, "actor_registry", None) else None, room=self._current_room(char),
+            progression_snapshot=self._progression_service().get_actor_progression(character_id) if hasattr(self, "_progression_service") else {},
+            economy_snapshot={}, inventory_snapshot=tuple(getattr(char, "inventory", []) or ()),
+            equipment_snapshot=tuple((getattr(char, "equipment", {}) or {}).values()) if isinstance(getattr(char, "equipment", None), dict) else tuple(getattr(char, "equipment", []) or ()),
+            effect_snapshot=tuple((getattr(char, "effects", {}) or {}).values()) if isinstance(getattr(char, "effects", None), dict) else tuple(getattr(char, "effects", []) or ()),
+            cooldown_snapshot=(), ability_grants=tuple(getattr(char, "abilities", []) or ()), source_versions=self._source_versions_for_character(char),
+        )
+        setattr(char, "entry_context", ctx)
+        essential_start = time.monotonic()
+        for projection in ("primary_stats", "combat_stats", "ability_availability", "equipment", "effects", "room_render", "prompt", "location"):
+            self.build_projection(char, projection)
+        self.performance_counters["essential_snapshot_ms"] += int((time.monotonic() - essential_start) * 1000)
         self.hooks.emit("player_login", world_id=self.active_world_id or "", character=char)
         self.event_bus.publish("character_loaded", {"character_id": char.id, "character_name": char.name}, source_system="runtime", world_id=self.active_world_id or "", character_id=char.id)
         self.sessions[character_id] = MudSession(
@@ -1044,8 +1144,11 @@ class MudRuntime:
         with sqlite3.connect(self.state_store.db_path) as conn:
             conn.execute("UPDATE characters SET last_played_at=CURRENT_TIMESTAMP WHERE id=?", (character_id,))
         self.event_bus.publish("character_selected", {"account_id": account_id, "character_id": char.id, "session_id": session_id}, source_system="runtime", account_id=account_id, world_id=self.active_world_id or "", character_id=char.id, session_id=session_id)
-        self.event_bus.publish("character_entered_world", {"account_id": account_id, "character_id": char.id, "character_name": char.name, "room_id": char.room_id, "session_id": session_id}, source_system="runtime", account_id=account_id, world_id=self.active_world_id or "", character_id=char.id, session_id=session_id)
-        return {"ok": True, "character": self._character_payload(char, self.active_world_id or ""), "view": self.play_view(character_id), "async_cursor": self._async_sequences.get(character_id, 0)}
+        self.event_bus.publish("character_entered_world", {"account_id": account_id, "character_id": char.id, "character_name": char.name, "room_id": char.room_id, "session_id": session_id, "entry_id": entry_id}, source_system="runtime", account_id=account_id, world_id=self.active_world_id or "", character_id=char.id, session_id=session_id)
+        view_start = time.monotonic(); view = self.play_view(character_id); self.performance_counters["initial_room_render_ms"] += int((time.monotonic() - view_start) * 1000)
+        self.performance_counters["character_entry_total_ms"] += int((time.monotonic() - entry_started) * 1000)
+        self.projection_warmup.schedule(char, session_id)
+        return {"ok": True, "entry_id": entry_id, "character": self._character_payload(char, self.active_world_id or ""), "view": view, "async_cursor": self._async_sequences.get(character_id, 0)}
 
     def _resident_character(self, character_id: str) -> MudCharacter | None:
         if not character_id:
@@ -1064,10 +1167,9 @@ class MudRuntime:
         char = self._resident_character(character_id)
         if char is None:
             return {"prompt_html": "", "prompt_text": ""}
-        colors = self.get_effective_mud_colors()
+        cached = self.build_projection(char, "prompt")
         self.performance_counters["prompt_renders"] += 1
-        prompt = render_prompt(char, colors)
-        return {"prompt_html": prompt, "prompt_text": render_semantic_plain(prompt)}
+        return dict(cached or {"prompt_html": "", "prompt_text": ""})
 
     def play_view(self, character_id: str) -> dict[str, Any]:
         """Render the current room using the resident active character when available."""
@@ -1080,15 +1182,13 @@ class MudRuntime:
             char = self._resident_character(character_id)
             if char is None:
                 return {"html": "", "text": "Create a character to enter the world.", "prompt": ">"}
-            room = self._current_room(char)
-            colors = self.get_effective_mud_colors()
+            rendered = self.build_projection(char, "room_render") or {}
+            prompt_data = self.build_projection(char, "prompt") or {}
             self.performance_counters["room_renders"] += 1
-            html = render_room(room, colors, char)
             self.event_bus.publish("room_rendered", {"world_id": self.active_world_id or "", "character_id": char.id, "room_id": char.room_id, "output_format": "web_html", "render_kind": "room"}, source_system="render", world_id=self.active_world_id or "", character_id=char.id)
             self.performance_counters["prompt_renders"] += 1
-            prompt = render_prompt(char, colors)
             self.event_bus.publish("prompt_rendered", {"world_id": self.active_world_id or "", "character_id": char.id, "room_id": char.room_id, "output_format": "web_html", "render_kind": "prompt"}, source_system="render", world_id=self.active_world_id or "", character_id=char.id)
-            return {"html": html, "text": self._room_text(room), "prompt": prompt, "room_id": char.room_id, "async_messages": [], "async_cursor": self._async_sequences.get(character_id, 0)}
+            return {"html": rendered.get("html", ""), "text": rendered.get("text", ""), "prompt": prompt_data.get("prompt_html", ""), "room_id": char.room_id, "async_messages": [], "async_cursor": self._async_sequences.get(character_id, 0)}
         finally:
             self._play_view_inflight.discard(character_id)
 
@@ -1356,8 +1456,7 @@ class MudRuntime:
             save_status = self.save_character_if_dirty(char, "quit", force=True, final=True)
         elif mutation != "read_only":
             save_status = self.save_character_if_dirty(char, mutation)
-            if hasattr(self, "character_display_snapshots"):
-                self.character_display_snapshots.invalidate(character_id)
+            # Targeted projection invalidation is owned by mark_character_dirty().
         else:
             save_status = {"saved": False, "status": "read_only", "dirty": bool(self._dirty_characters.get(character_id)), "reasons": sorted(self._dirty_characters.get(character_id, set()))}
         session = self.sessions.get(character_id)
@@ -1376,6 +1475,8 @@ class MudRuntime:
         if updates.get("session_transition") == "character_select":
             sid = self.character_session_ids.pop(character_id, "")
             if sid: self.session_active_character.pop(sid, None)
+            if hasattr(self, "projection_warmup"): self.projection_warmup.cancel(character_id)
+            if hasattr(self, "projection_cache"): self.projection_cache.evict_character(character_id)
             self.active_characters.pop(character_id, None)
             self.unregister_live_character(character_id)
             view = {"html": "", "text": result.narrative, "prompt": ">"}
@@ -1414,6 +1515,10 @@ class MudRuntime:
 
     def mark_character_dirty(self, character_id: str, reason: str) -> None:
         self._dirty_characters.setdefault(character_id, set()).add(reason)
+        now = datetime.now(timezone.utc).isoformat()
+        state = self.character_dirty_state.setdefault(character_id, {"dirty_generation": 0, "dirty_reasons": set(), "last_saved_generation": 0, "save_in_flight": False, "save_error": ""})
+        state["is_dirty"] = True; state["dirty_generation"] = int(state.get("dirty_generation", 0)) + 1; state.setdefault("dirty_reasons", set()).add(reason); state["last_mutation_at"] = now
+        self.invalidate_character_projections(character_id, reason)
 
     def save_character_if_dirty(self, char: MudCharacter, reason: str = "command", *, force: bool = False, final: bool = False) -> dict[str, Any]:
         cid = char.id
@@ -1431,6 +1536,8 @@ class MudRuntime:
             self._quit_final_saved.add(cid)
         self.state_store.save_character(char, self.active_world_id or "")
         self._dirty_characters.pop(cid, None)
+        state = self.character_dirty_state.setdefault(cid, {})
+        state.update({"is_dirty": False, "dirty_reasons": set(), "last_saved_at": datetime.now(timezone.utc).isoformat(), "last_saved_generation": state.get("dirty_generation", 0), "save_in_flight": False, "save_error": ""})
         return {"saved": True, "status": "saved", "dirty": False, "reasons": reasons or [reason]}
 
     ROOM_FEATURE_NAMES = {"gate", "door", "fountain", "altar", "statue", "portal", "stairs", "bridge", "campfire", "lever", "button", "switch", "sign", "notice board", "board", "stall", "provisioner stall", "window", "windows", "tree", "water", "chest", "lock"}
