@@ -403,6 +403,8 @@ class WebRuntime:
             "prompt_text": prompt_text,
             "prompt_html": prompt_html,
             "save_status": "Saved.",
+            "session_transition": (state_updates or {}).get("session_transition", ""),
+            "async_followup_available": False,
             "session_state": self.web_session.state,
             "state": self.web_session.state,
             "session": self.account_session(),
@@ -440,8 +442,20 @@ class WebRuntime:
                 self.active_character_id = ""
                 view = self._normalize_mud_view(result["view"], command_output, command, command_echo)
                 view["session_transition"] = "character_select"
+                view["request_id"] = result.get("request_id")
+                view["action_id"] = result.get("action_id") or result.get("request_id")
+                view["save_status"] = result.get("save_status", view.get("save_status"))
                 return view
-            return self._normalize_mud_view(result["view"], command_output, command, command_echo, result.get("state_updates") or {})
+            view = self._normalize_mud_view(result["view"], command_output, command, command_echo, result.get("state_updates") or {})
+            view["request_id"] = result.get("request_id")
+            view["action_id"] = result.get("action_id") or result.get("request_id")
+            view["save_status"] = result.get("save_status", view.get("save_status"))
+            view["async_followup_available"] = bool(result.get("async_followup_available"))
+            view["delivery_policy"] = result.get("delivery_policy", "direct_response")
+            view["mutation_state"] = result.get("mutation_state", "")
+            view["trace"] = result.get("trace", {})
+            view["async_cursor"] = result.get("view", {}).get("async_cursor", 0)
+            return view
         return result
 
     def mud_list_worlds(self) -> dict[str, Any]:

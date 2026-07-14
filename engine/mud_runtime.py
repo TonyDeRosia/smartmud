@@ -634,7 +634,10 @@ class MudRuntime:
         self.active_characters: dict[str, MudCharacter] = {}
         self.session_active_character: dict[str, str] = {}
         self.character_session_ids: dict[str, str] = {}
-        self.performance_counters = {k: 0 for k in ["play_view_requests","async_message_requests","character_sql_loads","character_sql_saves","world_package_loads","room_renders","prompt_renders","display_snapshot_builds","commands_processed","messages_delivered","overlapping_requests_prevented"]}
+        self.performance_counters = {k: 0 for k in ["play_view_requests","async_message_requests","character_sql_loads","character_sql_saves","world_package_loads","room_renders","prompt_renders","display_snapshot_builds","commands_processed","messages_delivered","overlapping_requests_prevented","command_requests","direct_command_responses","command_outputs_enqueued_async","duplicate_command_outputs_filtered","async_messages_delivered","character_saves","save_coalesced","save_skipped_clean","quit_final_saves"]}
+        self._dirty_characters: dict[str, set[str]] = {}
+        self._save_locks: dict[str, Any] = {}
+        self._quit_final_saved: set[str] = set()
         self._async_sequences: dict[str, int] = {}
         self._async_messages: dict[str, list[dict[str, Any]]] = {}
         self._play_view_inflight: set[str] = set()
@@ -723,7 +726,8 @@ class MudRuntime:
                 ids.append(cid)
         return ids
 
-    def _enqueue_room_output(self, character_id: str, message: str, *, room_id: str = "", category: str = "room_action") -> None:
+    def _enqueue_room_output(self, character_id: str, message: str, *, room_id: str = "", category: str = "room_action", origin_request_id: str = "", delivery_mode: str = "async_only") -> None:
+        self.performance_counters["command_outputs_enqueued_async"] += 1
         if getattr(self, "combat_runtime", None):
             self.combat_runtime.enqueue_output(character_id, message, room_id=room_id, category=category)
 
@@ -1079,10 +1083,11 @@ class MudRuntime:
             seq = self._async_sequences.get(character_id, 0) + 1
             self._async_sequences[character_id] = seq
             char = self.active_characters.get(character_id)
-            self._async_messages.setdefault(character_id, []).append({"message_id": seq, "session_id": session_id or self.character_session_ids.get(character_id, ""), "character_id": character_id, "world_id": self.active_world_id or "", "event_type": "async_output", "output_text": text, "output_html": "", "prompt_invalidated": True, "room_invalidated": False, "session_state": "playing", "created_at": datetime.now(timezone.utc).isoformat()})
+            self._async_messages.setdefault(character_id, []).append({"message_id": seq, "session_id": session_id or self.character_session_ids.get(character_id, ""), "character_id": character_id, "world_id": self.active_world_id or "", "event_type": "async_output", "output_text": text, "output_html": "", "prompt_invalidated": False, "room_invalidated": False, "session_state": "playing", "created_at": datetime.now(timezone.utc).isoformat()})
         new = [m for m in self._async_messages.get(character_id, []) if int(m.get("message_id") or 0) > int(after or 0)]
         self.performance_counters["messages_delivered"] += len(new)
-        return {"ok": True, "messages": new, "cursor": self._async_sequences.get(character_id, 0), **self.prompt_snapshot(character_id)}
+        self.performance_counters["async_messages_delivered"] += len(new)
+        return {"ok": True, "messages": new, "cursor": self._async_sequences.get(character_id, max(int(after or 0), 0)), "prompt_invalidated": any(bool(m.get("prompt_invalidated")) for m in new)}
 
 
     def _builder_visible(self, char: MudCharacter) -> bool:
@@ -1287,7 +1292,11 @@ class MudRuntime:
         return None
 
     def handle_input(self, character_id: str, command: str) -> dict[str, Any]:
-        """Execute a command and persist command/output scrollback to SQLite."""
+        """Execute a command and return canonical immediate response data."""
+        import time, uuid
+        request_id = uuid.uuid4().hex
+        trace = {"request_id": request_id, "command": command, "input_key_accepted": time.monotonic(), "request_started": time.monotonic()}
+        self.performance_counters["command_requests"] += 1
         self.process_due_entity_respawns()
         char = self._resident_character(character_id)
         if char is None:
@@ -1297,8 +1306,9 @@ class MudRuntime:
             self.runtime_resources.hydrate_character(char)
         self.register_live_character(char)
         self.active_characters[character_id] = char
+        trace["command_routing_started"] = time.monotonic()
+        from engine.mud_commands import CommandResult
         if getattr(char, "builder_desc_editor_room_id", ""):
-            from engine.mud_commands import CommandResult
             line = command.rstrip("\n")
             if line.strip() == ".cancel":
                 setattr(char, "builder_desc_editor_room_id", ""); setattr(char, "builder_desc_editor_lines", [])
@@ -1308,48 +1318,94 @@ class MudRuntime:
                 text = "\n".join(getattr(char, "builder_desc_editor_lines", []) or [])
                 self.builder.create_or_update(char, "rooms", rid, {"description": text}, "rdesc", "room")
                 setattr(char, "builder_desc_editor_room_id", ""); setattr(char, "builder_desc_editor_lines", [])
-                data = self.builder.load(self.active_world_id or "").get("rooms",{}).get(rid,{})
-                result = CommandResult("\n".join(["Updated room:", "", "ID:", rid, "", "Name:", data.get("name") or "(unnamed)", "", "Dirty:", "yes"]) + "\n" + self.command_engine._builder_room_status(char, rid, self.builder.load(self.active_world_id or "")))
+                result = CommandResult("Updated room:")
+                self.mark_character_dirty(character_id, "builder")
             else:
                 lines = list(getattr(char, "builder_desc_editor_lines", []) or []); lines.append(line); setattr(char, "builder_desc_editor_lines", lines)
                 result = CommandResult("")
+        elif command.strip() in {".end", ".cancel"}:
+            result = CommandResult("No active editor session.", ok=False)
         else:
-            if command.strip() in {".end", ".cancel"}:
-                from engine.mud_commands import CommandResult
-                result = CommandResult("No active editor session.", ok=False)
-            else:
-                result = self._handle_runtime_command(char, command)
-        read_only_command = command.strip().lower().split()[0] if command.strip() else ""
-        if read_only_command not in {"look", "l", "score", "inventory", "inv", "i", "equipment", "eq"}:
-            self.performance_counters["character_sql_saves"] += 1
-            self.state_store.save_character(char, self.active_world_id or "")
-        session = self.sessions.get(character_id)
-        turn = (session.command_count + 1) if session else 1
-        self.state_store.save_command(character_id, self.active_world_id or "", turn, command, session.account_id if session else "", session.session_id if session else "")
+            result = self._handle_runtime_command(char, command)
+        trace["command_execution_completed"] = time.monotonic()
         if getattr(result, "display_document", None) is not None:
             color_enabled = not bool(getattr(char, "preferences", {}).get("no_color"))
             result.narrative = render_display_mud(result.display_document, color_enabled=color_enabled)
+        mutation = self.classify_command_mutation(command, result)
+        if mutation != "read_only":
+            reason = mutation.replace("_mutation", "").replace("location", "movement")
+            self.mark_character_dirty(character_id, reason)
+        if mutation == "session_transition":
+            save_status = self.save_character_if_dirty(char, "quit", force=True, final=True)
+        elif mutation != "read_only":
+            save_status = self.save_character_if_dirty(char, mutation)
+        else:
+            save_status = self.save_character_if_dirty(char, mutation)
+        session = self.sessions.get(character_id)
+        turn = (session.command_count + 1) if session else 1
+        self.state_store.save_command(character_id, self.active_world_id or "", turn, command, session.account_id if session else "", session.session_id if session else "")
         self.state_store.save_scrollback(character_id, self.active_world_id or "", turn, result.narrative)
         if session:
             session.command_count = turn
             session.last_activity = datetime.now(timezone.utc).isoformat()
-        async_messages = self.drain_session_output(character_id)
-        if async_messages:
-            result.narrative = (result.narrative + '\n' if result.narrative else '') + '\n'.join(async_messages)
-            self.state_store.save_scrollback(character_id, self.active_world_id or '', turn, '\n'.join(async_messages))
         updates = result.state_updates or {}
         self.performance_counters["commands_processed"] += 1
+        self.performance_counters["direct_command_responses"] += 1
         view = self.play_view(character_id) if updates.get("render_room") or (command.strip().lower().split()[0] if command.strip() else "") in {"look","l","north","n","south","s","east","e","west","w","up","u","down","d","in","out"} else {**self.prompt_snapshot(character_id), "html": "", "text": "", "room_id": getattr(char, "room_id", "")}
         if updates.get("session_transition") == "character_select":
-            self.performance_counters["character_sql_saves"] += 1
-            self.state_store.save_character(char, self.active_world_id or "")
             sid = self.character_session_ids.pop(character_id, "")
             if sid: self.session_active_character.pop(sid, None)
             self.active_characters.pop(character_id, None)
             self.unregister_live_character(character_id)
             view = {"html": "", "text": result.narrative, "prompt": ">"}
-        return {"ok": result.ok, "output": render_semantic_plain(result.narrative), "semantic_output": result.narrative, "state_updates": updates, "view": view}
+        trace["response_serialization_completed"] = time.monotonic()
+        return {"ok": result.ok, "request_id": request_id, "action_id": request_id, "output": render_semantic_plain(result.narrative), "semantic_output": result.narrative, "state_updates": updates, "view": view, "command_response": {"command": command, "semantic_text": result.narrative, "plain_text": render_semantic_plain(result.narrative), "html": "", "room_render": view, "prompt_snapshot": self.prompt_snapshot(character_id) if character_id in self.active_characters else {}, "state_updates": updates, "session_transition": updates.get("session_transition", ""), "mutation_state": mutation, "async_events": [], "delivery_policy": "direct_response"}, "delivery_policy": "direct_response", "mutation_state": mutation, "save_status": save_status, "async_followup_available": False, "trace": trace}
 
+
+
+    READ_ONLY_COMMANDS = {"look","l","score","sc","worth","equipment","eq","inventory","inv","i","affects","effects","skills","spells","abilities","help","who","history","combatstats","attributes"}
+    MOVEMENT_COMMANDS = {"north","n","south","s","east","e","west","w","up","u","down","d","in","out"}
+    EQUIPMENT_MUTATION_COMMANDS = {"wear","wield","hold","mainhand","offhand","dual","remove","rem","unwield","unequip"}
+    INVENTORY_MUTATION_COMMANDS = {"get","drop","put","give","take"}
+
+    def classify_command_mutation(self, command: str, result: Any = None) -> str:
+        text = (command or "").strip().lower()
+        if text in {"score compact", "score full"}:
+            return "read_only"
+        cmd = text.split()[0] if text else ""
+        updates = getattr(result, "state_updates", None) or {}
+        if updates.get("session_transition") == "character_select" or cmd in {"quit","logout","disconnect"}:
+            return "session_transition"
+        if cmd in self.READ_ONLY_COMMANDS:
+            return "read_only"
+        if cmd in self.MOVEMENT_COMMANDS:
+            return "location_mutation" if getattr(result, "ok", False) and updates.get("render_room") else "read_only"
+        if cmd in self.EQUIPMENT_MUTATION_COMMANDS:
+            return "equipment_mutation" if getattr(result, "ok", True) else "read_only"
+        if cmd in self.INVENTORY_MUTATION_COMMANDS:
+            return "inventory_mutation" if getattr(result, "ok", True) else "read_only"
+        return "world_mutation"
+
+    def mark_character_dirty(self, character_id: str, reason: str) -> None:
+        self._dirty_characters.setdefault(character_id, set()).add(reason)
+
+    def save_character_if_dirty(self, char: MudCharacter, reason: str = "command", *, force: bool = False, final: bool = False) -> dict[str, Any]:
+        cid = char.id
+        if final and cid in self._quit_final_saved:
+            self.performance_counters["save_coalesced"] += 1
+            return {"saved": False, "status": "coalesced", "dirty": False, "reasons": []}
+        reasons = sorted(self._dirty_characters.get(cid, set()))
+        if not force and not reasons:
+            self.performance_counters["save_skipped_clean"] += 1
+            return {"saved": False, "status": "clean", "dirty": False, "reasons": []}
+        self.performance_counters["character_sql_saves"] += 1
+        self.performance_counters["character_saves"] += 1
+        if final:
+            self.performance_counters["quit_final_saves"] += 1
+            self._quit_final_saved.add(cid)
+        self.state_store.save_character(char, self.active_world_id or "")
+        self._dirty_characters.pop(cid, None)
+        return {"saved": True, "status": "saved", "dirty": False, "reasons": reasons or [reason]}
 
     ROOM_FEATURE_NAMES = {"gate", "door", "fountain", "altar", "statue", "portal", "stairs", "bridge", "campfire", "lever", "button", "switch", "sign", "notice board", "board", "stall", "provisioner stall", "window", "windows", "tree", "water", "chest", "lock"}
     FILLER_BY_COMMAND = {"look": {"at"}, "examine": {"at"}, "drink": {"from"}, "get": {"from"}, "put": {"in", "into", "on"}}
@@ -1691,7 +1747,7 @@ class MudRuntime:
         if exit_data and reason == "ok":
             old_room = room_id
             char.room_id = str(exit_data["target_room_id"])
-            self.state_store.save_character(char, self.active_world_id or "")
+            self.mark_character_dirty(char.id, "movement")
             reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in","northeast":"southwest","southwest":"northeast","northwest":"southeast","southeast":"northwest"}.get(direction, direction)
             self.deliver_room_action(old_room, f"{char.name} leaves {direction}.", actor_id=char.id, category="actor_departed")
             self.deliver_room_action(char.room_id, f"{char.name} arrives from the {reverse}.", actor_id=char.id, category="actor_arrived")

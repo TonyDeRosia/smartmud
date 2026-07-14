@@ -564,11 +564,6 @@ class MudCommandEngine:
         rt = getattr(self, "runtime", None)
         actor_id = str(getattr(character, "id", ""))
         if cmd in {"quit", "logout", "disconnect"}:
-            if rt and getattr(rt, "state_store", None):
-                try:
-                    rt.state_store.save_character(character, getattr(rt, "active_world_id", "") or "")
-                except Exception:
-                    logger.exception("Character save failed during logout", extra={"character_id": actor_id, "command": cmd, "room_id": getattr(character, "room_id", "")})
             if self.event_bus:
                 self.event_bus.publish("character_session_left", {"character_id": actor_id, "room_id": getattr(character, "room_id", ""), "command": cmd}, source_system="session", character_id=actor_id, room_id=getattr(character, "room_id", ""))
             if rt:
