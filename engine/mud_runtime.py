@@ -924,6 +924,11 @@ class MudRuntime:
         self._load_item_templates()
         self._load_entity_templates()
         self.materialize_world_content(world_id)
+        try:
+            from engine.zone_resets import ZoneResetService
+            ZoneResetService(runtime=self, db_path=self.state_store.db_path).tick(world_id)
+        except Exception as exc:
+            print(f"[zone-reset] startup tick skipped: {exc}")
         self.living_world.ensure_world_time(world_id)
         self.actor_registry = getattr(self, "actor_registry", ActorRegistry())
         self.abilities = AbilityExecutionService(self.state_store.db_path, self.active_world, self.event_bus, world_id, actor_registry=self.actor_registry, combat_runtime=self.combat_runtime, combat_stat_service=self.combat_stat_service, resource_service=getattr(self, 'resource_service', None), effect_service=getattr(self, 'effect_service', None), lifecycle_service=getattr(self, 'lifecycle_service', None), item_service=getattr(self, 'inventory_service', None), world_registry=self.world_registry, room_service=getattr(self, 'environment', None), formula_engine=getattr(self, 'formula_engine', None), state_store=self.state_store)

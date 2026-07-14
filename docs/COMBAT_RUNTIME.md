@@ -38,3 +38,7 @@
 15. Restart Smart MUD and confirm persistent results remain correct.
 
 Windows testing was not executed by this agent.
+
+## Emberwood live combat coverage
+
+Emberwood Forest provides formula-backed creatures for baseline melee (`forest_wolf`), Evasion (`emberwood_fox`), Armor (`wild_boar`), hostile save/effect-path observation without fake poison (`giant_wood_spider`), Hitroll/Damroll/criticals (`dire_forest_wolf`), and long armored combat (`ashback_bear`).

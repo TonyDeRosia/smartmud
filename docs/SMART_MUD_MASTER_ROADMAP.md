@@ -426,3 +426,7 @@ Completed a focused canonical combat correction pass:
 * Documented inactive speed, parry, block, and presence limits.
 
 Remaining: repeat direct Adventurer's Lair C-source audit in an environment with repository access; expand end-to-end Windows acceptance coverage with Kraevok.
+
+### Emberwood Forest starter expansion
+
+Implemented a connected 16-room Emberwood Forest under area `emberwood_edge` and zone `emberwood_forest`, with seven combat-ready wildlife templates and the `emberwood_forest_population` Phase 15A reset profile. Remaining acceptance requires Windows live-play verification with Kraevok.

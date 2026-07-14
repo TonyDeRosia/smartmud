@@ -34,3 +34,7 @@ Draft file: `worlds/<world_id>/builder/resets.json` through existing `BuilderWor
 14. Leave the zone, then confirm automatic eligibility with an admin pulse/tick hook when wired.
 15. View history: `resethistory`.
 16. View action trace: `resettrace <reset_run_id>`.
+
+## Emberwood reset editing
+
+The Emberwood Forest reset draft lives in `worlds/shattered_realms/builder/resets.json` as `emberwood_forest_population`. Validate with `resetvalidate emberwood_forest_population`, preview with `resetpreview emberwood_forest_population`, and populate missing wildlife with `resetrun emberwood_forest_population`.

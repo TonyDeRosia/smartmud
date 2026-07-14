@@ -156,69 +156,79 @@
     "zone_id": "east_farmland"
   },
   "emberwood_edge": {
-    "area_id": "starter_guildlands",
-    "description": "Dark trees gather at Emberwood Edge, where fallen leaves cover old roots and the road narrows into shade.",
-    "exits": {
-      "north": {
-        "description": "north to emberwood game trail.",
-        "direction": "north",
-        "target_room_id": "emberwood_game_trail"
-      },
-      "west": {
-        "description": "west to broken fence.",
-        "direction": "west",
-        "target_room_id": "broken_fence"
-      }
-    },
-    "features": {},
-    "flags": [],
     "id": "emberwood_edge",
     "name": "Emberwood Edge",
-    "plugin_data": {
-      "migration_source": "live_starter"
-    },
+    "description": "The last open ground gives way to close trunks and ember-red leaves. Old roots knot through the soil, with the hunting trail south and deeper animal paths ahead.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1210,
     "tags": [
       "starter",
-      "emberwood_edge"
+      "emberwood_forest"
     ],
-    "vnum": 1210,
-    "world_id": "shattered_realms",
-    "zone_id": "emberwood_edge"
-  },
-  "emberwood_game_trail": {
-    "area_id": "starter_guildlands",
-    "description": "The Emberwood game trail winds between close trunks and fern beds, marked by pawprints and snapped twigs.",
+    "flags": [],
+    "features": {},
     "exits": {
-      "east": {
-        "description": "east to abandoned watchpost.",
-        "direction": "east",
-        "target_room_id": "abandoned_watchpost"
-      },
       "south": {
-        "description": "south to emberwood edge.",
         "direction": "south",
-        "target_room_id": "emberwood_edge"
+        "target_room_id": "emberwood_hunting_trail",
+        "description": "south to Emberwood Hunting Trail."
       },
       "north": {
-        "description": "north to forest trail.",
         "direction": "north",
-        "target_room_id": "forest_trail"
+        "target_room_id": "emberwood_game_trail",
+        "description": "north to Emberwood Game Trail."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "fern_hollow",
+        "description": "east to Fern Hollow."
+      },
+      "west": {
+        "direction": "west",
+        "target_room_id": "broken_fence",
+        "description": "west to broken fence."
       }
     },
-    "features": {},
-    "flags": [],
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "emberwood_game_trail": {
     "id": "emberwood_game_trail",
     "name": "Emberwood Game Trail",
-    "plugin_data": {
-      "migration_source": "live_starter"
-    },
+    "description": "A narrow game trail threads between ferns and black-barked saplings. Pawprints, hoof marks, and broken twigs show where the forest traffic leaves the road behind.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1211,
     "tags": [
       "starter",
-      "emberwood_edge"
+      "emberwood_forest"
     ],
-    "vnum": 1211,
-    "world_id": "shattered_realms",
-    "zone_id": "emberwood_edge"
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "emberwood_edge",
+        "description": "south to Emberwood Edge."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "forest_trail",
+        "description": "north to Forest Trail."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "abandoned_watchpost",
+        "description": "east to abandoned watchpost."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
   },
   "farmer_field": {
     "area_id": "starter_guildlands",
@@ -864,136 +874,473 @@
     "zone_id": "training_grounds"
   },
   "forest_trail": {
-    "area_id": "starter_guildlands",
-    "description": "A simple woodland trail loops between trees and low brush.",
-    "exits": {
-      "south": {
-        "description": "south to emberwood game trail.",
-        "direction": "south",
-        "target_room_id": "emberwood_game_trail"
-      },
-      "east": {
-        "description": "east to wolf trail.",
-        "direction": "east",
-        "target_room_id": "wolf_trail"
-      },
-      "north": {
-        "description": "north to woodland camp.",
-        "direction": "north",
-        "target_room_id": "woodland_camp"
-      }
-    },
-    "features": {},
-    "flags": [],
     "id": "forest_trail",
     "name": "Forest Trail",
-    "plugin_data": {
-      "phase": "12d1",
-      "purpose": "engine_validation_sandbox"
-    },
+    "description": "Several woodland paths meet beneath leaning ash and pine. The ground is trampled enough to follow, but shadows gather between the branching routes.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1212,
     "tags": [
       "starter",
-      "phase12d1",
-      "outdoor"
+      "emberwood_forest"
     ],
-    "vnum": 1212,
-    "world_id": "shattered_realms",
-    "zone_id": "emberwood_edge"
-  },
-  "wolf_trail": {
-    "area_id": "starter_guildlands",
-    "description": "A narrow animal trail runs past clawed trunks and scattered stones.",
+    "flags": [],
+    "features": {},
     "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "emberwood_game_trail",
+        "description": "south to Emberwood Game Trail."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "fallen_oak",
+        "description": "east to Fallen Oak."
+      },
       "west": {
-        "description": "west to forest trail.",
         "direction": "west",
-        "target_room_id": "forest_trail"
+        "target_room_id": "mossy_creek",
+        "description": "west to Mossy Creek."
       },
       "north": {
-        "description": "north to wolf den.",
         "direction": "north",
-        "target_room_id": "wolf_den"
+        "target_room_id": "woodland_camp",
+        "description": "north to Woodland Camp."
       }
     },
-    "features": {},
-    "flags": [],
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "wolf_trail": {
     "id": "wolf_trail",
     "name": "Wolf Trail",
-    "plugin_data": {
-      "phase": "12d1",
-      "purpose": "engine_validation_sandbox"
-    },
+    "description": "A narrow trail climbs past scratched bark and tufts of gray fur caught on splinters. The air smells of musk and cold stone farther north.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1213,
     "tags": [
       "starter",
-      "phase12d1",
-      "outdoor"
+      "emberwood_forest"
     ],
-    "vnum": 1213,
-    "world_id": "shattered_realms",
-    "zone_id": "emberwood_edge"
-  },
-  "wolf_den": {
-    "area_id": "starter_guildlands",
-    "description": "A shallow den lies beneath roots and stone at the edge of the trail.",
+    "flags": [],
+    "features": {},
     "exits": {
       "south": {
-        "description": "south to wolf trail.",
         "direction": "south",
-        "target_room_id": "wolf_trail"
+        "target_room_id": "fallen_oak",
+        "description": "south to Fallen Oak."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "wolf_den",
+        "description": "north to Wolf Den."
       },
       "west": {
-        "description": "west to woodland camp.",
         "direction": "west",
-        "target_room_id": "woodland_camp"
+        "target_room_id": "woodland_camp",
+        "description": "west to Woodland Camp."
       }
     },
-    "features": {},
-    "flags": [],
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "wolf_den": {
     "id": "wolf_den",
     "name": "Wolf Den",
-    "plugin_data": {
-      "phase": "12d1",
-      "purpose": "engine_validation_sandbox"
-    },
+    "description": "Broken stone rises into a shallow den beneath tangled roots. Bones, shed fur, and packed earth mark a lair used by the larger wolves of Emberwood.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1214,
     "tags": [
       "starter",
-      "phase12d1",
-      "outdoor"
+      "emberwood_forest"
     ],
-    "vnum": 1214,
-    "world_id": "shattered_realms",
-    "zone_id": "emberwood_edge"
-  },
-  "woodland_camp": {
-    "area_id": "starter_guildlands",
-    "description": "A clear patch of ground offers room for testing camps and firelight.",
+    "flags": [],
+    "features": {},
     "exits": {
-      "east": {
-        "description": "east to wolf den.",
-        "direction": "east",
-        "target_room_id": "wolf_den"
-      },
       "south": {
-        "description": "south to forest trail.",
         "direction": "south",
-        "target_room_id": "forest_trail"
+        "target_room_id": "wolf_trail",
+        "description": "south to Wolf Trail."
+      },
+      "west": {
+        "direction": "west",
+        "target_room_id": "spider_glade",
+        "description": "west to Spider Glade."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "ancient_ember_grove",
+        "description": "east to Ancient Ember Grove."
       }
     },
-    "features": {},
-    "flags": [],
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "woodland_camp": {
     "id": "woodland_camp",
     "name": "Woodland Camp",
-    "plugin_data": {
-      "phase": "12d1",
-      "purpose": "engine_validation_sandbox"
-    },
+    "description": "A small hunter camp sits in a sheltered clearing, its fire ring cold and its log benches weathered but intact. Paths leave in all directions through the trees.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1215,
     "tags": [
       "starter",
-      "phase12d1",
-      "outdoor"
+      "emberwood_forest"
     ],
-    "vnum": 1215,
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "forest_trail",
+        "description": "south to Forest Trail."
+      },
+      "west": {
+        "direction": "west",
+        "target_room_id": "fox_burrow",
+        "description": "west to Fox Burrow."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "wolf_trail",
+        "description": "east to Wolf Trail."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "old_hunters_blind",
+        "description": "north to Old Hunter's Blind."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "emberwood_hunting_trail": {
+    "id": "emberwood_hunting_trail",
+    "name": "Emberwood Hunting Trail",
+    "description": "A maintained hunting path slips under the first dark boughs of Emberwood. Wheel ruts fade into packed needles, and the city road remains visible through the trees to the south.",
     "world_id": "shattered_realms",
-    "zone_id": "emberwood_edge"
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1225,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "old_gate_road",
+        "description": "south to old gate road."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "emberwood_edge",
+        "description": "north to Emberwood Edge."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "fern_hollow": {
+    "id": "fern_hollow",
+    "name": "Fern Hollow",
+    "description": "Waist-high ferns fill a damp hollow where rainwater lingers in dark soil. The fronds hide stones, roots, and small trails through the green.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1216,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "west": {
+        "direction": "west",
+        "target_room_id": "emberwood_edge",
+        "description": "west to Emberwood Edge."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "briar_thicket",
+        "description": "north to Briar Thicket."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "mossy_creek": {
+    "id": "mossy_creek",
+    "name": "Mossy Creek",
+    "description": "A shallow creek cuts through the forest over slick mossy stones. Water carries flecks of red leaves beneath low banks and hanging roots.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1217,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "east": {
+        "direction": "east",
+        "target_room_id": "forest_trail",
+        "description": "east to Forest Trail."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "fox_burrow",
+        "description": "north to Fox Burrow."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "fallen_oak": {
+    "id": "fallen_oak",
+    "name": "Fallen Oak",
+    "description": "A massive oak lies split across the trail, its hollow trunk dark enough to shelter small dens. Fresh claw marks score the bark near the broken crown.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1218,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "west": {
+        "direction": "west",
+        "target_room_id": "forest_trail",
+        "description": "west to Forest Trail."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "wolf_trail",
+        "description": "north to Wolf Trail."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "briar_thicket": {
+    "id": "briar_thicket",
+    "name": "Briar Thicket",
+    "description": "Dense briars crowd the path into a twisting tunnel of thorns. Visibility narrows to a few paces where torn cloth and old feathers snag on the branches.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1219,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "fern_hollow",
+        "description": "south to Fern Hollow."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "spider_glade",
+        "description": "north to Spider Glade."
+      },
+      "west": {
+        "direction": "west",
+        "target_room_id": "old_hunters_blind",
+        "description": "west to Old Hunter's Blind."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "fox_burrow": {
+    "id": "fox_burrow",
+    "name": "Fox Burrow",
+    "description": "A sandy bank rises beside the creek, riddled with small burrow mouths and screened by roots. Dry leaves collect in sheltered pockets along the slope.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1220,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "mossy_creek",
+        "description": "south to Mossy Creek."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "woodland_camp",
+        "description": "east to Woodland Camp."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "old_hunters_blind": {
+    "id": "old_hunters_blind",
+    "name": "Old Hunter's Blind",
+    "description": "A decaying hunter's blind leans above the undergrowth on gray wooden stilts. From here, narrow sight lines cut through briar, camp smoke stains, and darker woods northward.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1221,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "woodland_camp",
+        "description": "south to Woodland Camp."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "briar_thicket",
+        "description": "east to Briar Thicket."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "deep_emberwood",
+        "description": "north to Deep Emberwood."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "deep_emberwood": {
+    "id": "deep_emberwood",
+    "name": "Deep Emberwood",
+    "description": "The canopy closes into a dark roof of needles and ember-colored leaves. Sound falls away among old trunks, and the path bends toward the forest heart.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1222,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "old_hunters_blind",
+        "description": "south to Old Hunter's Blind."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "spider_glade",
+        "description": "east to Spider Glade."
+      },
+      "north": {
+        "direction": "north",
+        "target_room_id": "ancient_ember_grove",
+        "description": "north to Ancient Ember Grove."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "spider_glade": {
+    "id": "spider_glade",
+    "name": "Spider Glade",
+    "description": "A silent glade opens between crooked trees, threaded with old webbing that glints like wet wire. Pale husks hang in the brush at the clearing edge.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1223,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "briar_thicket",
+        "description": "south to Briar Thicket."
+      },
+      "west": {
+        "direction": "west",
+        "target_room_id": "deep_emberwood",
+        "description": "west to Deep Emberwood."
+      },
+      "east": {
+        "direction": "east",
+        "target_room_id": "wolf_den",
+        "description": "east to Wolf Den."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
+  },
+  "ancient_ember_grove": {
+    "id": "ancient_ember_grove",
+    "name": "Ancient Ember Grove",
+    "description": "Ancient trees stand blackened but alive, their cracked bark leaking faint ember-colored sap. The grove is warmer than the surrounding woods, and old ash softens every footfall.",
+    "world_id": "shattered_realms",
+    "area_id": "emberwood_edge",
+    "zone_id": "emberwood_forest",
+    "vnum": 1224,
+    "tags": [
+      "starter",
+      "emberwood_forest"
+    ],
+    "flags": [],
+    "features": {},
+    "exits": {
+      "south": {
+        "direction": "south",
+        "target_room_id": "deep_emberwood",
+        "description": "south to Deep Emberwood."
+      },
+      "west": {
+        "direction": "west",
+        "target_room_id": "wolf_den",
+        "description": "west to Wolf Den."
+      }
+    },
+    "plugin_data": {
+      "migration": "emberwood_forest_phase15a"
+    }
   }
 }
