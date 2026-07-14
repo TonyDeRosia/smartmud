@@ -759,6 +759,10 @@ def _score_divider() -> DisplayDivider:
     return DisplayDivider()
 
 def _required_score_text(value: Any, field: str) -> str:
+    if isinstance(value, Mapping):
+        value = value.get("value", value.get("display", value.get("final")))
+    if hasattr(value, "value"):
+        value = getattr(value, "value")
     if value in (None, ""):
         raise ValueError(f"score_projection_incomplete field={field}")
     text = str(value)
@@ -769,6 +773,8 @@ def _required_score_text(value: Any, field: str) -> str:
 def _score_int(value: Any, field: str) -> int:
     if isinstance(value, Mapping):
         value = value.get("value", value.get("final", value.get("display")))
+    if hasattr(value, "value"):
+        value = getattr(value, "value")
     if value in (None, ""):
         raise ValueError(f"score_projection_incomplete field={field}")
     return int(value)
@@ -866,7 +872,7 @@ def build_score_document(character: Any = None, *, snapshot: CharacterDisplaySna
     played=_score_play_time(snap.time or {})
     immortal = bool(ident.get("immortal") or ident.get("is_immortal") or ident.get("level_role") == "immortal" or level >= int(ident.get("immortal_level", 1000) or 1000))
     status=_score_status(snap)
-    hunger=_required_score_text(surv.get("hunger", "Full"), "survival.hunger"); thirst=_required_score_text(surv.get("thirst", "Hydrated"), "survival.thirst")
+    hunger=_required_score_text(surv.get("hunger"), "survival.hunger"); thirst=_required_score_text(surv.get("thirst"), "survival.thirst")
     rows=[
         _score_row("CHARACTER STATUS"), _score_divider(),
         _score_row(f"Name: {name:<22} Title: {title}"),
@@ -879,10 +885,12 @@ def build_score_document(character: Any = None, *, snapshot: CharacterDisplaySna
     rows += [_score_row(f"Base Stats: Str {_al_attr(snap,'str')} Dex {_al_attr(snap,'dex')} Con {_al_attr(snap,'con')}"), _score_row(f"            Int {_al_attr(snap,'int')} Wis {_al_attr(snap,'wis')} Cha {_al_attr(snap,'cha')}"), _score_row(), _score_row(f"Armor: {armor:<8} Evasion: {evasion:<5} Spell Saves: {spell_save}"), _score_row(), _score_row(f"Offense: Hitroll {hit:+d} Damroll {dam:+d} Accuracy: {acc}%")]
     unarmed=snap.unarmed_profile or {}; weapon=snap.weapon_profile or {}; weapon_active=bool(weapon and weapon.get("active") and (weapon.get("weapon_name") or weapon.get("name")) and str(weapon.get("name") or "").lower() != "unarmed")
     if not weapon_active and unarmed:
-        lo=unarmed.get("minimum_damage", unarmed.get("min_damage")); hi=unarmed.get("maximum_damage", unarmed.get("max_damage")); bonus=unarmed.get("bonus", 0)
-        if lo is not None and hi is not None:
-            avg=(int(lo)+int(hi))/2 + int(bonus or 0); avg_text=str(int(avg)) if avg == int(avg) else f"{avg:.1f}"
-            rows.append(_score_row(f"Unarmed Dice: 1d{int(hi)} + {int(bonus or 0)} (Avg {avg_text} per hit, before bonuses)"))
+        dice_count=unarmed.get("dice_count"); die_size=unarmed.get("die_size"); bonus=unarmed.get("flat_bonus", unarmed.get("bonus", 0)); avg=unarmed.get("average_damage")
+        if dice_count is not None and die_size is not None:
+            if avg in (None, ""):
+                avg=(int(dice_count)*(int(die_size)+1))/2 + int(bonus or 0)
+            avg_text=str(int(avg)) if float(avg) == int(float(avg)) else f"{float(avg):.1f}"
+            rows.append(_score_row(f"Unarmed Dice: {int(dice_count)}d{int(die_size)} + {int(bonus or 0)} (Avg {avg_text} per hit, before bonuses)"))
     rows += [_score_row(), _score_row(f"Critical hit: {crit_melee} Critical Spell: {crit_spell} Critical Heal: {crit_heal}"), _score_divider(), _score_row("Currencies"), _score_row(_score_currency_line(snap.currency or {})), _score_divider()]
     left=f"Quests completed: {completed}"; right=f"Quest Points: {qpoints}"; gap=max(2, SCORE_CONTENT_WIDTH-len(left)-len(right)); rows.append(_score_row(left + " "*gap + right))
     rows.append(_score_row(quest_line))
@@ -900,6 +908,7 @@ def build_score_document(character: Any = None, *, snapshot: CharacterDisplaySna
     if bool((snap.mechanics or {}).get("summonable") or ident.get("summonable")): rows.append(_score_row("You are summonable by other players."))
     if mode == "detailed" or immortal:
         rows.append(_score_divider())
+        rows.append(_score_row("IMMORTAL INFORMATION"))
         rows.append(_score_row(f"POOFIN: {(ident.get('poofin') or f'{name} appears with an ear-splitting bang.')}"))
         rows.append(_score_row(f"POOFOUT: {(ident.get('poofout') or f'{name} disappears in a puff of smoke.')}"))
         zone=ident.get("builder_zone") or ident.get("current_zone_name") or ident.get("current_zone_id")

@@ -15,8 +15,8 @@ def frozen_snapshot():
     return CharacterDisplaySnapshot(
         character_id="c1",
         identity={"character_id": "c1", "display_name": "Aster", "title": "the Bold"},
-        race={"availability": "unavailable"},
-        character_class={"availability": "unsupported"},
+        race={"id": "human", "name": "Human", "availability": "available"},
+        character_class={"id": "adventurer", "name": "Adventurer", "base_class_name": "Adventurer", "track_id": "", "track_name": "", "availability": "available"},
         level=7,
         alignment="Good",
         age={"display": "22 years old"},
@@ -24,9 +24,9 @@ def frozen_snapshot():
         progression={"xp": {"label": "Experience", "value": 12345, "display_format": "thousands", "display_order": 10}, "xp_to_next_level": {"label": "TNL", "value": 55, "display_order": 20}, "practice_points": 3, "training_points": 2},
         resources={"hp": 5, "max_hp": 10, "mana": 7, "max_mana": 8, "stamina": 9, "max_stamina": 12},
         attributes={"might": {"label": "Might", "value": 14, "display_order": 20}, "grace": {"label": "Grace", "value": 13, "display_order": 10}},
-        offense={"accuracy": {"label": "Accuracy", "value": 71, "unit": "percentage", "display_order": 10}, "hit_bonus": {"label": "Hit Bonus", "value": 4}},
-        defense={"armor": {"label": "Armor", "value": 12}, "parry": {"label": "Parry", "value": 0, "active": False, "inactive_reason": "Not consumed by combat yet."}},
-        criticals={"critical_melee": {"label": "Melee Critical", "value": 5, "unit": "percentage"}},
+        offense={"accuracy": {"label": "Accuracy", "value": 71, "unit": "percentage", "display_order": 10}, "hit_bonus": {"label": "Hit Bonus", "value": 4}, "damage_bonus": {"label": "Damage Bonus", "value": 0}},
+        defense={"armor": {"label": "Armor", "value": 12}, "evasion": {"label": "Evasion", "value": 0}, "parry": {"label": "Parry", "value": 0, "active": False, "inactive_reason": "Not consumed by combat yet."}},
+        criticals={"critical_melee": {"label": "Melee Critical", "value": 5, "unit": "percentage"}, "critical_spell": {"label": "Spell Critical", "value": 0}, "critical_heal": {"label": "Heal Critical", "value": 0}},
         saves={"physical": {"label": "Physical Save", "value": 8}, "mental": {"label": "Mental Save", "value": 9}, "magic": {"label": "Magic Save", "value": 10}},
         resistances={"custom_void": {"label": "Void", "value": -5, "unit": "percentage"}},
         weapon_profile={"weapon_name": "Iron Longsword", "minimum_damage": 8, "maximum_damage": 13, "damage_type": "slashing", "attack_speed": 2},
@@ -34,10 +34,10 @@ def frozen_snapshot():
         speed={"initiative": {"label": "Initiative", "value": 3}, "movement_speed": {"label": "Movement Speed", "value": 100, "unit": "percentage"}},
         carrying={"current_weight": {"label": "Current Carry Weight", "value": 42, "unit": "lb"}, "carry_capacity": {"label": "Carry Capacity", "value": 100, "unit": "lb"}},
         encumbrance={"encumbrance_percent": {"label": "Encumbrance", "value": 42, "unit": "percentage"}, "encumbrance_state": {"label": "State", "value": "Unburdened"}},
-        survival={"posture": "standing", "hunger": {"label": "Hunger", "value": "Satisfied"}},
+        survival={"posture": "standing", "hunger": {"label": "Hunger", "value": "Satisfied"}, "thirst": {"label": "Thirst", "value": "Hydrated"}},
         effects=({"name": "Blessing <script>", "classification": "beneficial", "remaining": "5 minutes", "stacks": 2}, {"name": "Poison", "classification": "harmful"}),
         location={"world": {"label": "World", "value": "Shattered Realms"}, "room_name": {"label": "Room", "value": "Old Gate"}},
-        currency={"gold": {"label": "Gold", "value": 99}},
+        currency={"gold": {"label": "Gold", "value": 99}, "diamonds": {"label": "Diamonds", "value": 0}, "glory": {"label": "Glory", "value": 0}, "bank": {"label": "Bank", "value": 0}},
         mechanics={"pk_status": {"label": "PK Status", "value": "Protected"}},
         source_versions={"snapshot": "phase13c3-b.snapshot.v1", "combat": "combat-v1"},
     )
@@ -50,8 +50,8 @@ def test_score_renders_adventurers_lair_sheet_without_modern_sections():
     assert "PRIMARY STATISTICS" not in text
     assert "SECONDARY COMBAT STATISTICS" not in text
     assert "Name: Aster" in text and "Title: the Bold" in text
-    assert "Race: Unavailable" in text
-    assert "Class: Not implemented" in text
+    assert "Race: Human" in text
+    assert "Class: Adventurer" in text
     assert "Exp:" in text and "TNL:" in text
     assert "Carry Capacity:" in text
     assert "Base Stats:" in text and "Armor:" in text and "Hitroll" in text

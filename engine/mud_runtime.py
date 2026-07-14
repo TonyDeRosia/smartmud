@@ -813,7 +813,26 @@ class MudRuntime:
 
     def _ensure_starter_progression(self, char: MudCharacter) -> None:
         ps = self._progression_service()
-        state = ps.initialize_actor_progression(char, defaults={"attribute_points": 30})
+        repair = ps.repair_legacy_progression_identity(char, apply=True)
+        state = repair.get("state") or ps.initialize_actor_progression(char, defaults={"attribute_points": 30})
+        try:
+            ident = ps.progression_identity_snapshot(char.id, "player", state=state)
+            setattr(char, "race_id", ident.get("race_id")); setattr(char, "race_name", ident.get("race_name"))
+            setattr(char, "primary_class_id", ident.get("primary_class_id")); setattr(char, "class_name", ident.get("display_class_name")); setattr(char, "primary_class_track_id", ident.get("primary_class_track_id"))
+            data = getattr(char, "actor_data", {}) if isinstance(getattr(char, "actor_data", {}), dict) else {}
+            versions = data.setdefault("source_versions", {})
+            versions["progression"] = ident.get("source_version") or state.get("updated_at") or state.get("created_at")
+            versions["progression_identity"] = (ident.get("race_id"), ident.get("primary_class_id"), ident.get("primary_class_track_id"), ident.get("source_version"))
+            versions.setdefault("birth_state", "legacy-age-default-v1")
+            char.actor_data = data
+        except Exception:
+            logging.getLogger(__name__).exception("character_entry_progression_identity_hydration_failed", extra={"character_id": getattr(char,"id","")})
+        if not getattr(char, "age", None): setattr(char, "age", 18)
+        if not getattr(char, "played_seconds", None): setattr(char, "played_seconds", 0)
+        if not getattr(char, "hunger", None): setattr(char, "hunger", "Full")
+        if not getattr(char, "thirst", None): setattr(char, "thirst", "Hydrated")
+        if repair.get("applied") and hasattr(self, "projection_cache"):
+            self.invalidate_character_projections(char.id, "progression_identity")
         if int(state.get("attribute_points", 0) or 0) < 30:
             flags = state.get("advancement_flags") or {}
             if not flags.get("starter_attribute_points_30"):
@@ -967,6 +986,7 @@ class MudRuntime:
             role="player",
             room_id=start_room,
             abilities=[value for value in (race_id, class_id) if value],
+            actor_data={"race_id": race_id, "class_id": class_id, "primary_class_id": class_id},
         )
         self.state_store.save_character(char, world_id)
         if account_id:
@@ -1016,6 +1036,8 @@ class MudRuntime:
             "character": versions.get("character", getattr(character, "updated_at", "runtime")),
             "attributes": versions.get("attributes", "attributes-runtime"),
             "progression": versions.get("progression", getattr(character, "xp", 0)),
+            "progression_identity": versions.get("progression_identity", (getattr(character, "race_id", ""), getattr(character, "primary_class_id", ""), getattr(character, "primary_class_track_id", ""))),
+            "birth_state": versions.get("birth_state", getattr(character, "birthday", getattr(character, "age", ""))),
             "currency": versions.get("currency", getattr(character, "gold", 0)),
             "inventory": versions.get("inventory", len(getattr(character, "inventory", []) or [])),
             "equipment": versions.get("equipment", len(getattr(character, "equipment", []) or [])),
@@ -1030,7 +1052,7 @@ class MudRuntime:
     def build_projection(self, character: MudCharacter, projection_type: str, *, origin: str = "sync") -> Any:
         projection_type = {"score_compact": "score", "effects_display": "effects", "equipment_display": "equipment"}.get(projection_type, projection_type)
         deps = {
-            "score": ("character", "attributes", "progression", "currency", "inventory", "equipment", "effects", "location", "world_definitions"),
+            "score": ("character", "attributes", "progression", "progression_identity", "birth_state", "currency", "inventory", "equipment", "effects", "location", "world_definitions"),
             "worth": ("progression", "currency", "world_definitions"),
             "equipment": ("equipment", "world_definitions"),
             "inventory": ("inventory", "world_definitions"),

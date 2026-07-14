@@ -76,3 +76,68 @@ Not run in this Linux container. Manual Windows acceptance should enter existing
 ## Remaining differences
 
 Partial: canonical persisted Kraevok data was not present in this container, so no one-time repair command was applied. If live Windows Kraevok still lacks race/class/birth fields, use existing progression/admin tools to assign valid world definitions without changing the renderer. Valid IDs must be selected from `data/worlds/shattered_realms` progression definitions in the target checkout.
+
+## 2026-07-14 SCORE identity regression repair
+
+### Failure
+
+Live `sc`/`score` could expose the internal projection exception `score_projection_incomplete field=identity.race` when an existing character had no runtime `race_name` and the display snapshot had not resolved canonical progression IDs.
+
+### Root cause
+
+The SCORE formatter correctly requires complete fields, but `CharacterDisplaySnapshotService` populated Race and Class from transient runtime fields (`race_name`, `race`, `class_name`, `character_class`, `char_class`) instead of resolving the durable `actor_progression_state` row. Legacy characters whose canonical row was missing identity IDs, or whose runtime object had only legacy/raw IDs, therefore produced an incomplete SCORE projection.
+
+### Canonical identity sourcing
+
+`ProgressionService.get_actor_progression(character_id, "player")` is the single SCORE snapshot query for progression state. `ProgressionService.progression_identity_snapshot()` resolves:
+
+- `race_id` through `ProgressionContent.get("race_profiles", race_id)` and displays the definition `name`.
+- `primary_class_id` through `ProgressionContent.get("class_profiles", primary_class_id)` and displays the base class definition `name`.
+- `primary_class_track_id` through `class_tracks`; the track must belong to the selected class before its player-facing name can become the display class name.
+- `species_id` through `species_profiles` for validation and future gameplay.
+
+### Legacy migration behavior
+
+Character entry calls the idempotent legacy progression repair before SCORE prewarm. The repair preserves an existing valid canonical row, then reads valid legacy `race_id`, `primary_class_id`, `class_id`, class/profession, and track IDs from the character record/actor data, then falls back to the validated `player_starter` progression profile only when no valid legacy value exists. It records migration metadata in `actor_progression_state.metadata_json` and never rewrites inventory, equipment, currencies, quests, room, effects, role, level, or experience.
+
+Admins can inspect or explicitly run the same repair path in-game:
+
+- `progressioninspect char_shattered_realms_kraevok`
+- `progressionrepair char_shattered_realms_kraevok --dry-run`
+- `progressionrepair char_shattered_realms_kraevok --apply`
+
+Automatic character-entry migration should repair Kraevok; use the apply form only if inspection shows an unrepaired row after re-entering.
+
+### Player-facing error boundary
+
+Normal players no longer receive raw `score_projection_incomplete ...` text. If SCORE still encounters an incomplete projection, the command logs character ID, world ID, entry ID, projection generation, and missing field server-side and returns: `Your character data could not be loaded completely. Please contact an administrator.` Failed builds are marked failed and are not cached as valid SCORE content.
+
+### Cache invalidation behavior
+
+SCORE cache keys and invalidation now include progression identity and birth-state dependencies in addition to existing character, progression, currency, inventory, equipment, effects, location, and world-definition dependencies. Character-entry identity repair invalidates identity-dependent projections before SCORE is rebuilt.
+
+### Kraevok verification status
+
+Linux focused tests include Kraevok-like legacy identity repair and SCORE rendering through canonical definitions. Windows acceptance was not run in this container. Tony should verify on Windows with the existing world and existing `char_shattered_realms_kraevok` character.
+
+### Windows acceptance steps
+
+1. Stop Smart MUD.
+2. Open PowerShell and run `cd "C:\Users\antho\Desktop\Smart MUD\smartmud-main-v2\smartmud-main-v2"`.
+3. Pull or update the `main-v2` branch.
+4. Start Smart MUD.
+5. Log into the existing account.
+6. Enter Kraevok (`char_shattered_realms_kraevok`).
+7. Type `score` or `sc`.
+8. Confirm a complete framed SCORE sheet appears.
+9. Confirm no `score_projection_incomplete` text appears.
+10. Type `score` again.
+11. Confirm the second call remains correct and uses the cache.
+12. Run `progressioninspect char_shattered_realms_kraevok`.
+13. Confirm resolved race ID/name, class ID/name, and track are valid.
+14. Restart Smart MUD.
+15. Re-enter Kraevok and confirm repaired identity persists.
+
+### Remaining partial systems
+
+Calendar aging remains a lifecycle compatibility value rather than a complete world-calendar feature. Survival displays consume canonical/display-authority values initialized during entry for legacy characters; broader survival simulation remains documented in survival-system docs. HP, Mana, Move, and Alignment remain omitted from normal SCORE by the approved parity contract.
