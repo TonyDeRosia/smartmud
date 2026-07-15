@@ -70,3 +70,40 @@ def test_true_death_respawns_player(tmp_path):
     assert rt.active_characters[pid].hp == 100
     assert rt.active_characters[pid].actor_data["position"] == "standing"
     assert any("return you to life" in m["output_text"] for m in rt.async_messages(pid, 0)["messages"])
+
+
+def test_restore_self_uses_resident_actor_when_character_fields_are_stale(tmp_path):
+    rt, aid, _pid = _rt(tmp_path)
+    ch = rt.active_characters[aid]
+    actor = rt.combat_runtime.resident_actors[f"character:{aid}"]
+    actor.resources.health = 0
+    actor.resources.maximum_health = 100
+    ch.hp = 77  # intentionally stale competing convenience projection
+    ch.mana = 11
+    ch.stamina = 22
+    ch.affects = {"synthetic_poison": {"type": "poison", "tags": ["harmful"]}, "blessing": {"type": "buff", "tags": ["beneficial"]}}
+    out = rt.handle_input(aid, "restore self")
+    text = out["output"]
+    assert "Health 0/100 -> 100/100" in text
+    assert "synthetic_poison" in text
+    assert "blessing" in rt.active_characters[aid].affects
+    assert actor.resources.health == 100
+    assert rt.active_characters[aid].hp == 100
+    assert "100/100 HP" in out["command_response"]["prompt_snapshot"]["prompt_text"]
+    score = rt.handle_input(aid, "score")["output"]
+    assert "100" in score and "Hit" in score
+    reloaded = rt.state_store.load_character(aid)
+    assert reloaded and reloaded.hp == 100
+
+
+def test_restore_all_special_form_and_point_diagnostics(tmp_path):
+    rt, aid, _pid = _rt(tmp_path)
+    out = rt.handle_input(aid, "restore all")["output"]
+    assert "Character 'all' not found" not in out
+    assert "Restore all summary:" in out
+    info = rt.handle_input(aid, "pointinfo")["output"]
+    assert "heartbeat pulse:" in info
+    assert "actor registered:" in info
+    assert "HP gain formula result:" in info
+    assert "Point trace on." in rt.handle_input(aid, "pointtrace on")["output"]
+    assert "Point trace off." in rt.handle_input(aid, "pointtrace off")["output"]

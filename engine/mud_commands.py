@@ -351,6 +351,7 @@ class MudCommandEngine:
             "pointinfo": self._cmd_runtime_admin,
             "adminstatus": self._cmd_runtime_admin,
             "pulsetrace": self._cmd_runtime_admin,
+            "pointtrace": self._cmd_runtime_admin,
             "pulseforce": self._cmd_runtime_admin,
             "residentlist": self._cmd_runtime_admin,
             "residentstat": self._cmd_runtime_admin,
@@ -743,9 +744,13 @@ class MudCommandEngine:
             cfg = getattr(rt, "pulse_config", {})
             lines = ["Pulse configuration:"] + [f"{k}: {v}" for k, v in sorted(cfg.items())] + [f"current_pulse: {getattr(rt, '_runtime_pulse_counter', 0)}"]
             if cmd == "pointinfo":
-                rr = getattr(rt, "runtime_resources", None); pos = (getattr(character, "actor_data", {}) or {}).get("position", "standing")
+                rr = getattr(rt, "runtime_resources", None); cr=getattr(rt,"combat_runtime",None); aid=f"character:{getattr(character,'id','')}"; actor=getattr(cr,"resident_actors",{}).get(aid) if cr else None
+                pos = (actor.combat_profile.get("position") if actor else (getattr(character, "actor_data", {}) or {}).get("position", "standing"))
                 mult = 4 if pos == "sleeping" else 2 if pos == "resting" else 0 if pos in {"fighting","in_combat","dead"} else 1
-                lines += [f"last_point-update pulse: {getattr(rr, 'last_point_update_monotonic', 0.0) if rr else 0.0}", f"next point-update pulse: {getattr(rr, '_next_regeneration_monotonic', 0.0) if rr else 0.0}", f"configured interval: {getattr(rr, 'point_update_interval_seconds', 6.0) if rr else 6.0}", f"actor eligibility: {'eligible' if mult else 'blocked'}", f"calculated HP gain: {mult}", f"calculated Mana gain: {mult}", f"calculated Move gain: {mult}", "blocking penalties: none", f"current position multiplier: {mult}"]
+                online = getattr(character,'id','') in getattr(rt,'active_characters',{})
+                eligible = bool(actor and online and mult and not (cr.find_actor_encounter(aid) if cr else ""))
+                reason = "eligible" if eligible else ("not_registered" if not actor else "offline" if not online else "blocked_position")
+                lines += [f"heartbeat pulse: {getattr(rt, '_runtime_pulse_counter', 0)}", f"point-update interval: {getattr(rr, 'point_update_interval_seconds', 6.0) if rr else 6.0}", f"last point-update: {getattr(rr, 'last_point_update_monotonic', 0.0) if rr else 0.0}", f"next point-update: {getattr(rr, '_next_regeneration_monotonic', 0.0) if rr else 0.0}", f"actor registered: {'yes' if actor else 'no'}", f"actor online: {'yes' if online else 'no'}", f"actor eligible: {'yes' if eligible else 'no'}", f"current position: {pos}", f"HP gain formula result: {mult}", f"Mana gain result: {mult}", f"Move gain result: {mult}", "hunger/thirst modifiers: none", "poison modifiers: none", f"blocking reason: {reason}"]
             return CommandResult("\n".join(lines))
         if cmd == "violenceprofile":
             cr = getattr(rt, "combat_runtime", None)
@@ -754,6 +759,13 @@ class MudCommandEngine:
             if args and args[0].lower() == "reset":
                 cr.violence_profiler.reset(); return CommandResult("Violence profile reset.")
             return CommandResult(cr.violence_profiler.render())
+        if cmd == "pointtrace":
+            mode = args[0].lower() if args else ""
+            if mode in {"on", "off"}:
+                rt.performance_counters["point_update_trace_enabled"] = 1 if mode == "on" else 0
+                return CommandResult(f"Point trace {mode}.")
+            keys = [k for k in sorted(getattr(rt, "performance_counters", {})) if k.startswith(("point_update_", "regeneration_", "recovery_"))]
+            return CommandResult("Point trace:\n" + "\n".join(f"{k}: {rt.performance_counters.get(k,0)}" for k in keys))
         if cmd == "pulsetrace":
             keys = [k for k in sorted(getattr(rt, "performance_counters", {})) if k.startswith(("runtime_", "scheduler_", "combat_", "autosave_", "corpse_"))]
             return CommandResult("Pulse trace:\n" + "\n".join(f"{k}: {rt.performance_counters.get(k,0)}" for k in keys))
@@ -763,7 +775,7 @@ class MudCommandEngine:
                 n = rt.combat_runtime.process_due_rounds(rt.combat_runtime.world_time()) if getattr(rt, "combat_runtime", None) else []
                 return CommandResult(f"Forced combat violence pulse; messages={len(n)}.")
             if subsystem in {"point", "point_update", "regeneration"}:
-                n = rt.runtime_resources.process_due_regeneration(0) if getattr(rt, "runtime_resources", None) else 0
+                n = rt.runtime_resources.process_due_regeneration(10**12) if getattr(rt, "runtime_resources", None) else 0
                 return CommandResult(f"Forced point update; actors={n}.")
             if subsystem == "autosave":
                 return CommandResult(f"Forced autosave; characters_saved={rt.autosave_dirty_characters()}.")
@@ -827,65 +839,88 @@ class MudCommandEngine:
                 pass
         return ch, False
 
+    def _restore_actor_for_character(self, rt: Any, ch: Any, online: bool):
+        rr = getattr(rt, "runtime_resources", None)
+        if online:
+            aid = rt.combat_runtime.actor_id_for_character(ch) if getattr(rt, "combat_runtime", None) else f"character:{getattr(ch,'id','')}"
+            actor = getattr(getattr(rt, "combat_runtime", None), "resident_actors", {}).get(aid)
+            if actor is None:
+                rt.register_live_character(ch)
+                actor = getattr(getattr(rt, "combat_runtime", None), "resident_actors", {}).get(aid)
+        else:
+            actor = actor_from_runtime_character(ch, getattr(rt, "active_world_id", "")); actor.actor_id = f"character:{getattr(ch,'id','')}"
+        if actor is None:
+            actor = actor_from_runtime_character(ch, getattr(rt, "active_world_id", "")); actor.actor_id = f"character:{getattr(ch,'id','')}"
+        before = rr.build_resource_snapshot(actor) if rr else {}
+        removed = []
+        affects = getattr(ch, "affects", {}) if isinstance(getattr(ch, "affects", {}), dict) else {}
+        for key, val in list(affects.items()):
+            meta = val if isinstance(val, dict) else {"type": str(val)}
+            tags = {str(x).lower() for x in meta.get("tags", [])} | {str(meta.get("type", "")).lower(), str(meta.get("category", "")).lower()}
+            if tags & {"poison", "blind", "curse", "debuff", "harmful", "death", "stun"}:
+                removed.append(key); affects.pop(key, None)
+        ch.affects = affects
+        if rr:
+            rr.restore_all_resources(actor)
+        else:
+            actor.resources.health=actor.resources.maximum_health; actor.resources.mana=actor.resources.maximum_mana; actor.resources.stamina=actor.resources.maximum_stamina
+        actor.lifecycle_state = "alive"; actor.combat_profile["position"] = "standing"; actor.combat_profile["combat_state"] = "idle"; actor.combat_profile.pop("target_id", None); actor.combat_profile.pop("active_target_id", None)
+        if getattr(rt, 'combat_runtime', None):
+            rt.combat_runtime.clear_actor_combat_state(actor.actor_id, "admin_restore", status="restored")
+        if rr: rr._sync_runtime_character(actor, reason="admin_restore")
+        else:
+            ch.hp=actor.resources.health; ch.mana=actor.resources.mana; ch.stamina=actor.resources.stamina
+        data = ch.actor_data if isinstance(getattr(ch, "actor_data", {}), dict) else {}
+        data.update({"position":"standing", "posture":"standing", "lifecycle_state":"alive", "combat_state":"idle"}); ch.actor_data=data
+        if online:
+            if hasattr(rt, 'invalidate_character_projections'): rt.invalidate_character_projections(ch.id, 'admin_restore')
+            rt.mark_character_dirty(ch.id, "admin_restore"); rt.save_character_if_dirty(ch, "admin_restore", force=True)
+        else:
+            ch.hp=actor.resources.health; ch.max_hp=actor.resources.maximum_health; ch.mana=actor.resources.mana; ch.max_mana=actor.resources.maximum_mana; ch.stamina=actor.resources.stamina; ch.max_stamina=actor.resources.maximum_stamina
+            rt.state_store.save_character(ch, rt.active_world_id or '')
+        after = rr.build_resource_snapshot(actor) if rr else {}
+        return before, after, removed
+
     def _cmd_restore(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if not self._is_admin(character):
             return CommandResult("You do not have permission for that command.", ok=False)
         rt = getattr(self, "runtime", None)
         if not rt:
             return CommandResult("Runtime is unavailable.", ok=False)
-        cmd = (raw.split() or ["restore"])[0].lower()
-        readonly = cmd == "restorestat"
+        counters = getattr(rt, "performance_counters", {})
+        counters["restore_attempts"] = counters.get("restore_attempts", 0) + 1
+        cmd = (raw.split() or ["restore"])[0].lower(); readonly = cmd == "restorestat"
         target_name = args[0] if args else "self"
         targets: list[tuple[Any, bool]] = []
-        if target_name.lower() == "all":
+        form = target_name.lower()
+        if form in {"self", "me"}:
+            counters["restore_self"] = counters.get("restore_self", 0) + 1; targets = [(character, True)]
+        elif form == "all":
             targets = [(ch, True) for ch in getattr(rt, "active_characters", {}).values() if str(getattr(ch, "role", "player")).lower() == "player"]
-        elif target_name.lower() in {"self", "me"}:
-            targets = [(character, True)]
+            counters["restore_all_targets"] = counters.get("restore_all_targets", 0) + len(targets)
         else:
             ch, online = self._resolve_character_for_admin(rt, target_name)
-            if ch: targets = [(ch, online)]
+            if ch: targets = [(ch, online)]; counters["restore_online_target" if online else "restore_offline_target"] = counters.get("restore_online_target" if online else "restore_offline_target", 0) + 1
         if not targets:
+            counters["restore_failures"] = counters.get("restore_failures", 0) + 1
             return CommandResult(f"Character '{target_name}' not found.", ok=False)
-        lines=[]
+        lines=[]; restored=0; skipped=0
         for ch, online in targets:
-            before=f"{getattr(ch,'hp',0)}/{getattr(ch,'max_hp',0)} HP {getattr(ch,'mana',0)}/{getattr(ch,'max_mana',0)} MP {getattr(ch,'stamina',0)}/{getattr(ch,'max_stamina',0)} MV"
-            pos_before=(getattr(ch, 'actor_data', {}) or {}).get('position', 'standing')
-            would = []
-            for f, mf, label in [("hp","max_hp","Health"),("mana","max_mana","Mana"),("stamina","max_stamina","Move")]:
-                if getattr(ch, f, 0) != getattr(ch, mf, 0): would.append(label)
-            if pos_before != "standing": would.append("position")
+            aid=f"character:{getattr(ch,'id','')}"; actor=getattr(getattr(rt,'combat_runtime',None),'resident_actors',{}).get(aid) if online else None
+            rr=getattr(rt,'runtime_resources',None)
+            before = rr.build_resource_snapshot(actor) if (rr and actor) else {"health":getattr(ch,'hp',0),"maximum_health":getattr(ch,'max_hp',0),"mana":getattr(ch,'mana',0),"maximum_mana":getattr(ch,'max_mana',0),"stamina":getattr(ch,'stamina',0),"maximum_stamina":getattr(ch,'max_stamina',0),"hunger":0,"thirst":0,"position":(getattr(ch,'actor_data',{}) or {}).get('position','standing'),"lifecycle":(getattr(ch,'actor_data',{}) or {}).get('lifecycle_state','alive')}
             if readonly:
-                aid=f"character:{getattr(ch,'id','')}"; active = rt.combat_runtime.find_actor_encounter(aid) if getattr(rt, 'combat_runtime', None) else ""
-                lines.append(
-                    f"Restore stat {ch.name}:\n"
-                    f"resources: {before}\n"
-                    f"position: {pos_before}\n"
-                    f"lifecycle_state: {(getattr(ch, 'actor_data', {}) or {}).get('lifecycle_state','alive')}\n"
-                    f"combat_state: {pos_before}\n"
-                    f"active_encounter: {active or 'none'}\n"
-                    "active_harmful_effects: none\n"
-                    f"RESTORE would change: {', '.join(would) if would else 'nothing'}"
-                )
+                active = rt.combat_runtime.find_actor_encounter(aid) if getattr(rt, 'combat_runtime', None) else ""
+                lines.append(f"Restore stat {ch.name}:\nresources: {before['health']}/{before['maximum_health']} HP {before['mana']}/{before['maximum_mana']} MP {before['stamina']}/{before['maximum_stamina']} MV\nhunger: {before.get('hunger',0)}\nthirst: {before.get('thirst',0)}\nposition: {before.get('position')}\nlifecycle_state: {before.get('lifecycle')}\nactive_encounter: {active or 'none'}\nactive_harmful_effects: {len(getattr(ch,'affects',{}) or {})}")
                 continue
-            ch.hp = ch.max_hp; ch.mana = ch.max_mana; ch.stamina = ch.max_stamina
-            data = ch.actor_data if isinstance(getattr(ch, "actor_data", {}), dict) else {}
-            data.update({"position":"standing", "posture":"standing", "lifecycle_state":"alive"}); ch.actor_data=data
-            if online:
-                rt.register_live_character(ch)
-                if getattr(rt, 'combat_runtime', None):
-                    aid=rt.combat_runtime.actor_id_for_character(ch); rt.combat_runtime.clear_actor_combat_state(aid, "admin_restore", status="restored")
-                    actor=rt.combat_runtime.resident_actors.get(aid)
-                    if actor:
-                        actor.resources.health=ch.hp; actor.resources.mana=ch.mana; actor.resources.stamina=ch.stamina; actor.lifecycle_state='alive'; actor.combat_profile['position']='standing'; actor.combat_profile['combat_state']='idle'
-                    if ch is not character:
-                        rt.combat_runtime.enqueue_output(ch.id, "You have been fully healed by an immortal.", room_id=getattr(ch,'room_id',''), category="recovery")
-                if hasattr(rt, 'invalidate_character_projections'): rt.invalidate_character_projections(ch.id, 'admin_restore')
-                rt.mark_character_dirty(ch.id, "admin_restore"); rt.save_character_if_dirty(ch, "admin_restore", force=True)
-            else:
-                rt.state_store.save_character(ch, rt.active_world_id or '')
-            after=f"{ch.hp}/{ch.max_hp} HP {ch.mana}/{ch.max_mana} MP {ch.stamina}/{ch.max_stamina} MV"
-            lines.append(f"Restored {ch.name}: {before} -> {after}; standing. ({'online' if online else 'offline'})")
-        return CommandResult("\n".join(lines), state_updates={"prompt": True, "score": True})
+            before, after, removed = self._restore_actor_for_character(rt, ch, online)
+            counters["restore_effects_removed"] = counters.get("restore_effects_removed", 0) + len(removed)
+            restored += 1; counters["restore_successes"] = counters.get("restore_successes", 0) + 1
+            if online and ch is not character and getattr(rt, 'combat_runtime', None):
+                rt.combat_runtime.enqueue_output(ch.id, "You have been fully healed by an immortal.", room_id=getattr(ch,'room_id',''), category="recovery")
+            lines.append(f"Restored {ch.name}:\nHealth {before['health']}/{before['maximum_health']} -> {after['health']}/{after['maximum_health']}\nMana {before['mana']}/{before['maximum_mana']} -> {after['mana']}/{after['maximum_mana']}\nMove {before['stamina']}/{before['maximum_stamina']} -> {after['stamina']}/{after['maximum_stamina']}\nHunger {before.get('hunger',0)} -> {after.get('hunger',0)}\nThirst {before.get('thirst',0)} -> {after.get('thirst',0)}\nPosition {before.get('position')} -> {after.get('position')}\nLifecycle {before.get('lifecycle')} -> {after.get('lifecycle')}\nHarmful effects removed: {', '.join(removed) if removed else 'none'}\nCombat state cleared: yes\n({'online' if online else 'offline'})")
+        if form == "all": lines.append(f"Restore all summary: restored={restored} skipped={skipped} failures=0")
+        return CommandResult("\n".join(lines), state_updates={"prompt": True, "score": True, "resource_changed": True, "prompt_changed": True, "position_changed": True, "condition_changed": True})
 
     def _cmd_advancement_repair(self, character: Any, args: list[str], raw: str) -> CommandResult:
         if str(getattr(character, "role", "player")).lower() not in {"admin", "owner", "builder"} and int(getattr(character, "immortal_level", 0) or 0) <= 0:

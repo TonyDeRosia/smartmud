@@ -184,6 +184,9 @@ class RuntimeResourceService:
                 con.execute("INSERT INTO actor_resource_versions(actor_id,resource,value,maximum,version,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(actor_id,resource) DO UPDATE SET value=excluded.value,maximum=excluded.maximum,version=actor_resource_versions.version+1,updated_at=excluded.updated_at", (actor.actor_id, resource, after, maxv, version, _now()))
                 self._sync_character(actor, resource, after, maxv, con)
         setattr(actor.resources, resource, after); setattr(actor.resources, f"maximum_{resource}", maxv)
+        if resource == "stamina":
+            actor.resources.movement = after; actor.resources.maximum_movement = maxv
+        self._sync_runtime_character(actor, reason="resource_current")
         evname = "resource_mutation_applied" if after != before else "resource_mutation_denied"
         if operation == "cost" and after != before: evname = "resource_cost_paid"
         if operation == "regeneration" and after != before: evname = "resource_regenerated"
@@ -194,6 +197,71 @@ class RuntimeResourceService:
         if action_id and self.db_path:
             with sqlite3.connect(self.db_path) as con: con.execute("INSERT OR IGNORE INTO resource_mutation_requests VALUES(?,?,?,?,?,?)", (action_id, actor.actor_id, resource, operation, json.dumps(asdict(res), default=str), _now()))
         return res
+
+
+    def _sync_runtime_character(self, actor: Actor, *, reason: str = "resource_change") -> None:
+        rt = self.runtime
+        if rt is None or not actor.actor_id.startswith("character:"):
+            return
+        cid = actor.actor_id.split(":", 1)[1]
+        ch = getattr(rt, "active_characters", {}).get(cid)
+        if not ch:
+            return
+        ch.hp = _num(actor.resources.health); ch.max_hp = _num(actor.resources.maximum_health, ch.hp)
+        ch.mana = _num(actor.resources.mana); ch.max_mana = _num(actor.resources.maximum_mana, ch.mana)
+        ch.stamina = _num(actor.resources.stamina); ch.max_stamina = _num(actor.resources.maximum_stamina, ch.stamina)
+        data = ch.actor_data if isinstance(getattr(ch, "actor_data", {}), dict) else {}
+        data["position"] = actor.combat_profile.get("position", data.get("position", "standing"))
+        data["posture"] = data["position"]
+        data["lifecycle_state"] = getattr(actor, "lifecycle_state", data.get("lifecycle_state", "alive"))
+        data["actor_projection"] = actor.to_dict() if hasattr(actor, "to_dict") else data.get("actor_projection", {})
+        data["resource_generation"] = int(data.get("resource_generation", 0) or 0) + 1
+        ch.actor_data = data
+        if hasattr(rt, "invalidate_character_projections"):
+            rt.invalidate_character_projections(cid, reason)
+        if hasattr(rt, "mark_character_dirty"):
+            rt.mark_character_dirty(cid, reason)
+
+    def build_resource_snapshot(self, actor: Actor) -> dict[str, Any]:
+        return {
+            "health": _num(actor.resources.health), "maximum_health": _num(actor.resources.maximum_health),
+            "mana": _num(actor.resources.mana), "maximum_mana": _num(actor.resources.maximum_mana),
+            "stamina": _num(actor.resources.stamina), "maximum_stamina": _num(actor.resources.maximum_stamina),
+            "movement": _num(getattr(actor.resources, "movement", actor.resources.stamina)), "maximum_movement": _num(getattr(actor.resources, "maximum_movement", actor.resources.maximum_stamina)),
+            "hunger": _num(getattr(actor.resources, "hunger", 0)), "thirst": _num(getattr(actor.resources, "thirst", 0)),
+            "position": normalize_position(actor.combat_profile.get("position") or actor.combat_profile.get("combat_state") or "standing"),
+            "lifecycle": str(getattr(actor, "lifecycle_state", "alive") or "alive"),
+        }
+
+    def set_current_to_maximum(self, actor: Actor, resource_id: str) -> ResourceMutationResult:
+        maximum = _num(getattr(actor.resources, f"maximum_{resource_id}", getattr(actor.resources, resource_id, 0)))
+        res = self.mutate(actor, resource_id, "set", maximum, maximum=maximum, metadata={"source":"canonical_resource_api"})
+        self._sync_runtime_character(actor, reason="resource_current")
+        return res
+
+    def restore_all_resources(self, actor: Actor) -> list[ResourceMutationResult]:
+        results = [self.set_current_to_maximum(actor, r) for r in ("health", "mana", "stamina")]
+        actor.resources.movement = actor.resources.stamina
+        actor.resources.maximum_movement = actor.resources.maximum_stamina
+        self.restore_survival_needs(actor)
+        _old, _new, _changed = reconcile_actor_position(actor, self.runtime, reason="admin_restore", persist_dirty=True)
+        self._sync_runtime_character(actor, reason="admin_restore")
+        self._publish("resource_restore_completed", {"actor_id": actor.actor_id, "world_id": self.world_id, "prompt_changed": True, "resource_changed": True, "position_changed": True, "condition_changed": True})
+        return results
+
+    def apply_regeneration(self, actor: Actor, gains: dict[str, int]) -> list[ResourceMutationResult]:
+        out = [self.regenerate(actor, r, int(a or 0), metadata={"source":"point_update"}) for r, a in gains.items() if int(a or 0) > 0]
+        self._sync_runtime_character(actor, reason="resource_current")
+        return out
+
+    def set_survival_need(self, actor: Actor, need_id: str, value: int) -> None:
+        if need_id in {"hunger", "thirst"}:
+            setattr(actor.resources, need_id, max(0, int(value)))
+        self._sync_runtime_character(actor, reason="survival_need")
+
+    def restore_survival_needs(self, actor: Actor) -> None:
+        self.set_survival_need(actor, "hunger", 24)
+        self.set_survival_need(actor, "thirst", 24)
 
     def apply_damage(self, actor: Actor, amount: int, **kw: Any) -> ResourceMutationResult: return self.mutate(actor, "health", "damage", amount, **kw)
     def apply_healing(self, actor: Actor, amount: int, **kw: Any) -> ResourceMutationResult: return self.mutate(actor, "health", "healing", amount, **kw)
@@ -211,6 +279,7 @@ class RuntimeResourceService:
             return 0
         counters = getattr(rt, "performance_counters", {})
         counters["regeneration_pulses"] = counters.get("regeneration_pulses", 0) + 1
+        counters["point_update_attempts"] = counters.get("point_update_attempts", 0) + 1
         actors = list(getattr(getattr(rt, "combat_runtime", None), "resident_actors", {}).values())
         processed = 0
         changes = 0
@@ -220,11 +289,12 @@ class RuntimeResourceService:
             if getattr(getattr(rt, "combat_runtime", None), "find_actor_encounter", lambda _aid: "")(getattr(actor, "actor_id", "")):
                 continue
             processed += 1
+            counters["point_update_eligible"] = counters.get("point_update_eligible", 0) + 1
             reconcile_actor_position(actor, rt, reason="periodic_state_update")
             state = normalize_position(actor.combat_profile.get("position") or actor.combat_profile.get("combat_state") or "standing")
             if state in {"incapacitated", "mortally_wounded"}:
                 before = _num(actor.resources.health)
-                actor.resources.health = before - (2 if state == "mortally_wounded" else 1)
+                self.mutate(actor, "health", "damage", (2 if state == "mortally_wounded" else 1), metadata={"source":"periodic_suffering"})
                 counters["periodic_suffering_ticks"] = counters.get("periodic_suffering_ticks", 0) + 1
                 changes += 1
                 _old, new_state, transitioned = reconcile_actor_position(actor, rt, reason="periodic_suffering")
@@ -239,13 +309,12 @@ class RuntimeResourceService:
                 if mult <= 0:
                     continue
                 old_state = state
-                for resource in ("health", "mana", "stamina"):
-                    before = _num(getattr(actor.resources, resource, 0))
-                    maximum = _num(getattr(actor.resources, f"maximum_{resource}", before), before)
-                    after = min(maximum, before + mult)
-                    if after != before:
-                        setattr(actor.resources, resource, after)
-                        changes += 1
+                health_before = _num(actor.resources.health)
+                applied = self.apply_regeneration(actor, {"health": mult, "mana": mult, "stamina": mult})
+                if any(r.applied_amount for r in applied):
+                    changes += sum(1 for r in applied if r.applied_amount)
+                    counters["point_update_resource_changes"] = counters.get("point_update_resource_changes", 0) + sum(1 for r in applied if r.applied_amount)
+                health_after = _num(actor.resources.health)
                 _stored, new_state, transitioned = reconcile_actor_position(actor, rt, reason="regeneration")
                 if transitioned and old_state in {"stunned", "incapacitated", "mortally_wounded"} and new_state not in {"stunned", "incapacitated", "mortally_wounded", "dead"} and actor.actor_id.startswith("character:"):
                     cid_msg = actor.actor_id.split(":", 1)[1]
@@ -254,6 +323,8 @@ class RuntimeResourceService:
                     if hasattr(rt, "invalidate_character_projections"):
                         rt.invalidate_character_projections(cid_msg, "resource_current")
                     counters["recovery_transitions"] = counters.get("recovery_transitions", 0) + 1
+                    counters["point_update_recovery_transitions"] = counters.get("point_update_recovery_transitions", 0) + 1
+                    counters["point_update_prompt_invalidations"] = counters.get("point_update_prompt_invalidations", 0) + 1
             if changes and actor.actor_id.startswith("character:"):
                 cid = actor.actor_id.split(":", 1)[1]
                 ch = getattr(rt, "active_characters", {}).get(cid)
