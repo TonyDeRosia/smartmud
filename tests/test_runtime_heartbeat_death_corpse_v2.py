@@ -11,6 +11,12 @@ def _runtime(tmp_path: Path):
     ch = MudCharacter(id=cid, name="HB Tester", role="admin", room_id="emberwood_hunting_trail", hp=30, max_hp=30, mana=10, max_mana=10, stamina=10, max_stamina=10)
     rt.state_store.save_character(ch, "shattered_realms")
     rt.enter_world(cid, session_id="sess")
+    active = rt._resident_character(cid)
+    visible = rt.find_visible_entities(active.room_id, active)
+    for wolf in visible.get("npcs", []) + visible.get("mobs", []):
+        if "wolf" in str(wolf.get("name", "")).lower():
+            rt.update_entity_state(str(wolf.get("entity_id") or wolf.get("instance_id")), {"current_health": 500, "maximum_health": 500, "is_alive": True, "current_state": "standing"})
+            break
     return rt, cid
 
 

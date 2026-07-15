@@ -706,8 +706,10 @@ class MudCommandEngine:
         rt = getattr(self, "runtime", None)
         counters = getattr(rt, "performance_counters", {}) if rt else {}
         if args and args[0].lower() == "reset":
-            for k in list(counters):
-                counters[k] = 0
+            from engine.performance_counters import reset_performance_counters
+            ok, invalid = reset_performance_counters(rt)
+            if not ok:
+                return CommandResult(f"Performance counter reset aborted; invalid counter schema: {invalid}.", ok=False)
             return CommandResult("Performance counters reset.")
         keys = [k for k in sorted(counters) if k.startswith(("runtime_", "combat_", "practice_", "train_", "position_", "autosave_", "resident_", "regeneration_"))]
         return CommandResult("Performance counters:\n" + "\n".join(f"{k}: {counters.get(k,0)}" for k in keys))

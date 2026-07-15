@@ -485,35 +485,37 @@ class CombatRuntimeService:
 
     def validate_attack(self, attacker: Actor, defender: Actor, ent: dict[str,Any]|None=None) -> str:
         counters = getattr(self.runtime, 'performance_counters', {})
+        def reject(reason: str, message: str) -> str:
+            counters['combat_validation_rejections'] = counters.get('combat_validation_rejections', 0) + 1
+            by = counters.setdefault('combat_validation_rejection_by_reason', {})
+            if not isinstance(by, dict):
+                by = {}
+                counters['combat_validation_rejection_by_reason'] = by
+            by[reason] = by.get(reason, 0) + 1
+            return message
         counters['combat_validation_attempts'] = counters.get('combat_validation_attempts', 0) + 1
-        if attacker.actor_id == defender.actor_id: return 'You cannot attack yourself.'
+        if attacker.actor_id == defender.actor_id: return reject('self_target', 'You cannot attack yourself.')
         reconcile_actor_position(attacker, self.runtime, reason='combat_validation')
         active_eid = self.find_actor_encounter(attacker.actor_id)
         action_state = build_action_state(attacker, self.runtime, active_encounter_id=active_eid or '')
         if active_eid:
             target_name = self.actor_display_name(action_state.active_target_id) if action_state.active_target_id else 'your opponent'
             err = f'You are already fighting {target_name}.'
-            counters['combat_validation_rejections'] = counters.get('combat_validation_rejections', 0) + 1
-            by = counters.setdefault('combat_validation_rejection_by_reason', {})
-            by['already_fighting'] = by.get('already_fighting', 0) + 1
             print(f"[combat-validation] actor={attacker.identity.name} allowed=false reason=already_fighting health={action_state.health} position={action_state.derived_position} lifecycle={action_state.lifecycle_state} encounter={active_eid}")
-            return err
+            return reject('already_fighting', err)
         msg = state_message(action_state.derived_position)
         if msg:
             reason = action_state.derived_position
-            counters['combat_validation_rejections'] = counters.get('combat_validation_rejections', 0) + 1
-            by = counters.setdefault('combat_validation_rejection_by_reason', {})
-            by[reason] = by.get(reason, 0) + 1
             print(f"[combat-validation] actor={attacker.identity.name} allowed=false reason={reason} health={action_state.health} position={action_state.derived_position} lifecycle={action_state.lifecycle_state} encounter=none")
-            return msg
+            return reject(reason, msg)
         reconcile_actor_position(defender, self.runtime, reason='target_validation')
-        if defender.resources.health <= 0 or defender.lifecycle_state == 'dead': return f'{defender.identity.name} is already dead.'
-        if attacker.identity.current_location != defender.identity.current_location: return 'They are not here.'
+        if defender.resources.health <= 0 or defender.lifecycle_state == 'dead': return reject('target_dead', f'{defender.identity.name} is already dead.')
+        if attacker.identity.current_location != defender.identity.current_location: return reject('target_not_here', 'They are not here.')
         if ent:
             tmpl = dict(self.runtime.entity_templates.get(str(ent.get('template_id') or ''), {})); flags=set(tmpl.get('flags') or [])|set(ent.get('flags') or [])|set(tmpl.get('tags') or [])
             policy = tmpl.get('combat_policy') or {}
-            if policy.get('protected') or policy.get('no_kill') or 'protected' in flags or 'trainer_protected' in flags or tmpl.get('kind') == 'trainer': return f"{defender.identity.name} is protected and cannot be attacked."
-            if policy.get('attackable') is False or ('hostile' not in flags and 'attackable' not in flags and not policy.get('attackable')): return f"{defender.identity.name} is not a valid combat target."
+            if policy.get('protected') or policy.get('no_kill') or 'protected' in flags or 'trainer_protected' in flags or tmpl.get('kind') == 'trainer': return reject('protected', f"{defender.identity.name} is protected and cannot be attacked.")
+            if policy.get('attackable') is False or ('hostile' not in flags and 'attackable' not in flags and not policy.get('attackable')): return reject('invalid_target', f"{defender.identity.name} is not a valid combat target.")
         return ''
 
     def actor_display_name(self, actor_id: str) -> str:
@@ -708,7 +710,7 @@ class CombatRuntimeService:
 
     def actor_flee(self, actor_source: Any, direction: str = "") -> CombatRuntimeResult:
         aid = self._actor_id_from_source(actor_source); eid = self.find_actor_encounter(aid)
-        if not eid: return CombatRuntimeResult(False, ["You are not currently fighting anyone."])
+        if not eid: return CombatRuntimeResult(False, ["You are not fighting."])
         actor = self._actor_from_source(actor_source)
         if not direction:
             exits = self.runtime.canonical_exits(actor_source, actor.identity.current_location) if hasattr(self.runtime, "canonical_exits") else {}
@@ -719,7 +721,7 @@ class CombatRuntimeService:
         if not move.ok:
             self._publish("combat_flee_failed", {"encounter_id": eid, "actor_id": aid, "direction": direction, "world_time": self.world_time()})
             return CombatRuntimeResult(False, [f"You try to flee {direction}, but cannot escape that way."])
-        self._stop_actor_fighting(eid, aid, status='fled', reason='flee_success')
+        self.clear_actor_combat_state(aid, reason='flee_success', expected_encounter_id=eid, status='fled')
         self._publish("combat_participant_fled", {"encounter_id": eid, "actor_id": aid, "direction": direction, "world_time": self.world_time()}); self.end_if_finished(eid)
         return CombatRuntimeResult(True, [f"You break away and flee {direction}!" if hasattr(actor_source, "id") else f"{actor.identity.name} flees {direction}."], eid)
 
@@ -1073,7 +1075,16 @@ class CombatRuntimeService:
                 if hasattr(self.runtime, 'mark_character_dirty'):
                     self.runtime.mark_character_dirty(cid, reason)
 
-    def _stop_actor_fighting(self, eid: str, actor_id: str, *, status: str = 'stopped', reason: str = 'stop_fighting') -> None:
+    def clear_actor_combat_state(self, actor_id: str, reason: str, expected_encounter_id: str | None = None, *, status: str = 'stopped') -> bool:
+        eid = expected_encounter_id or self.find_actor_encounter(actor_id)
+        if not eid:
+            return False
+        current = self.find_actor_encounter(actor_id)
+        if expected_encounter_id is not None and current and current != expected_encounter_id:
+            return False
+        return self._stop_actor_fighting(eid, actor_id, status=status, reason=reason)
+
+    def _stop_actor_fighting(self, eid: str, actor_id: str, *, status: str = 'stopped', reason: str = 'stop_fighting') -> bool:
         """Clear Smart MUD's FIGHTING() equivalent for one participant.
 
         Mirrors the Adventurer's Lair lifecycle: remove the actor from the
@@ -1082,8 +1093,11 @@ class CombatRuntimeService:
         """
         enc = self.resident_encounters.get(eid)
         actor = self._load_actor(actor_id)
+        changed = False
         if enc and actor_id in enc.participants:
             part = enc.participants[actor_id]
+            if part.participation_status == status and not part.target_actor_id and not part.queued_action:
+                return False
             part.participation_status = status
             part.target_actor_id = ''
             part.queued_action = None
@@ -1093,12 +1107,16 @@ class CombatRuntimeService:
                 if other.target_actor_id == actor_id:
                     other.target_actor_id = ''
             enc.dirty = True
+            changed = True
         with sqlite3.connect(self.db_path) as con:
-            con.execute("UPDATE combat_participants SET participation_status=?,current_target_actor_id='',fled=CASE WHEN ?='fled' THEN 1 ELSE fled END,defeated=CASE WHEN ?='defeated' THEN 1 ELSE defeated END WHERE encounter_id=? AND actor_id=?", (status, status, status, eid, actor_id))
+            cur = con.execute("UPDATE combat_participants SET participation_status=?,current_target_actor_id='',fled=CASE WHEN ?='fled' THEN 1 ELSE fled END,defeated=CASE WHEN ?='defeated' THEN 1 ELSE defeated END WHERE encounter_id=? AND actor_id=? AND (participation_status<>? OR current_target_actor_id<>'')", (status, status, status, eid, actor_id, status))
+            changed = changed or cur.rowcount > 0
             con.execute("UPDATE combat_participants SET current_target_actor_id='' WHERE encounter_id=? AND current_target_actor_id=?", (eid, actor_id))
             con.execute("UPDATE combat_action_queue SET status='cancelled',resolved_at=? WHERE encounter_id=? AND actor_id=? AND status='queued'", (datetime.now(timezone.utc).isoformat(), eid, actor_id))
-        self._standing_after_combat(actor, reason=reason)
-        self._publish('combat_participant_stopped_fighting', {'encounter_id': eid, 'actor_id': actor_id, 'status': status, 'reason': reason, 'world_time': self.world_time()})
+        if changed:
+            self._standing_after_combat(actor, reason=reason)
+            self._publish('combat_participant_stopped_fighting', {'encounter_id': eid, 'actor_id': actor_id, 'status': status, 'reason': reason, 'world_time': self.world_time()})
+        return changed
 
     def end_if_finished(self,eid):
         with sqlite3.connect(self.db_path) as con: rows=con.execute("SELECT side_id FROM combat_participants WHERE encounter_id=? AND participation_status='active' AND defeated=0 AND fled=0 AND current_target_actor_id<>''",(eid,)).fetchall()
@@ -1107,6 +1125,8 @@ class CombatRuntimeService:
     def end_encounter(self,eid,reason):
         now=datetime.now(timezone.utc).isoformat()
         enc = self.resident_encounters.get(eid)
+        if enc and enc.status != 'active':
+            return
         if enc:
             enc.status='ended'; enc.end_reason=reason; enc.dirty=True
             for aid, part in enc.participants.items():

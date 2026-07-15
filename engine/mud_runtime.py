@@ -1636,7 +1636,14 @@ class MudRuntime:
         elif command.strip() in {".end", ".cancel"}:
             result = CommandResult("No active editor session.", ok=False)
         else:
-            result = self._handle_runtime_command(char, command)
+            try:
+                result = self._handle_runtime_command(char, command)
+            except Exception:
+                import traceback
+                trace_id = "cmd_" + uuid.uuid4().hex[:12]
+                print(f"[command-exception] trace_id={trace_id} character_id={character_id} command={command!r}")
+                traceback.print_exc()
+                result = CommandResult(f"Something went wrong while processing that command. Trace ID: {trace_id}", ok=False)
         trace["command_execution_completed"] = time.monotonic()
         if getattr(result, "display_document", None) is not None:
             color_enabled = not bool(getattr(char, "preferences", {}).get("no_color"))
@@ -2077,10 +2084,7 @@ class MudRuntime:
         room_id = char.room_id
         if not bypass_combat and getattr(self, 'combat_runtime', None):
             _aid = self.combat_runtime.actor_id_for_character(char)
-            _ra = getattr(self.combat_runtime, 'resident_actors', {}).get(_aid)
-            _cs = str((getattr(_ra, 'combat_profile', {}) or {}).get('combat_state', '')).lower() if _ra else ''
-            _char_cs = str((getattr(char, 'actor_data', {}) or {}).get('combat_state', '')).lower()
-            if self.combat_runtime.is_actor_in_active_combat(_aid) or _aid in getattr(self, '_recent_combat_actor_ids', set()) or _cs in {'in_combat', 'fighting'} or _char_cs in {'in_combat', 'fighting'}:
+            if self.combat_runtime.is_actor_in_active_combat(_aid):
                 return CommandResult(narrative='You are fighting! Use FLEE to escape.', ok=False)
         self.event_bus.publish("movement_attempted", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
         exit_data, reason = self.resolve_exit(char, room_id, direction)
