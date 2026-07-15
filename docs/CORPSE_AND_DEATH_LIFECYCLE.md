@@ -51,3 +51,11 @@ Test-resource cleanup keeps the runtime scheduler non-owning in MudRuntime; the 
 SQL measurement counters for the resident hot path are exposed through `performance_counters`: active encounter SELECTs during violence processing remain at `combat_encounter_sql_reads == 0`; combat audit writes are counted as buffered/flushed rows; initial encounter checkpoints, final completion, death transactions, and autosaves remain permitted writes.
 
 Windows manual acceptance was not performed in this Linux container. Tony should run `pulseinfo`, `pulsetrace`, `perfstat reset`, a live Emberwood Fox fight, corpse restart check, offline restore check, and the focused pytest group on Windows before declaring Windows acceptance.
+
+## 2026-07-15 combat-runtime stabilization update
+
+Smart MUD follows Adventurer's Lair's single heartbeat / resident combat-list model for this work: a KILL/attack command creates the encounter and performs one opening attack, but does not leave a duplicate basic attack queued for the first violence pulse.  Normal player and NPC basic attacks use resident participant state (`queued_action`, target, wait pulses, and last action pulse) rather than live `combat_action_queue` rows.  `combat_action_queue` remains reserved for history/recovery compatibility, not as hot-round authority.
+
+The Forest Wolf natural-weapon regression was traced to snapshot/profile fallback paths that allowed nonhumanoid NPC attacks to degrade to generic unarmed wording.  Entity natural weapon profile ids are carried onto resident actors; combat output now conjugates third-person attack verbs (`pulverizes`) while preserving second-person base verbs (`you pulverize`).  Stat snapshots are cached by actor/profile/equipment/effect/body/world-content generation inputs so current Health changes alone do not force offensive/defensive rebuilds.  Audit rows are buffered in memory during active rounds instead of being flushed synchronously on every hit.
+
+Current Linux validation: focused heartbeat/combat tests passed; the broad suite was allowed to complete and exposed broad pre-existing/environmental failures outside the focused combat path.  Windows manual acceptance remains not performed.

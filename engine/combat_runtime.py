@@ -7,7 +7,7 @@ The legacy `rules.combat` module is not imported here and is compatibility-only.
 """
 from __future__ import annotations
 
-import hashlib, json, sqlite3, uuid, time
+import hashlib, json, sqlite3, uuid, time, contextlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +51,31 @@ def init_combat_runtime_schema(db_path: str | Path) -> None:
         con.execute("""CREATE TABLE IF NOT EXISTS character_attributes(character_id TEXT,attribute_id TEXT,base_value INTEGER,permanent_modifier INTEGER,created_at TEXT,updated_at TEXT,source TEXT,metadata_json TEXT,PRIMARY KEY(character_id,attribute_id))""")
         con.commit()
 
+
+
+class ViolenceProfiler:
+    def __init__(self, clock=time.perf_counter_ns):
+        self.clock = clock
+        self.rows: dict[str, dict[str, int]] = {}
+        self.last_pulse_ns = 0
+    @contextlib.contextmanager
+    def section(self, name: str):
+        start = self.clock()
+        try:
+            yield
+        finally:
+            elapsed = max(0, self.clock() - start)
+            row = self.rows.setdefault(name, {"calls": 0, "total_ns": 0, "max_ns": 0})
+            row["calls"] += 1; row["total_ns"] += elapsed; row["max_ns"] = max(row["max_ns"], elapsed)
+    def reset(self):
+        self.rows.clear(); self.last_pulse_ns = 0
+    def render(self) -> str:
+        denom = max(1, self.last_pulse_ns)
+        lines = ["Violence profile:", "section calls total_ms avg_ms max_ms pct"]
+        for name, row in sorted(self.rows.items()):
+            calls = max(1, row.get("calls", 0)); total = row.get("total_ns", 0); mx = row.get("max_ns", 0)
+            lines.append(f"{name} {row.get('calls',0)} {total/1_000_000:.3f} {total/calls/1_000_000:.3f} {mx/1_000_000:.3f} {total*100/denom:.1f}%")
+        return "\n".join(lines)
 
 @dataclass(frozen=True)
 class LifecycleTransitionResult:
@@ -392,7 +417,9 @@ class CombatRuntimeService:
         self.completed_actions: dict[str, Any] = {}
         self.resident_actors: dict[str, Actor] = {}
         self.resident_encounters: dict[str, ResidentCombatEncounter] = {}
-        self._audit_flush_threshold = 50
+        self._audit_flush_threshold = 1000000
+        self._audit_flush_budget_rows = 10
+        self.violence_profiler = ViolenceProfiler()
         self.dirty_resident_entities: set[str] = set()
         self._output_seq = 0
         self._output_queues: dict[str, list[dict[str, Any]]] = {}
@@ -538,19 +565,41 @@ class CombatRuntimeService:
                 msg = messages.get('observers') or ''
             self.enqueue_output(cid, msg, encounter_id=eid, room_id=room_id, category=category)
 
-    def queue_action(self, eid: str, actor_id: str, action_type: str, target_actor_id: str = "", ability_id: str = "", source: str = "player", metadata: dict[str, Any] | None = None) -> None:
-        wt=self.world_time(); aid='act_'+uuid.uuid4().hex
-        with sqlite3.connect(self.db_path, timeout=30) as con:
-            con.execute("BEGIN IMMEDIATE")
-            old=con.execute("SELECT action_id FROM combat_action_queue WHERE encounter_id=? AND actor_id=? AND status='queued'", (eid,actor_id)).fetchone()
-            if old:
-                con.execute("UPDATE combat_action_queue SET status='replaced',resolved_at=? WHERE action_id=?", (datetime.now(timezone.utc).isoformat(), old[0]))
-                self._publish('combat_action_replaced', {'encounter_id':eid,'actor_id':actor_id,'old_action_id':old[0],'world_time':wt})
-            con.execute("INSERT INTO combat_action_queue(action_id,encounter_id,actor_id,action_type,ability_id,target_actor_id,queued_round,execute_world_time,status,source,metadata_json,created_at,resolved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (aid,eid,actor_id,action_type,ability_id,target_actor_id,self._round(eid),wt,'queued',source,json.dumps(metadata or {}),datetime.now(timezone.utc).isoformat(),None))
+    def queue_resident_action(self, eid: str, actor_id: str, action_type: str, target_actor_id: str = "", ability_id: str = "", source: str = "player", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        aid = 'act_' + uuid.uuid4().hex
+        action = {'action_id': aid, 'action_type': action_type, 'ability_id': ability_id, 'target_actor_id': target_actor_id, 'source': source, 'metadata': dict(metadata or {})}
         enc = self.resident_encounters.get(eid)
         if enc and actor_id in enc.participants:
-            enc.participants[actor_id].queued_action = {'action_id': aid, 'action_type': action_type, 'ability_id': ability_id, 'target_actor_id': target_actor_id, 'source': source, 'metadata_json': json.dumps(metadata or {})}; enc.dirty = True
-        self._publish('combat_action_queued', {'encounter_id':eid,'actor_id':actor_id,'action_type':action_type,'ability_id':ability_id,'target_actor_id':target_actor_id,'world_time':wt})
+            enc.participants[actor_id].queued_action = action; enc.dirty = True
+        self.runtime.performance_counters['combat_resident_actions_queued'] = self.runtime.performance_counters.get('combat_resident_actions_queued', 0) + 1
+        self._publish('combat_action_queued', {'encounter_id':eid,'actor_id':actor_id,'action_type':action_type,'ability_id':ability_id,'target_actor_id':target_actor_id,'world_time':self.world_time(), 'resident': True})
+        return action
+
+    def consume_resident_action(self, eid: str, actor_id: str) -> dict[str, Any] | None:
+        enc = self.resident_encounters.get(eid)
+        part = enc.participants.get(actor_id) if enc else None
+        if not part or not part.queued_action:
+            return None
+        action = part.queued_action; part.queued_action = None; enc.dirty = True
+        self.runtime.performance_counters['combat_resident_actions_consumed'] = self.runtime.performance_counters.get('combat_resident_actions_consumed', 0) + 1
+        return action
+
+    def cancel_resident_actions(self, eid: str, actor_id: str = "") -> int:
+        enc = self.resident_encounters.get(eid); count = 0
+        if enc:
+            for aid, part in enc.participants.items():
+                if actor_id and aid != actor_id: continue
+                if part.queued_action:
+                    part.queued_action = None; count += 1
+            if count: enc.dirty = True
+        return count
+
+    def peek_resident_action(self, eid: str, actor_id: str) -> dict[str, Any] | None:
+        enc = self.resident_encounters.get(eid); part = enc.participants.get(actor_id) if enc else None
+        return dict(part.queued_action) if part and part.queued_action else None
+
+    def queue_action(self, eid: str, actor_id: str, action_type: str, target_actor_id: str = "", ability_id: str = "", source: str = "player", metadata: dict[str, Any] | None = None) -> None:
+        self.queue_resident_action(eid, actor_id, action_type, target_actor_id, ability_id, source, metadata)
 
     def _consume_action(self, eid: str, actor_id: str) -> dict[str, Any] | None:
         token='actclaim_'+uuid.uuid4().hex; now=datetime.now(timezone.utc).isoformat()
@@ -586,7 +635,6 @@ class CombatRuntimeService:
         enc=self.find_actor_encounter(attacker.actor_id) or self.start_encounter(character.room_id)
         already=bool(self.find_actor_encounter(attacker.actor_id))
         self.join_encounter(enc, attacker, 'side_1'); self.join_encounter(enc, defender, 'side_2'); self.set_target(enc, attacker.actor_id, defender.actor_id); self.set_target(enc, defender.actor_id, attacker.actor_id)
-        self.queue_action(enc, attacker.actor_id, 'basic_attack', defender.actor_id, source='default')
         try:
             character.actor_data = character.actor_data if isinstance(getattr(character, 'actor_data', {}), dict) else {}
             character.actor_data['combat_state'] = 'in_combat'
@@ -618,7 +666,6 @@ class CombatRuntimeService:
         already = bool(self.find_actor_encounter(attacker.actor_id))
         self.join_encounter(enc, attacker, "side_1"); self.join_encounter(enc, defender, "side_2")
         self.set_target(enc, attacker.actor_id, defender.actor_id); self.set_target(enc, defender.actor_id, attacker.actor_id)
-        self.queue_action(enc, attacker.actor_id, "basic_attack", defender.actor_id, source="agent")
         if already:
             return CombatRuntimeResult(True, [f"{attacker.identity.name} keeps fighting {defender.identity.name}."], enc)
         rr = self._execute_attack(enc, attacker, defender, opening=True)
@@ -827,7 +874,8 @@ class CombatRuntimeService:
         return CombatRuntimeResult(True,msgs,eid)
 
     def _execute_attack(self,eid:str,attacker:Actor,defender:Actor,opening:bool=False)->CombatRuntimeResult:
-        return self.submit_action(CombatActionRequest(action_id="act_"+uuid.uuid4().hex, round_id=eid, world_id=self.runtime.active_world_id or "", room_id=attacker.identity.current_location, attacker_id=attacker.actor_id, defender_id=defender.actor_id, source_type="opening" if opening else "round", metadata={"opening": opening}))
+        request = CombatActionRequest(action_id="act_"+uuid.uuid4().hex, round_id=eid, world_id=self.runtime.active_world_id or "", room_id=attacker.identity.current_location, attacker_id=attacker.actor_id, defender_id=defender.actor_id, source_type="opening" if opening else "round", metadata={"opening": opening})
+        return self._execute_attack_direct(request, attacker, defender)
 
     def _round(self,eid):
         with sqlite3.connect(self.db_path) as con: r=con.execute('SELECT current_round FROM combat_encounters WHERE encounter_id=?',(eid,)).fetchone(); return int(r[0] if r else 0)
@@ -865,9 +913,18 @@ class CombatRuntimeService:
         wt=self.world_time() if world_time is None else int(world_time); out=[]
         trace_id = "violence_" + uuid.uuid4().hex[:12]
         active = [e for e in self.resident_encounters.values() if e.status == 'active']
+        # Hot-path SQL profile: normal resident violence must not consult SQLite action authority.
+        sql_zero_keys = (
+            "combat_sql_encounter_select", "combat_sql_participant_select", "combat_sql_action_queue_select",
+            "combat_sql_action_queue_insert", "combat_sql_action_queue_update", "combat_sql_round_history_insert",
+            "combat_sql_character_load", "combat_sql_character_save", "combat_sql_entity_hydration_read",
+            "combat_sql_output_insert", "combat_sql_npc_damage_update",
+        )
+        for key in sql_zero_keys:
+            self.runtime.performance_counters[key] = self.runtime.performance_counters.get(key, 0)
         self.runtime.performance_counters["combat_encounter_sql_reads"] = self.runtime.performance_counters.get("combat_encounter_sql_reads", 0)
         self.runtime.performance_counters["combat_encounters_active"] = len(active)
-        processed=0; started = time.monotonic(); action_count = 0
+        processed=0; started = time.monotonic(); started_ns = self.violence_profiler.clock(); action_count = 0
         pulse_no = getattr(self.runtime, '_runtime_pulse_counter', 0) if violence_pulse is None else int(violence_pulse)
         for enc in active:
             if enc.last_violence_pulse == pulse_no:
@@ -875,10 +932,10 @@ class CombatRuntimeService:
             if processed >= self.MAX_ACTIONS_PER_PULSE:
                 self.runtime.performance_counters["combat_backlog"] = len(active)-processed
                 break
-            before = len(out)
-            out += self.process_encounter_round(enc.encounter_id, wt, violence_pulse=pulse_no)
-            processed += 1; action_count += max(0, len(out)-before)
-        duration_ms = int((time.monotonic() - started) * 1000)
+            msgs = self.process_encounter_round(enc.encounter_id, wt, violence_pulse=pulse_no)
+            out += msgs
+            processed += 1; action_count += int(getattr(enc, "last_actions_executed", 0))
+        duration_ms = int((time.monotonic() - started) * 1000); self.violence_profiler.last_pulse_ns = max(1, self.violence_profiler.clock() - started_ns)
         self.runtime.performance_counters["combat_rounds_processed"] = self.runtime.performance_counters.get("combat_rounds_processed", 0) + processed
         self.runtime.performance_counters["last_violence_pulse"] = pulse_no
         print(f"[violence-pulse] trace_id={trace_id} pulse={pulse_no} now={wt} active_encounters={len(active)} processed_encounters={processed} actions={action_count} messages={len(out)} duration_ms={duration_ms}")
@@ -903,10 +960,16 @@ class CombatRuntimeService:
                 actor.resources.stamina = max(actor.resources.stamina, actor.resources.maximum_stamina)
                 actor.identity = ActorIdentity(name=actor.identity.name, current_location=r["destination_room_id"], current_world=r["world_id"])
                 if aid.startswith("character:"):
-                    ch = self.runtime.state_store.load_character(aid.split(":", 1)[1])
+                    cid = aid.split(":", 1)[1]
+                    ch = getattr(self.runtime, "active_characters", {}).get(cid)
                     if ch:
                         ch.room_id = r["destination_room_id"]; ch.hp = actor.resources.health; ch.mana = actor.resources.mana; ch.stamina = actor.resources.stamina
-                        self.runtime.state_store.save_character(ch, self.runtime.active_world_id or "")
+                        if hasattr(self.runtime, "mark_character_dirty"): self.runtime.mark_character_dirty(cid, "respawn")
+                    else:
+                        ch = self.runtime.state_store.load_character(cid)
+                        if ch:
+                            ch.room_id = r["destination_room_id"]; ch.hp = actor.resources.health; ch.mana = actor.resources.mana; ch.stamina = actor.resources.stamina
+                            self.runtime.state_store.save_character(ch, self.runtime.active_world_id or "")
                 else:
                     self.persist_actor(actor)
             with sqlite3.connect(self.db_path) as con:
@@ -928,27 +991,39 @@ class CombatRuntimeService:
         enc.last_violence_pulse = pulse_no; enc.round_number += 1; enc.dirty = True
         rnd = enc.round_number
         self._publish('combat_round_started',{'encounter_id':eid,'round':rnd,'world_time':wt,'world_id':self.runtime.active_world_id or ''})
-        msgs=[]
-        rows=sorted([p for p in enc.participants.values() if p.participation_status=='active' and not p.defeated and not p.fled], key=lambda p:(int(p.actor_reference.attributes.get('dexterity') or 10), p.actor_id), reverse=True)
+        msgs=[]; considered=invalid=waiting=defending=queued_consumed=default_generated=actions_executed=attacks_resolved=0
+        with self.violence_profiler.section('participant_iteration'):
+            rows=sorted([p for p in enc.participants.values() if p.participation_status=='active' and not p.defeated and not p.fled], key=lambda p:(int(p.actor_reference.attributes.get('dexterity') or 10), p.actor_id), reverse=True)
         for part in rows:
+            considered += 1
             aid=part.actor_id; tid=part.target_actor_id
+            if part.last_action_pulse == pulse_no:
+                invalid += 1; continue
             if part.wait_pulses > 0:
-                part.wait_pulses -= 1; continue
-            a=self._load_actor(aid); d=self._load_actor(tid)
-            if not a or not d or a.resources.health<=0 or d.resources.health<=0 or a.identity.current_location!=d.identity.current_location: continue
-            act=part.queued_action; part.queued_action = None
-            if not act:
-                act=self._consume_action(eid, aid)  # legacy queued command compatibility; not encounter discovery.
+                part.wait_pulses -= 1; waiting += 1; continue
+            with self.violence_profiler.section('actor_lookup'):
+                a=self._load_actor(aid); d=self._load_actor(tid)
+            if not a or not d or a.resources.health<=0 or d.resources.health<=0 or a.identity.current_location!=d.identity.current_location:
+                invalid += 1; continue
+            with self.violence_profiler.section('queued_action_resolution'):
+                act=self.consume_resident_action(eid, aid)
+            if act:
+                queued_consumed += 1
+            else:
+                default_generated += 1
             atype=(act or {}).get('action_type') or 'basic_attack'
             if atype == 'defend':
-                self._start_defense(eid, a); msgs.append('You raise your guard and prepare for the next attack.' if aid.startswith('character:') else f'{a.identity.name} raises a guard.'); part.wait_pulses=1
+                self._start_defense(eid, a); msgs.append('You raise your guard and prepare for the next attack.' if aid.startswith('character:') else f'{a.identity.name} raises a guard.'); part.wait_pulses=1; defending += 1; actions_executed += 1; part.last_action_pulse = pulse_no
             elif atype == 'flee':
                 pass
             elif atype == 'ability' and (act or {}).get('ability_id'):
-                rr=self._execute_ability(eid,a,d,act); msgs += rr.messages
+                rr=self._execute_ability(eid,a,d,act); msgs += rr.messages; actions_executed += 1; part.last_action_pulse = pulse_no
             else:
-                rr=self._execute_attack(eid,a,d); msgs += rr.messages
-        self.runtime.performance_counters["combat_round_duration_ms"] = int((time.monotonic() - started) * 1000)
+                with self.violence_profiler.section('combat_resolution'):
+                    rr=self._execute_attack(eid,a,d)
+                msgs += rr.messages; actions_executed += 1; attacks_resolved += 1; part.last_action_pulse = pulse_no
+        enc.last_actions_executed = actions_executed
+        self.runtime.performance_counters.update({"combat_round_duration_ms": int((time.monotonic() - started) * 1000), "combat_trace_participants_considered": considered, "combat_trace_participants_invalid": invalid, "combat_trace_participants_waiting": waiting, "combat_trace_participants_defending": defending, "combat_trace_queued_actions_consumed": queued_consumed, "combat_trace_default_actions_generated": default_generated, "combat_trace_actions_executed": actions_executed, "combat_trace_attacks_resolved": attacks_resolved, "combat_trace_messages_generated": len(msgs)})
         self.end_if_finished(eid); return msgs
 
     def _broadcast_room(self, eid: str, room_id: str, message: str, *, category: str = 'combat') -> None:

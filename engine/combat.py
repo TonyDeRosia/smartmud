@@ -287,13 +287,29 @@ class CombatEngine:
         if "bite" in verb.lower():
             weapon = "bite"
         v = crit_wrap(sev)
-        return {"attacker":f"You {v} {dname} with your {weapon}{bang}","victim":f"{aname} {v} you with its {weapon}{bang}","observers":f"{aname} {v} {dname} with its {weapon}{bang}"}
+        def conjugate(word: str, actor: Actor) -> str:
+            # Second-person output stays base form; third-person singular NPC names conjugate.
+            if word.startswith("** "):
+                inner = word.strip("* ")
+                cv = conjugate(inner, actor)
+                return f"** {cv} **"
+            name = (actor.identity.name or "").strip().lower()
+            plural = name.endswith("s") or name.endswith("wolves")
+            if plural:
+                return word
+            if word.endswith("sh") or word.endswith("ch") or word.endswith("x") or word.endswith("s"):
+                return word + "es"
+            if word.endswith("y") and len(word) > 1 and word[-2] not in "aeiou":
+                return word[:-1] + "ies"
+            return word + "s"
+        tv = conjugate(v, a)
+        return {"attacker":f"You {v} {dname} with your {weapon}{bang}","victim":f"{aname} {tv} you with its {weapon}{bang}","observers":f"{aname} {tv} {dname} with its {weapon}{bang}"}
 
 
 class CombatResolutionService:
     """Authoritative combat outcome pipeline backed by CombatStatService snapshots."""
     def __init__(self, engine: CombatEngine, *, combat_stats: Any | None = None, event_bus: Any | None = None, rng: Callable[..., int] | None = None, runtime: Any | None = None) -> None:
-        self.engine=engine; self.combat_stats=combat_stats; self.event_bus=event_bus; self.rng=rng or engine.roller.roll_percent; self.runtime=runtime
+        self.engine=engine; self.combat_stats=combat_stats; self.event_bus=event_bus; self.rng=rng or engine.roller.roll_percent; self.runtime=runtime; self._snapshot_cache = {}
 
     def _actor_view(self, actor: Actor, context: CombatResolutionContext | None = None) -> CanonicalActorProjection:
         ctx=context or CombatResolutionContext()
@@ -309,9 +325,23 @@ class CombatResolutionService:
         }
         return CanonicalActorProjection(actor.actor_id, actor_type, actor.identity.name, int((actor.progression_profile or {}).get('level',1) or 1), dict(actor.attributes or {}), resources, pid, dict(actor.equipment_profile or {}), actor.effect_container or {}, dict(actor.resistance_profile or {}), str(actor.body_profile_id or ''), str((actor.combat_profile or {}).get('combat_state') or ctx.attacker_position or 'standing'), str(actor.identity.current_location or ctx.room_id), str(actor.identity.current_world or ctx.world_id), pid, pid)
 
+    def _snapshot_cache_key(self, actor: Actor, context: CombatResolutionContext) -> tuple[Any, ...]:
+        cp = actor.combat_profile or {}; eq = actor.equipment_profile or {}; eff = actor.effect_container or {}
+        return (actor.actor_id, getattr(actor, "body_profile_id", ""), cp.get("combat_state", ""), tuple(cp.get("natural_weapon_profile_ids") or ()), json.dumps(eq, sort_keys=True, default=str), json.dumps(eff, sort_keys=True, default=str), getattr(self.runtime, "world_content_generation", 0) if self.runtime else 0)
+
     def _snapshot(self, actor: Actor, context: CombatResolutionContext):
         if not self.combat_stats: return None
-        return self.combat_stats.get_combat_snapshot(self._actor_view(actor, context), {"combat_context": asdict(context), "runtime": self.runtime})
+        key = self._snapshot_cache_key(actor, context)
+        cached = self._snapshot_cache.get(key)
+        if cached is not None:
+            if self.runtime: self.runtime.performance_counters["combat_stat_cache_hits"] = self.runtime.performance_counters.get("combat_stat_cache_hits", 0) + 1
+            return cached
+        if self.runtime: self.runtime.performance_counters["combat_stat_cache_misses"] = self.runtime.performance_counters.get("combat_stat_cache_misses", 0) + 1
+        snap = self.combat_stats.get_combat_snapshot(self._actor_view(actor, context), {"combat_context": asdict(context), "runtime": self.runtime})
+        self._snapshot_cache[key] = snap
+        if len(self._snapshot_cache) > 512:
+            self._snapshot_cache.pop(next(iter(self._snapshot_cache)))
+        return snap
 
     @property
     def runtime(self):
