@@ -65,3 +65,7 @@ Test-resource cleanup keeps the runtime scheduler non-owning in MudRuntime; the 
 SQL measurement counters for the resident hot path are exposed through `performance_counters`: active encounter SELECTs during violence processing remain at `combat_encounter_sql_reads == 0`; combat audit writes are counted as buffered/flushed rows; initial encounter checkpoints, final completion, death transactions, and autosaves remain permitted writes.
 
 Windows manual acceptance was not performed in this Linux container. Tony should run `pulseinfo`, `pulsetrace`, `perfstat reset`, a live Emberwood Fox fight, corpse restart check, offline restore check, and the focused pytest group on Windows before declaring Windows acceptance.
+
+## 2026-07-15 violence pulse stabilization note
+
+The reported defect was a one-encounter violence pulse that appeared as `active_encounters=1`, `processed_encounters=1`, `actions=3`, with about 1664 ms in combat and about 3170 ms in the full runtime pulse.  The implementation now profiles resident violence work with `violenceprofile` / `violenceprofile reset`, uses resident queued actions for normal combat, avoids SQLite action-queue consumption during ordinary rounds, and reports action counts separately from message counts.  Windows acceptance was not performed in this Linux container.

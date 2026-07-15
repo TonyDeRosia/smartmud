@@ -346,6 +346,7 @@ class MudCommandEngine:
             "rangeedit": self._cmd_rangeedit,
             "combatmessage": self._cmd_combatmessage,
             "perfstat": self._cmd_perfstat,
+            "violenceprofile": self._cmd_runtime_admin,
             "pulseinfo": self._cmd_runtime_admin,
             "pulsetrace": self._cmd_runtime_admin,
             "pulseforce": self._cmd_runtime_admin,
@@ -721,6 +722,13 @@ class MudCommandEngine:
         cmd = (raw.split() or [""])[0].lower()
         if not rt:
             return CommandResult("Runtime is unavailable.", ok=False)
+        if cmd == "violenceprofile":
+            cr = getattr(rt, "combat_runtime", None)
+            if not cr or not getattr(cr, "violence_profiler", None):
+                return CommandResult("Violence profiler is unavailable.", ok=False)
+            if args and args[0].lower() == "reset":
+                cr.violence_profiler.reset(); return CommandResult("Violence profile reset.")
+            return CommandResult(cr.violence_profiler.render())
         if cmd == "pulseinfo":
             cfg = getattr(rt, "pulse_config", {})
             return CommandResult("Pulse configuration:\n" + "\n".join(f"{k}: {v}" for k, v in sorted(cfg.items())) + f"\ncurrent_pulse: {getattr(rt, '_runtime_pulse_counter', 0)}")
