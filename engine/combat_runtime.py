@@ -448,7 +448,7 @@ class CombatRuntimeService:
         maxhp = int(st.get('maximum_health') or st.get('max_health') or stats.get('max_health') or stats.get('maximum_health') or 100)
         hp = int(st.get('current_health') or st.get('health') or maxhp)
         a = Actor.create(self.actor_id_for_entity(ent), ent.get('name') or tmpl.get('name','Entity'), 'npc' if ent.get('entity_type')=='npc' else 'mob')
-        a.identity = ActorIdentity(name=a.identity.name, current_location=ent.get('room_id',''), current_world=self.runtime.active_world_id or '')
+        a.identity = ActorIdentity(name=a.identity.name, current_location=self.runtime.canonical_room_id(ent.get('room_id','')), current_world=self.runtime.active_world_id or '')
         a.resources = ActorResources(health=hp, maximum_health=maxhp, mana=int(st.get('current_mana') or 0), maximum_mana=int(st.get('maximum_mana') or 0), stamina=int(st.get('current_stamina') or 0), maximum_stamina=int(st.get('maximum_stamina') or 0))
         a.attributes.update({k:int(v) for k,v in (stats.get('attributes') or {}).items() if isinstance(v,(int,float,str)) and str(v).isdigit()})
         a.combat_profile.update(tmpl.get('combat_profile') or {})
@@ -486,9 +486,24 @@ class CombatRuntimeService:
                 self.runtime.update_entity_state(eid, st, source_system='combat_runtime')
                 self.runtime.performance_counters["combat_entity_sql_writes"] = self.runtime.performance_counters.get("combat_entity_sql_writes", 0) + 1
 
+    def resolve_target_detail(self, character: Any, query: str) -> dict[str, Any]:
+        room_id = self.runtime.canonical_room_id(getattr(character, "room_id", ""))
+        visible = self.runtime.find_visible_entities(room_id, character)
+        visible_entities = visible.get("npcs", []) + visible.get("mobs", [])
+        visible_match = self.runtime.resolve_entity_keywords(query, visible_entities)
+        resolved = self.runtime.find_occupant(room_id, query, {"living": True, "visible_to": character})
+        if resolved.get("status") == "ok":
+            return resolved
+        if visible_match.get("status") == "ok":
+            ent = visible_match.get("entity") or {}
+            print(f"[target-resolution-integrity] query={query} player_actor={self.actor_id_for_character(character)} player_room={getattr(character,'room_id','')} canonical_room={room_id} visible_matches=1 resident_matches=0 actor_ids={[self.runtime.actor_id_for_entity_instance(e) for e in visible_entities]} visible_names={[e.get('name') for e in visible_entities]} instance_ids={[e.get('entity_id') for e in visible_entities]} template_ids={[e.get('template_id') for e in visible_entities]} actor_locations={[getattr(a.identity,'current_location','') for a in self.runtime.occupants_in_room(room_id)]} room_index={list(getattr(self.runtime, 'resident_occupants_by_room', {}).get(room_id, {}))}")
+            return {"entity": None, "status": "visible_unresolved", "message": f"There is no living {ent.get('name') or query} here." if not ent.get("is_alive") else "You cannot attack that."}
+        if visible_match.get("status") in {"missing_ordinal", "ambiguous"}:
+            return {"entity": None, "status": visible_match.get("status"), "message": self.runtime._resolve_message(visible_match, "They are not here.")}
+        return {"entity": None, "status": "not_visible", "message": "You do not see them here."}
+
     def resolve_target(self, character: Any, query: str) -> dict[str, Any] | None:
-        visible = self.runtime.find_visible_entities(character.room_id, character); cands = [e for e in visible.get('npcs',[])+visible.get('mobs',[]) if e.get('is_alive') and e.get('current_state') not in {'dead','corpse','despawned'}]
-        return self.runtime.resolve_entity_keywords(query, cands).get('entity')
+        return self.resolve_target_detail(character, query).get("entity")
 
     def validate_attack(self, attacker: Actor, defender: Actor, ent: dict[str,Any]|None=None) -> str:
         counters = getattr(self.runtime, 'performance_counters', {})
@@ -665,10 +680,11 @@ class CombatRuntimeService:
             return CombatRuntimeResult(False, ['Attack whom?'])
         _trace = getattr(self.runtime, "_current_command_trace", None)
         _t0 = time.monotonic()
-        ent=self.resolve_target(character, query)
+        resolved = self.resolve_target_detail(character, query)
+        ent = resolved.get("entity")
         if _trace is not None: _trace["target_resolved"] = time.monotonic()
         self.runtime.performance_counters["kill_target_resolution_ms"] = int((time.monotonic() - _t0) * 1000)
-        if not ent: return CombatRuntimeResult(False, ['They are not here.'])
+        if not ent: return CombatRuntimeResult(False, [str(resolved.get("message") or "They are not here.")])
         attacker = self._resident_character_actor(character)
         defender = self._resident_entity_actor(ent)
         if _trace is not None: _trace["resident_actor_lookup"] = time.monotonic()

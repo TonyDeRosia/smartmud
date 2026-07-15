@@ -358,6 +358,9 @@ class MudCommandEngine:
             "pulseforce": self._cmd_runtime_admin,
             "residentlist": self._cmd_runtime_admin,
             "residentstat": self._cmd_runtime_admin,
+            "occupancystat": self._cmd_runtime_admin,
+            "occupancyvalidate": self._cmd_runtime_admin,
+            "occupancy": self._cmd_runtime_admin,
             "latencystat": self._cmd_runtime_admin,
             "commandtrace": self._cmd_runtime_admin,
             "restore": self._cmd_restore,
@@ -817,6 +820,23 @@ class MudCommandEngine:
             if subsystem in {"corpse", "corpse_decay"}:
                 return CommandResult(f"Forced corpse decay; corpses_decayed={rt.process_corpse_decay(10**12)}.")
             return CommandResult("Usage: pulseforce combat|point_update|autosave|corpse_decay", ok=False)
+        if cmd in {"occupancystat", "occupancyvalidate", "occupancy"}:
+            if cmd == "occupancyvalidate":
+                problems = rt.validate_room_occupancy() if hasattr(rt, "validate_room_occupancy") else ["runtime lacks validator"]
+                return CommandResult("Occupancy validation: ok" if not problems else "Occupancy validation errors:\n" + "\n".join(problems), ok=not bool(problems))
+            if cmd == "occupancystat" or not args:
+                idx = getattr(rt, "resident_occupants_by_room", {})
+                total = sum(len(v) for v in idx.values())
+                return CommandResult(f"Resident occupancy rooms={len(idx)} occupants={total} actors={len(getattr(rt.combat_runtime, 'resident_actors', {}))}")
+            if args[0] == "room":
+                rid = rt.canonical_room_id(args[1] if len(args) > 1 else getattr(character, "room_id", ""))
+                ids = list(getattr(rt, "resident_occupants_by_room", {}).get(rid, {}))
+                return CommandResult(f"Occupancy room {rid}:\n" + ("\n".join(ids) if ids else "none"))
+            if args[0] == "actor" and len(args) > 1:
+                aid = args[1]
+                actor = getattr(rt.combat_runtime, "resident_actors", {}).get(aid)
+                return CommandResult(f"Occupancy actor {aid}: room={getattr(getattr(actor, 'identity', None), 'current_location', 'missing')}")
+            return CommandResult("Usage: occupancyvalidate | occupancystat | occupancy room [room] | occupancy actor <actor>", ok=False)
         if cmd == "residentlist":
             ids = sorted(getattr(rt, "active_characters", {}).keys())
             return CommandResult("Residents:\n" + ("\n".join(ids) if ids else "none"))
