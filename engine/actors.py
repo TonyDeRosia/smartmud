@@ -164,6 +164,10 @@ class Actor:
     derived_statistics_cache: dict[str, DerivedStatistic] = field(default_factory=dict)
     builder_metadata: dict[str, Any] = field(default_factory=dict)
     plugin_data: dict[str, Any] = field(default_factory=dict)
+    resident_actor_generation: int = 0
+    resident_actor_source: str = ""
+    resident_actor_owner: str = ""
+    resident_actor_version: int = 0
 
     @classmethod
     def create(cls, actor_id: str, name: str, actor_type: str = "actor", **overrides: Any) -> "Actor":
@@ -217,6 +221,15 @@ class ActorRegistry:
         self.actors: dict[str, Actor] = {}
 
     def register(self, actor: Actor) -> Actor:
+        existing = self.actors.get(actor.actor_id)
+        if existing is not None and existing is not actor:
+            # Detect duplicate live registrations without creating another
+            # writable authority.  Existing callers often construct adapter
+            # projections for help/ability checks; those attach to the
+            # resident actor instead of replacing it.
+            existing.resident_actor_version += 1
+            return existing
+        actor.resident_actor_version += 1
         self.actors[actor.actor_id] = actor
         return actor
 
