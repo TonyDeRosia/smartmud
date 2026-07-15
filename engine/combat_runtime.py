@@ -468,6 +468,12 @@ class CombatRuntimeService:
                 ch.hp=actor.resources.health; ch.max_hp=actor.resources.maximum_health; ch.mana=actor.resources.mana; ch.max_mana=actor.resources.maximum_mana; ch.stamina=actor.resources.stamina; ch.max_stamina=actor.resources.maximum_stamina; ch.actor_data=actor.to_dict()
                 if hasattr(self.runtime, "mark_character_dirty"):
                     self.runtime.mark_character_dirty(cid, "combat")
+            elif getattr(self.runtime, "_current_command_trace", None) is None and not actor.combat_profile.get("_resident_no_direct_save"):
+                loaded = self.runtime.state_store.load_character(cid) if getattr(self.runtime, "state_store", None) else None
+                if loaded:
+                    loaded.hp=actor.resources.health; loaded.max_hp=actor.resources.maximum_health; loaded.mana=actor.resources.mana; loaded.max_mana=actor.resources.maximum_mana; loaded.stamina=actor.resources.stamina; loaded.max_stamina=actor.resources.maximum_stamina; loaded.actor_data=actor.to_dict()
+                    self.runtime.state_store.save_character(loaded, self.runtime.active_world_id or getattr(loaded, "world_id", ""))
+                    self.runtime.performance_counters["combat_character_sql_saves"] = self.runtime.performance_counters.get("combat_character_sql_saves", 0) + 1
         elif actor.actor_id.startswith('entity:'):
             eid=actor.actor_id.split(':',1)[1]
             self.dirty_resident_entities.add(eid)
@@ -663,7 +669,9 @@ class CombatRuntimeService:
         if _trace is not None: _trace["target_resolved"] = time.monotonic()
         self.runtime.performance_counters["kill_target_resolution_ms"] = int((time.monotonic() - _t0) * 1000)
         if not ent: return CombatRuntimeResult(False, ['They are not here.'])
-        self.refresh_content(); attacker=actor_from_runtime_character(character,self.runtime.active_world_id or ''); attacker.actor_id=self.actor_id_for_character(character); defender=self.actor_from_entity(ent)
+        attacker = self._resident_character_actor(character)
+        defender = self._resident_entity_actor(ent)
+        if _trace is not None: _trace["resident_actor_lookup"] = time.monotonic()
         err=self.validate_attack(attacker,defender,ent)
         if err:
             return CombatRuntimeResult(False,[err])
@@ -699,8 +707,8 @@ class CombatRuntimeService:
     def start_actor_attack(self, attacker_source: Any, target_ent: dict[str, Any]) -> CombatRuntimeResult:
         if hasattr(attacker_source, "id"):
             return self.start_player_attack(attacker_source, target_ent.get("name") or "")
-        self.refresh_content()
-        attacker = self.actor_from_entity(attacker_source); defender = self._actor_from_source(target_ent)
+        attacker = self._resident_entity_actor(attacker_source)
+        defender = self._actor_from_source(target_ent)
         err = ""
         if defender.actor_id.startswith("entity:"):
             err = self.validate_attack(attacker, defender, target_ent)
@@ -718,10 +726,33 @@ class CombatRuntimeService:
             self.enqueue_output(cid, f"{attacker.identity.name} attacks {defender.identity.name}.", encounter_id=enc, room_id=attacker.identity.current_location, category="combat_start")
         return rr
 
+    def _resident_character_actor(self, character: Any) -> Actor:
+        aid = self.actor_id_for_character(character)
+        actor = self.resident_actors.get(aid)
+        if actor is not None:
+            self.runtime.performance_counters["combat_start_resident_player_hits"] = self.runtime.performance_counters.get("combat_start_resident_player_hits", 0) + 1
+            return actor
+        actor = actor_from_runtime_character(character, self.runtime.active_world_id or "")
+        actor.actor_id = aid
+        self.resident_actors[aid] = actor
+        self.runtime.performance_counters["combat_start_resident_player_misses"] = self.runtime.performance_counters.get("combat_start_resident_player_misses", 0) + 1
+        return actor
+
+    def _resident_entity_actor(self, ent: dict[str, Any]) -> Actor:
+        aid = self.actor_id_for_entity(ent)
+        actor = self.resident_actors.get(aid)
+        if actor is not None:
+            self.runtime.performance_counters["combat_start_resident_npc_hits"] = self.runtime.performance_counters.get("combat_start_resident_npc_hits", 0) + 1
+            return actor
+        actor = self.actor_from_entity(ent)
+        self.resident_actors[aid] = actor
+        self.runtime.performance_counters["combat_start_resident_npc_misses"] = self.runtime.performance_counters.get("combat_start_resident_npc_misses", 0) + 1
+        return actor
+
     def _actor_from_source(self, source: Any) -> Actor:
         if hasattr(source, "id"):
-            a = actor_from_runtime_character(source, self.runtime.active_world_id or ""); a.actor_id = self.actor_id_for_character(source); return a
-        return self.actor_from_entity(source)
+            return self._resident_character_actor(source)
+        return self._resident_entity_actor(source)
 
     def _actor_id_from_source(self, source: Any) -> str:
         return self.actor_id_for_character(source) if hasattr(source, "id") else self.actor_id_for_entity(source)

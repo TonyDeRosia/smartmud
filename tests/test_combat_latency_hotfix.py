@@ -21,3 +21,12 @@ def test_combat_warmup_report_uses_fractional_milliseconds() -> None:
     assert isinstance(report.duration_ms, float)
     assert report.duration_ms > 0
     assert report.timings["sqlite_prepared_statement_initialization"] > 0
+
+
+def test_player_and_actor_combat_start_do_not_refresh_content() -> None:
+    text = __import__("pathlib").Path("engine/combat_runtime.py").read_text()
+    start = text.index("    def start_player_attack")
+    actor = text.index("    def start_actor_attack")
+    target = text.index("    def _resident_character_actor")
+    assert "refresh_content(" not in text[start:actor]
+    assert "refresh_content(" not in text[actor:target]
