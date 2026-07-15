@@ -75,3 +75,7 @@ Remaining limitations: target visibility can still depend on the broader room/en
 ## Phase 15B.11 resident room occupancy
 
 Living NPC room rendering and combat target resolution now share `MudRuntime.resident_occupants_by_room`, backed by `CombatRuntimeService.resident_actors` and entity-instance/actor-id maps. Normal KILL/ATTACK/CONSIDER/DIAGNOSE target lookup is resident-memory only: no `refresh_content()`, world reload, entity rematerialization, or SQLite target query is used in the command hot path. See `docs/RESIDENT_ROOM_OCCUPANCY.md` for the authority table, target grammar, lifecycle invariants, diagnostics, and Windows acceptance steps.
+
+## Phase 15B.12 movement authority
+
+`MudRuntime.move_resident_actor()` is the canonical resident movement mutation. It updates the resident actor location, active player `room_id`, resident room occupancy index, dirty state, and movement event in one operation. Flee and normal directional movement both use this path.

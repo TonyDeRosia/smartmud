@@ -48,3 +48,7 @@ Commands:
 ## TBA behavioral parity
 
 TBA maintains a single linked character list per room and both LOOK and `get_char_room_vis()`/KILL scan that same resident list. Smart MUD mirrors that behavior by rendering and resolving living NPCs from one ordered resident occupancy index rather than rebuilding content or querying SQLite during target resolution.
+
+## Phase 15B.12 flee invariant
+
+After successful flee the actor must be absent from the old room's `resident_occupants_by_room` entry and present in the destination room entry. Failed flee does not mutate occupancy.

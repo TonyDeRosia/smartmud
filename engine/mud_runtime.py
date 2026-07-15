@@ -2119,27 +2119,68 @@ class MudRuntime:
             result.narrative = f"{result.narrative}\n\n{room_text}" if result.narrative else room_text
         return result
 
+    def move_resident_actor(self, actor_id: str, destination_room_id: str, source: str, *, bypass_combat: bool = False, movement_context: dict[str, Any] | None = None):
+        """Canonical in-memory movement operation for resident actors.
+
+        Synchronizes the runtime character, resident Actor, and room occupancy index without
+        rematerializing content or querying SQLite on the command hot path.
+        """
+        from engine.mud_commands import CommandResult
+        movement_context = movement_context or {}
+        destination = self.canonical_room_id(destination_room_id)
+        actor = getattr(self, "combat_runtime", None).resident_actors.get(actor_id) if getattr(self, "combat_runtime", None) else None
+        char = None
+        ent = None
+        name = "Someone"
+        old_room = ""
+        if actor_id.startswith("character:"):
+            cid = actor_id.split(":", 1)[1]
+            char = self.active_characters.get(cid) or self._resident_character(cid)
+            name = getattr(char, "name", "Someone") if char else (actor.identity.name if actor else "Someone")
+            old_room = self.canonical_room_id((actor.identity.current_location if actor else "") or getattr(char, "room_id", ""))
+        elif actor_id.startswith("entity:"):
+            ent = self._entity_for_resident_actor(actor_id)
+            name = str((ent or {}).get("name") or (actor.identity.name if actor else "Someone"))
+            old_room = self.canonical_room_id((actor.identity.current_location if actor else "") or (ent or {}).get("room_id") or (ent or {}).get("current_room_id"))
+        if not destination:
+            return CommandResult(narrative="You cannot go that way.", ok=False)
+        if not bypass_combat and getattr(self, "combat_runtime", None) and self.combat_runtime.is_actor_in_active_combat(actor_id):
+            return CommandResult(narrative="You are fighting! Use FLEE to escape." if char else "The actor is fighting and cannot move normally.", ok=False)
+        self.remove_occupant(old_room, actor_id)
+        if actor:
+            actor.identity.current_location = destination
+            if hasattr(self.combat_runtime, "dirty_resident_entities") and actor_id.startswith("entity:"):
+                self.combat_runtime.dirty_resident_entities.add(actor_id.split(":", 1)[1])
+        if char:
+            char.last_room_id = old_room; char.room_id = destination
+            self.mark_character_dirty(char.id, source or "movement")
+        if ent is not None:
+            ent["room_id"] = destination; ent["current_room_id"] = destination
+            if hasattr(self.combat_runtime, "dirty_resident_entities"):
+                self.combat_runtime.dirty_resident_entities.add(actor_id.split(":", 1)[1])
+        self.add_occupant(destination, actor_id)
+        if old_room and old_room != destination:
+            direction = str(movement_context.get("direction") or source or "away")
+            reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in"}.get(direction, direction)
+            self.deliver_room_action(old_room, f"{name} leaves {direction}.", actor_id=actor_id, category="actor_departed")
+            self.deliver_room_action(destination, f"{name} arrives from the {reverse}.", actor_id=actor_id, category="actor_arrived")
+        self.event_bus.publish("movement_succeeded", {"actor_id": actor_id, "current_room_id": old_room, "target_room_id": destination, "source": source, "result_summary": "moved"}, source_system="movement", world_id=self.active_world_id or "")
+        return CommandResult(narrative=f"You head {movement_context.get('direction', source)}." if char else f"{name} moves.", state_updates={"render_room": True, "room_id": destination}, display_intent="MOVEMENT", semantic_role="success")
+
     def _move_character(self, char: MudCharacter, direction: str, bypass_combat: bool = False):
         from engine.mud_commands import CommandResult
-        room_id = char.room_id
-        if not bypass_combat and getattr(self, 'combat_runtime', None):
-            _aid = self.combat_runtime.actor_id_for_character(char)
-            if self.combat_runtime.is_actor_in_active_combat(_aid):
-                return CommandResult(narrative='You are fighting! Use FLEE to escape.', ok=False)
+        room_id = self.canonical_room_id(char.room_id)
+        aid = self.combat_runtime.actor_id_for_character(char) if getattr(self, 'combat_runtime', None) else f"character:{char.id}"
+        if getattr(self, 'combat_runtime', None):
+            actor = self.combat_runtime._resident_character_actor(char)
+            self.add_occupant(room_id, aid)
+        if not bypass_combat and getattr(self, 'combat_runtime', None) and self.combat_runtime.is_actor_in_active_combat(aid):
+            return CommandResult(narrative='You are fighting! Use FLEE to escape.', ok=False)
         self.event_bus.publish("movement_attempted", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
         exit_data, reason = self.resolve_exit(char, room_id, direction)
         if exit_data and reason == "ok":
-            old_room = room_id
-            char.room_id = str(exit_data["target_room_id"])
-            self.mark_character_dirty(char.id, "movement")
-            reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in","northeast":"southwest","southwest":"northeast","northwest":"southeast","southeast":"northwest"}.get(direction, direction)
-            self.deliver_room_action(old_room, f"{char.name} leaves {direction}.", actor_id=char.id, category="actor_departed")
-            self.deliver_room_action(char.room_id, f"{char.name} arrives from the {reverse}.", actor_id=char.id, category="actor_arrived")
-            self.event_bus.publish("movement_succeeded", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id, "target_room_id": char.room_id, "result_summary": "moved"}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
-            return CommandResult(narrative=f"You head {direction}.", state_updates={"render_room": True}, display_intent="MOVEMENT", semantic_role="success")
+            return self.move_resident_actor(aid, str(exit_data["target_room_id"]), "movement", bypass_combat=bypass_combat, movement_context={"direction": direction})
         summary = reason if exit_data else "no_exit"
-        if exit_data:
-            self.event_bus.publish("builder_exit_graph_mismatch_detected", {"character_id": char.id, "room_id": room_id, "direction": direction, "reason": summary}, source_system="builder", world_id=self.active_world_id or "", character_id=char.id, room_id=room_id)
         self.event_bus.publish("movement_failed", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id, "result_summary": summary}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
         return CommandResult(narrative="You cannot go that way." if summary == "no_exit" else f"You cannot go that way: {summary}.", ok=False)
 
@@ -2155,21 +2196,16 @@ class MudRuntime:
         from engine.mud_commands import CommandResult
         eid = str(ent.get("instance_id") or ent.get("entity_id") or "")
         actor_id = "entity:" + eid
-        room_id = str(ent.get("room_id") or ent.get("current_room_id") or "")
+        room_id = self.canonical_room_id(ent.get("room_id") or ent.get("current_room_id") or "")
+        if getattr(self, "combat_runtime", None):
+            actor = self.combat_runtime._resident_entity_actor(ent)
+            self.add_occupant(room_id, actor_id)
         if not bypass_combat and getattr(self, "combat_runtime", None) and self.combat_runtime.is_actor_in_active_combat(actor_id):
             return CommandResult(narrative="The actor is fighting and cannot move normally.", ok=False)
         self.event_bus.publish("movement_attempted", {"canonical_command": direction, "actor_id": actor_id, "entity_id": eid, "current_room_id": room_id}, source_system="movement", world_id=self.active_world_id or "", command=direction)
         exit_data, reason = self.resolve_exit(ent, room_id, direction)
         if exit_data and reason == "ok":
-            new_room = str(exit_data["target_room_id"])
-            with sqlite3.connect(self.state_store.db_path) as conn:
-                conn.execute("UPDATE entity_instances SET current_room_id=?,owner_type='room',owner_id='',updated_at=? WHERE entity_id=? AND destroyed_at IS NULL", (new_room, datetime.now(timezone.utc).isoformat(), eid))
-            reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in","northeast":"southwest","southwest":"northeast","northwest":"southeast","southeast":"northwest"}.get(direction, direction)
-            name = str(ent.get("name") or "Someone")
-            self.deliver_room_action(room_id, f"{name} leaves {direction}.", actor_id=actor_id, category="actor_departed")
-            self.deliver_room_action(new_room, f"{name} arrives from the {reverse}.", actor_id=actor_id, category="actor_arrived")
-            self.event_bus.publish("movement_succeeded", {"canonical_command": direction, "actor_id": actor_id, "entity_id": eid, "current_room_id": room_id, "target_room_id": new_room, "result_summary": "moved"}, source_system="movement", world_id=self.active_world_id or "", command=direction)
-            return CommandResult(narrative=f"{name} heads {direction}.", state_updates={"render_room": True})
+            return self.move_resident_actor(actor_id, str(exit_data["target_room_id"]), "movement", bypass_combat=bypass_combat, movement_context={"direction": direction})
         summary = reason if exit_data else "no_exit"
         self.event_bus.publish("movement_failed", {"canonical_command": direction, "actor_id": actor_id, "entity_id": eid, "current_room_id": room_id, "result_summary": summary}, source_system="movement", world_id=self.active_world_id or "", command=direction)
         return CommandResult(narrative="Cannot go that way." if summary == "no_exit" else f"Cannot go that way: {summary}.", ok=False)

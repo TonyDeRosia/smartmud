@@ -236,7 +236,7 @@ class CombatEngine:
         if defender.resources.health <= 0:
             self.set_state(defender, CombatState.DEAD)
             if self.lifecycle: death = self.lifecycle.actor_died(defender.actor_id, room_id, world_time if world_time is not None else self.tick, defender.lifecycle_profile.get("respawn_delay"), defender.lifecycle_profile.get("spawn_definition_id", ""))
-        event=DamageEvent(attacker.actor_id, defender.actor_id, {}, asdict(attack), attack.damage_type, raw, crit, mitigation, final, self.tick)
+        event=DamageEvent(attacker.actor_id, defender.actor_id, dict(attack.metadata.get("weapon", {})), asdict(attack), attack.damage_type, raw, crit, mitigation, final, self.tick)
         self.set_state(attacker, CombatState.RECOVERING); return CombatResult(True,event,self.states[attacker.actor_id].value,self.states[defender.actor_id].value,self._messages(attacker,defender,"hit",event),trace,death)
 
     def _stat(self, actor: Actor, stat: str, base: int, trace: list[dict[str, Any]]) -> int:
@@ -283,7 +283,10 @@ class CombatEngine:
         bang = "!" if crit or rel >= .45 else "."
         if crit:
             return {"attacker":f"You {lead} {dname} with your {family}{bang}","victim":f"{aname} {lead} you with its {family}{bang}","observers":f"{aname} {lead} {dname} with its {family}{bang}"}
-        return {"attacker":f"You {base} {dname}{(' ' + sev) if sev else ''} with your {family}{bang}","victim":f"{aname} {third}{(' ' + sev) if sev else ''} you with its {family}{bang}","observers":f"{aname} {third}{(' ' + sev) if sev else ''} {dname} with its {family}{bang}"}
+        tail = (" " + sev) if sev else ""
+        if family == "fist":
+            return {"attacker":f"You {base} {dname}{tail}{bang}","victim":f"{aname} {third} you{tail}{bang}","observers":f"{aname} {third} {dname}{tail}{bang}"}
+        return {"attacker":f"You {base} {dname} with your {family}{tail}{bang}","victim":f"{aname} {third} you with its {family}{tail}{bang}","observers":f"{aname} {third} {dname} with its {family}{tail}{bang}"}
 
 
 class CombatResolutionService:
@@ -303,7 +306,12 @@ class CombatResolutionService:
             'mana': _num(actor.resources.mana), 'maximum_mana': _num(actor.resources.maximum_mana),
             'stamina': _num(actor.resources.stamina), 'maximum_stamina': _num(actor.resources.maximum_stamina),
         }
-        return CanonicalActorProjection(actor.actor_id, actor_type, actor.identity.name, int((actor.progression_profile or {}).get('level',1) or 1), dict(actor.attributes or {}), resources, pid, dict(actor.equipment_profile or {}), actor.effect_container or {}, dict(actor.resistance_profile or {}), str(actor.body_profile_id or ''), str((actor.combat_profile or {}).get('combat_state') or ctx.attacker_position or 'standing'), str(actor.identity.current_location or ctx.room_id), str(actor.identity.current_world or ctx.world_id), pid, pid)
+        view = CanonicalActorProjection(actor.actor_id, actor_type, actor.identity.name, int((actor.progression_profile or {}).get('level',1) or 1), dict(actor.attributes or {}), resources, pid, dict(actor.equipment_profile or {}), actor.effect_container or {}, dict(actor.resistance_profile or {}), str(actor.body_profile_id or ''), str((actor.combat_profile or {}).get('combat_state') or ctx.attacker_position or 'standing'), str(actor.identity.current_location or ctx.room_id), str(actor.identity.current_world or ctx.world_id), pid, pid)
+        view.combat_profile = dict(getattr(actor, 'combat_profile', {}) or {})
+        view.template = dict(getattr(actor, 'template', {}) or {})
+        view.template_id = str(getattr(actor, 'template_id', '') or view.template.get('id') or '')
+        view.instance_id = pid if actor.actor_id.startswith('entity:') else ''
+        return view
 
     def _snapshot_cache_key(self, actor: Actor, context: CombatResolutionContext) -> tuple[Any, ...]:
         cp = actor.combat_profile or {}; eq = actor.equipment_profile or {}; eff = actor.effect_container or {}
