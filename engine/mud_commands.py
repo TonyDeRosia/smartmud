@@ -347,6 +347,9 @@ class MudCommandEngine:
             "combatmessage": self._cmd_combatmessage,
             "perfstat": self._cmd_perfstat,
             "violenceprofile": self._cmd_runtime_admin,
+            "warmupstat": self._cmd_runtime_admin,
+            "warmuptrace": self._cmd_runtime_admin,
+            "combatcache": self._cmd_runtime_admin,
             "pulseinfo": self._cmd_runtime_admin,
             "pointinfo": self._cmd_runtime_admin,
             "adminstatus": self._cmd_runtime_admin,
@@ -752,6 +755,18 @@ class MudCommandEngine:
                 reason = "eligible" if eligible else ("not_registered" if not actor else "offline" if not online else "blocked_position")
                 lines += [f"heartbeat pulse: {getattr(rt, '_runtime_pulse_counter', 0)}", f"point-update interval: {getattr(rr, 'point_update_interval_seconds', 6.0) if rr else 6.0}", f"last point-update: {getattr(rr, 'last_point_update_monotonic', 0.0) if rr else 0.0}", f"next point-update: {getattr(rr, '_next_regeneration_monotonic', 0.0) if rr else 0.0}", f"actor registered: {'yes' if actor else 'no'}", f"actor online: {'yes' if online else 'no'}", f"actor eligible: {'yes' if eligible else 'no'}", f"current position: {pos}", f"HP gain formula result: {mult}", f"Mana gain result: {mult}", f"Move gain result: {mult}", "hunger/thirst modifiers: none", "poison modifiers: none", f"blocking reason: {reason}"]
             return CommandResult("\n".join(lines))
+        if cmd == "warmupstat":
+            cw=getattr(rt,"combat_warmup",None); return CommandResult(cw.render_stat() if cw else "Combat warmup unavailable.", ok=bool(cw))
+        if cmd == "warmuptrace":
+            cw=getattr(rt,"combat_warmup",None); return CommandResult(cw.render_trace() if cw else "Combat warmup unavailable.", ok=bool(cw))
+        if cmd == "combatcache":
+            cw=getattr(rt,"combat_warmup",None)
+            if not cw: return CommandResult("Combat cache unavailable.", ok=False)
+            if args and args[0].lower()=="reset":
+                if any(getattr(e,"status","")=="active" for e in getattr(getattr(rt,"combat_runtime",None),"resident_encounters",{}).values()): return CommandResult("Cannot reset combat cache during active combat.", ok=False)
+                cw.cache.reset(); cw.warm(); return CommandResult("Combat cache reset and rebuilt.")
+            if args and args[0].lower()=="validate": return CommandResult("Combat cache validation: ready" if cw.report.status in {"ready","warning"} else "Combat cache validation failed", ok=cw.report.status in {"ready","warning"})
+            return CommandResult("Combat cache:\n"+"\n".join(f"{k}: {v}" for k,v in cw.cache.stats().items()))
         if cmd == "violenceprofile":
             cr = getattr(rt, "combat_runtime", None)
             if not cr or not getattr(cr, "violence_profiler", None):

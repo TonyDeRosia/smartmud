@@ -264,48 +264,26 @@ class CombatEngine:
         return "impossible"
 
     def _messages(self, a: Actor, d: Actor, outcome: str, e: DamageEvent | None) -> dict[str, str]:
-        verb = str(((e.attack_profile if e else {}) or {}).get("name") or "strike")
-        weapon = str(((e.weapon if e else {}) or {}).get("name") or verb).lower()
-        if weapon in {"unarmed", "unarmed strike", "strike", "attack"} or (weapon == "natural attack" and not getattr(a, "body_profile_id", "")):
-            weapon = "fist"
-        elif weapon == "natural attack":
-            weapon = "bite" if str(getattr(a, "body_profile_id", "")).lower() in {"wolf", "fox", "canine"} else "natural attack"
-        dname = d.identity.name; aname = a.identity.name
+        profile = ((e.attack_profile if e else {}) or {})
+        weapon_rec = ((e.weapon if e else {}) or {})
+        family = str(profile.get("name") or weapon_rec.get("name") or "fist").lower().replace(" ", "_")
+        aliases = {"unarmed":"fist","unarmed_strike":"fist","natural_attack":"bite","claws":"claw","fangs":"bite","tusks":"gore","maul":"crush","blunt":"bludgeon"}
+        family = aliases.get(family, family)
+        if family not in {"bite","claw","gore","crush","sting","slash","pierce","bludgeon","fist"}: family = "bite" if family in {"fang","fang_strike"} else family
+        verbs = {"bite":("bite","bites"),"claw":("claw","claws"),"gore":("gore","gores"),"crush":("crush","crushes"),"sting":("sting","stings"),"slash":("slash","slashes"),"pierce":("pierce","pierces"),"bludgeon":("hit","hits"),"fist":("punch","punches")}
+        base, third = verbs.get(family, ("hit","hits"))
+        aname, dname = a.identity.name, d.identity.name
         if outcome == "miss":
-            return {"attacker":f"You narrowly miss {dname}.","victim":f"{aname} narrowly misses you.","observers":f"{aname} narrowly misses {dname}."}
-        dmg = max(0, e.final_damage if e else 0); maxhp = max(1, int(getattr(d.resources, "maximum_health", 1) or 1)); rel = dmg / maxhp
-        if dmg <= 0: sev = "glance"
-        elif rel < .05: sev = "graze"
-        elif rel < .10: sev = "glance"
-        elif rel < .18: sev = "hit"
-        elif rel < .28: sev = "strike"
-        elif rel < .40: sev = "slam"
-        elif rel < .55: sev = "crush"
-        elif rel < .70: sev = "blast"
-        elif rel < .90: sev = "shred"
-        else: sev = "pulverize"
-        bang = "!" if (e and e.critical) or sev in {"blast", "shred", "pulverize"} else "."
-        crit_wrap = (lambda word: f"** {word} **") if e and e.critical else (lambda word: word)
-        if "bite" in verb.lower():
-            weapon = "bite"
-        v = crit_wrap(sev)
-        def conjugate(word: str, actor: Actor) -> str:
-            # Second-person output stays base form; third-person singular NPC names conjugate.
-            if word.startswith("** "):
-                inner = word.strip("* ")
-                cv = conjugate(inner, actor)
-                return f"** {cv} **"
-            name = (actor.identity.name or "").strip().lower()
-            plural = name.endswith("s") or name.endswith("wolves")
-            if plural:
-                return word
-            if word.endswith("sh") or word.endswith("ch") or word.endswith("x") or word.endswith("s"):
-                return word + "es"
-            if word.endswith("y") and len(word) > 1 and word[-2] not in "aeiou":
-                return word[:-1] + "ies"
-            return word + "s"
-        tv = conjugate(v, a)
-        return {"attacker":f"You {v} {dname} with your {weapon}{bang}","victim":f"{aname} {tv} you with its {weapon}{bang}","observers":f"{aname} {tv} {dname} with its {weapon}{bang}"}
+            return {"attacker":f"You try to {base} {dname}, but miss.","victim":f"{aname} tries to {base} you, but misses.","observers":f"{aname} tries to {base} {dname}, but misses."}
+        dmg = max(0, e.final_damage if e else 0); maxhp=max(1,int(getattr(d.resources,"maximum_health",1) or 1)); rel=dmg/maxhp
+        if dmg <= 0:
+            return {"attacker":f"Your {family} does no damage to {dname}.","victim":f"{aname}'s {family} does no damage to you.","observers":f"{aname}'s {family} does no damage to {dname}."}
+        sev = "barely" if rel < .05 else "lightly" if rel < .12 else "" if rel < .25 else "hard" if rel < .45 else "very hard" if rel < .70 else "extremely hard"
+        crit = bool(e and e.critical); lead = "ANNIHILATES" if crit else (third if not sev else f"{third} {sev}")
+        bang = "!" if crit or rel >= .45 else "."
+        if crit:
+            return {"attacker":f"You {lead} {dname} with your {family}{bang}","victim":f"{aname} {lead} you with its {family}{bang}","observers":f"{aname} {lead} {dname} with its {family}{bang}"}
+        return {"attacker":f"You {base} {dname}{(' ' + sev) if sev else ''} with your {family}{bang}","victim":f"{aname} {third}{(' ' + sev) if sev else ''} you with its {family}{bang}","observers":f"{aname} {third}{(' ' + sev) if sev else ''} {dname} with its {family}{bang}"}
 
 
 class CombatResolutionService:
