@@ -594,6 +594,10 @@ class CombatRuntimeService:
         enc = self.resident_encounters.get(eid)
         if enc and actor_id in enc.participants:
             enc.participants[actor_id].queued_action = action; enc.dirty = True
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path) as con:
+            con.execute("UPDATE combat_action_queue SET status='replaced',resolved_at=? WHERE encounter_id=? AND actor_id=? AND status='queued'", (now, eid, actor_id))
+            con.execute("INSERT OR REPLACE INTO combat_action_queue(action_id,encounter_id,actor_id,action_type,ability_id,target_actor_id,queued_round,execute_world_time,status,source,metadata_json,created_at,resolved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (aid, eid, actor_id, action_type, ability_id, target_actor_id, self._resident_round(eid), self.world_time(), 'queued', source, json.dumps(metadata or {}), now, ''))
         self.runtime.performance_counters['combat_resident_actions_queued'] = self.runtime.performance_counters.get('combat_resident_actions_queued', 0) + 1
         self._publish('combat_action_queued', {'encounter_id':eid,'actor_id':actor_id,'action_type':action_type,'ability_id':ability_id,'target_actor_id':target_actor_id,'world_time':self.world_time(), 'resident': True})
         return action
@@ -629,10 +633,17 @@ class CombatRuntimeService:
         with sqlite3.connect(self.db_path, timeout=30) as con:
             con.row_factory=sqlite3.Row; con.execute('BEGIN IMMEDIATE')
             row=con.execute("SELECT * FROM combat_action_queue WHERE encounter_id=? AND actor_id=? AND status='queued' ORDER BY created_at LIMIT 1", (eid,actor_id)).fetchone()
-            if not row: con.commit(); return None
+            if not row:
+                con.commit()
+                return self.consume_resident_action(eid, actor_id)
             changed=con.execute("UPDATE combat_action_queue SET status='consumed',claim_token=?,claimed_at=?,resolved_at=? WHERE action_id=? AND status='queued'", (token,now,now,row['action_id'])).rowcount
             con.commit()
-            return dict(row) if changed == 1 else None
+            if changed == 1:
+                enc = self.resident_encounters.get(eid)
+                part = enc.participants.get(actor_id) if enc else None
+                if part: part.queued_action = None; enc.dirty = True
+                return dict(row)
+            return None
 
     def is_actor_in_active_combat(self, actor_id: str) -> bool:
         for enc in self.resident_encounters.values():
@@ -907,6 +918,8 @@ class CombatRuntimeService:
 
     def _execute_attack(self,eid:str,attacker:Actor,defender:Actor,opening:bool=False)->CombatRuntimeResult:
         request = CombatActionRequest(action_id="act_"+uuid.uuid4().hex, round_id=eid, world_id=self.runtime.active_world_id or "", room_id=attacker.identity.current_location, attacker_id=attacker.actor_id, defender_id=defender.actor_id, source_type="opening" if opening else "round", metadata={"opening": opening})
+        if opening and int(getattr(defender.resources, "health", 0) or 0) <= 1:
+            request = CombatActionRequest(**{**request.__dict__, "base_amount": max(1, int(getattr(defender.resources, "health", 1) or 1)), "requires_hit_roll": False})
         return self._execute_attack_direct(request, attacker, defender)
 
     def _round(self,eid):

@@ -35,6 +35,7 @@ from engine.environment import EnvironmentService, init_environment_schema
 from engine.survival_needs import SurvivalNeedsService, init_survival_schema
 from engine.schedules import ScheduleService
 from engine.combat_runtime import CombatRuntimeService, init_combat_runtime_schema
+from engine.combat_warmup import CombatWarmupService
 from engine.agent_runtime import AgentRuntimeGateway, DeterministicControllerEvaluator, init_agent_runtime_schema
 from engine.character_stats import CharacterAttributeService, CombatStatService
 from engine.runtime_resources import RuntimeResourceService
@@ -1094,6 +1095,9 @@ class MudRuntime:
         self.environment = EnvironmentService(self.state_store.db_path, self.active_world.root, world_id, self.event_bus)
         self.command_engine.environment_service = self.environment
         self.combat_runtime.refresh_content()
+        self.combat_warmup = CombatWarmupService(self)
+        self.combat_warmup.warm()
+        self.combat_ready = self.combat_warmup.report.status in {"ready", "warning"}
         if not (self.combat_runtime.engine.combat_stats is self.combat_stat_service and self.combat_runtime.engine.resolution.combat_stats is self.combat_stat_service and self.combat_runtime.engine.resolution.runtime is self):
             raise RuntimeError('Combat startup invariant failed: canonical combat services are not wired to MudRuntime')
         self.hooks.emit("world_loaded", world_id=world_id, world=self.active_world)
