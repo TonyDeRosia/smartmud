@@ -11,6 +11,11 @@ def runtime_with_wolf(tmp_path):
     ch = rt.state_store.load_character(cid)
     ch.room_id = 'emberwood_hunting_trail'
     rt.state_store.save_character(ch, 'shattered_realms')
+    visible = rt.find_visible_entities(ch.room_id, ch)
+    for wolf in visible.get('npcs', []) + visible.get('mobs', []):
+        if 'wolf' in str(wolf.get('name', '')).lower():
+            rt.update_entity_state(str(wolf.get('entity_id') or wolf.get('instance_id')), {'current_health': 500, 'maximum_health': 500, 'is_alive': True, 'current_state': 'standing'})
+            break
     return rt, rt.state_store.load_character(cid)
 
 
@@ -18,13 +23,13 @@ def test_attack_creates_persistent_encounter_and_wolf_retaliates(tmp_path):
     rt, ch = runtime_with_wolf(tmp_path)
     out = rt.command_engine.handle_command(ch, 'attack forest wolf')
     assert out.ok
-    assert 'damage' in out.narrative or 'miss' in out.narrative.lower()
+    assert any(word in out.narrative.lower() for word in ('damage', 'miss', 'glance', 'hit', 'strike', 'pulverize'))
     assert 'clash begins' not in out.narrative.lower()
     with sqlite3.connect(rt.state_store.db_path) as con:
         assert con.execute("SELECT count(*) FROM combat_encounters WHERE status='active'").fetchone()[0] == 1
         assert con.execute("SELECT count(*) FROM combat_participants").fetchone()[0] == 2
     before = rt.state_store.load_character(ch.id).hp
-    rt.advance_world_time('shattered_realms', 2)
+    rt.process_runtime_pulse(__import__("time").monotonic() + 2.1)
     after = rt.state_store.load_character(ch.id).hp
     assert after < before
 

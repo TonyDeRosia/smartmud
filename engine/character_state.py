@@ -109,7 +109,7 @@ def build_action_state(actor: Any, runtime: Any = None, *, active_encounter_id: 
     life = str(getattr(actor, "lifecycle_state", "alive") or "alive").lower()
     derived = derive_position_from_health(health, stored, life)
     msg = state_message(derived)
-    fighting = bool(active_encounter_id) or stored in {"fighting", "in_combat"}
+    fighting = bool(active_encounter_id)
     if fighting and not msg:
         msg = "already_fighting"
     can_attack = not msg and life != "dead" and health > 0

@@ -12,6 +12,11 @@ def _runtime(tmp_path):
     ch.room_id = 'emberwood_hunting_trail'
     rt.state_store.save_character(ch, 'shattered_realms')
     rt.enter_world(cid, session_id='session_pulse')
+    visible = rt.find_visible_entities(ch.room_id, ch)
+    for wolf in visible.get('npcs', []) + visible.get('mobs', []):
+        if 'wolf' in str(wolf.get('name', '')).lower():
+            rt.update_entity_state(str(wolf.get('entity_id') or wolf.get('instance_id')), {'current_health': 500, 'maximum_health': 500, 'is_alive': True, 'current_state': 'standing'})
+            break
     return rt, cid
 
 
