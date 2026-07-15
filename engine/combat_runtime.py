@@ -402,6 +402,11 @@ class CombatRuntimeResult:
 class CombatRuntimeService:
     ROUND_DELAY = 2.0
     MAX_ACTIONS_PER_PULSE = 8
+    FLEE_BASE_CHANCE = 50.0
+    FLEE_DEX_WEIGHT = 4.0
+    FLEE_LEVEL_WEIGHT = 1.5
+    FLEE_MIN_CHANCE = 5.0
+    FLEE_MAX_CHANCE = 95.0
     def __init__(self, runtime: Any):
         self.runtime = runtime; self.db_path = runtime.state_store.db_path; self.event_bus = runtime.event_bus
         init_combat_runtime_schema(self.db_path)
@@ -424,6 +429,8 @@ class CombatRuntimeService:
         self.dirty_resident_entities: set[str] = set()
         self._output_seq = 0
         self._output_queues: dict[str, list[dict[str, Any]]] = {}
+        self.last_flee_trace: dict[str, Any] = {}
+        self.flee_rng = None
         if not (self.engine.combat_stats is runtime.combat_stat_service and self.engine.resolution.combat_stats is runtime.combat_stat_service and self.engine.resolution.runtime is runtime):
             raise RuntimeError('Combat runtime invariant failed: canonical combat services are not wired to MudRuntime')
         self.cancel_active_encounters_on_restart()
@@ -457,6 +464,20 @@ class CombatRuntimeService:
         if tmpl.get('natural_weapon_profile_id'): a.combat_profile['natural_weapon_profile_ids']=[tmpl.get('natural_weapon_profile_id')]
         if stats.get('attack_power'): a.combat_profile['attack_power']=stats.get('attack_power')
         a.body_profile_id = str(tmpl.get('body_profile_id') or tmpl.get('body_profile') or 'humanoid')
+        a.template_id = str(tmpl.get('id') or ent.get('template_id') or '')
+        a.template = tmpl
+        # Preserve authored/body-profile natural attacks on the resident actor so the
+        # canonical stat snapshot does not fall back to humanoid unarmed combat.
+        natural = self.engine.content.natural_attack_data(a)
+        if natural and not a.combat_profile.get('natural_weapons'):
+            a.combat_profile['natural_weapons'] = [{
+                'id': natural.get('id'), 'name': natural.get('name'),
+                'minimum_damage': max(1, int(natural.get('base_damage', 1)) - 1),
+                'maximum_damage': max(1, int(natural.get('base_damage', 1)) + 1),
+                'damage_type': natural.get('damage_type', 'physical'),
+                'attack_kind': natural.get('attack_profile_record', {}).get('id') or natural.get('name') or 'natural',
+                'weight': natural.get('weapon', {}).get('weight', 100),
+            }]
         a.lifecycle_state = 'dead' if not ent.get('is_alive', True) or hp <= 0 else 'alive'
         a.lifecycle_profile['lifecycle_id'] = str(st.get('lifecycle_id') or ent.get('entity_id') or a.actor_id)
         a.derived_statistics_cache = default_derived_statistics(); return a
@@ -798,21 +819,77 @@ class CombatRuntimeService:
         self.queue_action(eid, aid, "defend", source="agent" if not hasattr(actor_source, "id") else "player")
         return CombatRuntimeResult(True, ["You prepare to defend yourself." if hasattr(actor_source, "id") else f"{self._actor_from_source(actor_source).identity.name} prepares to defend."], eid)
 
+    def _flee_stat(self, actor: Actor, name: str) -> int:
+        if name == "level":
+            return int((actor.progression_profile or {}).get("level") or getattr(actor, "level", 1) or 1)
+        return int((actor.attributes or {}).get(name) or 10)
+
+    def _active_flee_opponents(self, eid: str, actor: Actor) -> list[Actor]:
+        enc = self.resident_encounters.get(eid)
+        if not enc:
+            return []
+        side = enc.participants.get(actor.actor_id).side if actor.actor_id in enc.participants else ""
+        out: list[Actor] = []
+        for pid, part in enc.participants.items():
+            if pid == actor.actor_id or part.side == side or part.participation_status != "active" or part.fled or part.defeated:
+                continue
+            opp = part.actor_reference or self._load_actor(pid)
+            if opp and opp.resources.health > 0 and opp.lifecycle_state != "dead" and opp.identity.current_location == actor.identity.current_location:
+                out.append(opp)
+        return out
+
+    def calculate_flee_chance(self, actor: Actor, opponents: list[Actor]) -> dict[str, Any]:
+        if not opponents:
+            return {"chance": self.FLEE_MAX_CHANCE, "selected_opponent": "", "opponents": [], "dexterity_delta": 0, "level_delta": 0, "modifiers": []}
+        rows = []
+        for opp in opponents:
+            dex_delta = self._flee_stat(actor, "dexterity") - self._flee_stat(opp, "dexterity")
+            lvl_delta = self._flee_stat(actor, "level") - self._flee_stat(opp, "level")
+            raw = self.FLEE_BASE_CHANCE + dex_delta * self.FLEE_DEX_WEIGHT + lvl_delta * self.FLEE_LEVEL_WEIGHT
+            chance = max(self.FLEE_MIN_CHANCE, min(self.FLEE_MAX_CHANCE, raw))
+            rows.append({"opponent": opp, "opponent_id": opp.actor_id, "opponent_name": opp.identity.name, "chance": chance, "raw_chance": raw, "dexterity_delta": dex_delta, "level_delta": lvl_delta})
+        selected = min(rows, key=lambda r: (r["chance"], r["opponent_id"]))
+        return {"chance": selected["chance"], "raw_chance": selected["raw_chance"], "selected_opponent": selected["opponent_id"], "selected_opponent_name": selected["opponent_name"], "dexterity_delta": selected["dexterity_delta"], "level_delta": selected["level_delta"], "opponents": [{k:v for k,v in r.items() if k != "opponent"} for r in rows], "modifiers": []}
+
     def actor_flee(self, actor_source: Any, direction: str = "") -> CombatRuntimeResult:
         aid = self._actor_id_from_source(actor_source); eid = self.find_actor_encounter(aid)
         if not eid: return CombatRuntimeResult(False, ["You are not fighting."])
         actor = self._actor_from_source(actor_source)
+        old_room = self.runtime.canonical_room_id(actor.identity.current_location)
+        exits = self.runtime.canonical_exits(actor_source, old_room) if hasattr(self.runtime, "canonical_exits") else {}
         if not direction:
-            exits = self.runtime.canonical_exits(actor_source, actor.identity.current_location) if hasattr(self.runtime, "canonical_exits") else {}
             direction = next((d for d, e in exits.items() if not e.get("hidden") and not e.get("closed") and not e.get("locked")), "")
-        if not direction: return CombatRuntimeResult(False, ["There is nowhere to flee."])
-        self._publish("combat_flee_attempted", {"encounter_id": eid, "actor_id": aid, "direction": direction, "world_time": self.world_time()})
-        move = self.runtime._move_character(actor_source, direction, bypass_combat=True) if hasattr(actor_source, "id") else self.runtime.move_entity_actor(actor_source, direction, bypass_combat=True)
-        if not move.ok:
+        if not direction or direction not in exits:
+            self.last_flee_trace = {"fleeing_actor": aid, "success": False, "reason": "no_valid_exit", "destination": "", "location_sync": False}
+            return CombatRuntimeResult(False, ["There is nowhere to flee."])
+        exit_data, reason = self.runtime.resolve_exit(actor_source, old_room, direction)
+        if not exit_data or reason != "ok":
+            self.last_flee_trace = {"fleeing_actor": aid, "success": False, "reason": reason or "no_exit", "destination": "", "location_sync": False}
+            return CombatRuntimeResult(False, ["There is nowhere to flee."])
+        opponents = self._active_flee_opponents(eid, actor)
+        calc = self.calculate_flee_chance(actor, opponents)
+        rng = self.flee_rng or (lambda: self.engine.roller.roll_percent(aid, calc.get("selected_opponent") or "escape", self.world_time(), "flee"))
+        roll = float(rng())
+        success = roll <= float(calc["chance"])
+        dest = self.runtime.canonical_room_id(exit_data["target_room_id"])
+        self.last_flee_trace = {"fleeing_actor": aid, "active_opponents": [o.actor_id for o in opponents], **calc, "random_roll": roll, "success": success, "destination": dest, "old_room": old_room}
+        self._publish("combat_flee_attempted", {"encounter_id": eid, "actor_id": aid, "direction": direction, "chance": calc["chance"], "roll": roll, "world_time": self.world_time()})
+        if not success:
+            self.last_flee_trace["location_sync"] = (actor.identity.current_location == old_room)
+            name = str(calc.get("selected_opponent_name") or "your opponent")
             self._publish("combat_flee_failed", {"encounter_id": eid, "actor_id": aid, "direction": direction, "world_time": self.world_time()})
+            return CombatRuntimeResult(False, [f"You try to flee {direction}, but {name} blocks your escape!"])
+        move = self.runtime.move_resident_actor(aid, dest, "flee", bypass_combat=True, movement_context={"direction": direction})
+        if not move.ok:
+            self.last_flee_trace.update({"success": False, "reason": "movement_failed", "location_sync": False})
             return CombatRuntimeResult(False, [f"You try to flee {direction}, but cannot escape that way."])
+        actor.identity.current_location = dest
         self.clear_actor_combat_state(aid, reason='flee_success', expected_encounter_id=eid, status='fled')
-        self._publish("combat_participant_fled", {"encounter_id": eid, "actor_id": aid, "direction": direction, "world_time": self.world_time()}); self.end_if_finished(eid)
+        self.end_if_finished(eid)
+        char_room = getattr(actor_source, "room_id", dest) if hasattr(actor_source, "id") else dest
+        occ = self.runtime.resident_occupants_by_room
+        self.last_flee_trace["location_sync"] = (self.runtime.canonical_room_id(char_room) == dest and actor.identity.current_location == dest and aid in occ.get(dest, {}) and aid not in occ.get(old_room, {}))
+        self._publish("combat_participant_fled", {"encounter_id": eid, "actor_id": aid, "direction": direction, "world_time": self.world_time()})
         return CombatRuntimeResult(True, [f"You break away and flee {direction}!" if hasattr(actor_source, "id") else f"{actor.identity.name} flees {direction}."], eid)
 
     def actor_assist(self, actor_source: Any, ally_source: Any | None = None) -> CombatRuntimeResult:
@@ -970,9 +1047,25 @@ class CombatRuntimeService:
         prev_key = condition_key({"current_health": max(0, defender.resources.health + dmg), "maximum_health": defender.resources.maximum_health})
         now_key = condition_key(defender)
         if dmg and defender.resources.health > 0 and prev_key != now_key:
-            msg = transition_text(defender.identity.name, defender)
-            msgs.append(msg)
-            self._broadcast_room(eid, attacker.identity.current_location, msg, category='condition_changed')
+            third_msg = transition_text(defender.identity.name, defender)
+            if defender.actor_id.startswith('character:'):
+                trans = third_msg[len(defender.identity.name):].strip()
+                if trans.startswith('looks'):
+                    direct_msg = 'You ' + trans
+                elif trans.startswith('is'):
+                    direct_msg = 'You are' + trans[2:]
+                elif trans.startswith('collapses'):
+                    direct_msg = 'You collapse.'
+                else:
+                    direct_msg = 'You ' + trans
+                msgs.append(direct_msg)
+                self.enqueue_output(defender.actor_id.split(':',1)[1], direct_msg, encounter_id=eid, room_id=attacker.identity.current_location, category='condition_changed')
+                for cid in self.active_character_ids_in_room(attacker.identity.current_location):
+                    if cid != defender.actor_id.split(':',1)[1]:
+                        self.enqueue_output(cid, third_msg, encounter_id=eid, room_id=attacker.identity.current_location, category='condition_changed')
+            else:
+                msgs.append(third_msg)
+                self._broadcast_room(eid, attacker.identity.current_location, third_msg, category='condition_changed')
         if defender.resources.health<=0:
             life = self.lifecycle.process_defeat_or_death(encounter_id=eid, attacker=attacker, defender=defender, trigger_action_id=request.action_id)
             self.last_resolution['lifecycle_result'] = life.__dict__
