@@ -13,6 +13,7 @@ from types import MappingProxyType
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Optional
+from collections import OrderedDict
 from datetime import datetime, timezone, timedelta
 
 from engine.mud_commands import MudCommandEngine
@@ -637,6 +638,9 @@ class MudRuntime:
         self.entity_templates: dict[str, MappingProxyType] = {}
         self.sessions: dict[str, MudSession] = {}
         self.active_characters: dict[str, MudCharacter] = {}
+        self.resident_occupants_by_room: dict[str, OrderedDict[str, None]] = {}
+        self.entity_instance_to_actor_id: dict[str, str] = {}
+        self.actor_id_to_entity_instance_id: dict[str, str] = {}
         self._recent_combat_actor_ids: set[str] = set()
         self.session_active_character: dict[str, str] = {}
         self.character_session_ids: dict[str, str] = {}
@@ -1090,6 +1094,7 @@ class MudRuntime:
         self._load_entity_templates()
         self.performance_counters["entity_materialization_runs"] = self.performance_counters.get("entity_materialization_runs", 0) + 1
         self.materialize_world_content(world_id)
+        self.rebuild_room_occupancy_admin_only()
         try:
             from engine.zone_resets import ZoneResetService
             ZoneResetService(runtime=self, db_path=self.state_store.db_path).tick(world_id)
@@ -3102,13 +3107,120 @@ class MudRuntime:
         with sqlite3.connect(self.state_store.db_path) as conn:
             conn.execute("INSERT INTO entity_instances(entity_id,world_id,entity_type,template_id,name,keywords,short_description,long_description,current_room_id,owner_type,owner_id,faction_id,level,state,flags,created_at,updated_at,plugin_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", payload)
         ent = self.find_entity(eid) or {}
+        if etype in {"npc", "mob"} and ent.get("is_alive"):
+            self.register_resident_entity_actor(ent)
         self._publish_entity_event("entity_spawned", ent, source_system=source_system, **ctx)
         if etype in {"npc", "mob", "corpse"}: self._publish_entity_event(f"{etype}_spawned", ent, source_system=source_system, **ctx)
         self._publish_entity_event("room_entities_changed", ent, source_system=source_system, **ctx)
         return ent
 
+    def canonical_room_id(self, value: Any) -> str:
+        """Normalize runtime room identifiers for resident occupancy comparisons."""
+        text = str(value or "").strip()
+        if ":" in text:
+            text = text.rsplit(":", 1)[-1]
+        if text.startswith("room_") and text[5:] in {str(r.get("id")) for r in getattr(self.active_world, "rooms", []) or [] if isinstance(r, dict)}:
+            text = text[5:]
+        return text
+
+    def actor_id_for_entity_instance(self, ent: dict[str, Any]) -> str:
+        return "entity:" + str(ent.get("instance_id") or ent.get("entity_id") or "")
+
+    def register_resident_entity_actor(self, ent: dict[str, Any]) -> Any:
+        actor = self.combat_runtime._resident_entity_actor(ent)
+        room_id = self.canonical_room_id(ent.get("room_id") or ent.get("current_room_id"))
+        actor.identity.current_location = room_id
+        iid = str(ent.get("instance_id") or ent.get("entity_id") or "")
+        self.entity_instance_to_actor_id[iid] = actor.actor_id
+        self.actor_id_to_entity_instance_id[actor.actor_id] = iid
+        self.add_occupant(room_id, actor.actor_id)
+        return actor
+
+    def add_occupant(self, room_id: Any, actor_id: str) -> None:
+        rid = self.canonical_room_id(room_id)
+        if rid and actor_id:
+            self.resident_occupants_by_room.setdefault(rid, OrderedDict())[actor_id] = None
+
+    def remove_occupant(self, room_id: Any, actor_id: str) -> None:
+        occupants = self.resident_occupants_by_room.get(self.canonical_room_id(room_id))
+        if occupants is not None:
+            occupants.pop(actor_id, None)
+
+    def move_occupant(self, actor_id: str, old_room_id: Any, new_room_id: Any) -> None:
+        old = self.canonical_room_id(old_room_id); new = self.canonical_room_id(new_room_id)
+        self.remove_occupant(old, actor_id)
+        actor = self.combat_runtime.resident_actors.get(actor_id)
+        if actor:
+            actor.identity.current_location = new
+        self.add_occupant(new, actor_id)
+
+    def occupants_in_room(self, room_id: Any) -> list[Any]:
+        rid = self.canonical_room_id(room_id)
+        return [self.combat_runtime.resident_actors[aid] for aid in self.resident_occupants_by_room.get(rid, OrderedDict()) if aid in self.combat_runtime.resident_actors]
+
+    def _entity_for_resident_actor(self, actor_id: str) -> dict[str, Any] | None:
+        iid = self.actor_id_to_entity_instance_id.get(actor_id) or (actor_id.split(":", 1)[1] if actor_id.startswith("entity:") else "")
+        return self.find_entity(iid) if iid else None
+
+    def find_occupant(self, room_id: Any, query: str, filters: dict[str, Any] | None = None) -> dict[str, Any]:
+        filters = filters or {}
+        cands: list[dict[str, Any]] = []
+        for actor in self.occupants_in_room(room_id):
+            ent = self._entity_for_resident_actor(actor.actor_id)
+            if not ent:
+                continue
+            if filters.get("living") and (actor.resources.health <= 0 or actor.lifecycle_state == "dead" or not ent.get("is_alive")):
+                continue
+            if filters.get("attackable") and not self._resident_entity_attackable(ent):
+                continue
+            if filters.get("visible_to") is not None and not self.is_entity_visible(ent, filters.get("visible_to")):
+                continue
+            cands.append(ent)
+        resolved = self.resolve_entity_keywords(query, cands)
+        ent = resolved.get("entity")
+        return {"status": resolved.get("status", "missing"), "entity": ent, "matches": resolved.get("matches", []), "actor": self.combat_runtime.resident_actors.get(self.actor_id_for_entity_instance(ent or {})) if ent else None}
+
+    def _resident_entity_attackable(self, ent: dict[str, Any]) -> bool:
+        tmpl = dict(self.entity_templates.get(str(ent.get("template_id") or ""), {}))
+        flags = set(tmpl.get("flags") or []) | set(ent.get("flags") or []) | set(tmpl.get("tags") or [])
+        policy = tmpl.get("combat_policy") or {}
+        if policy.get("protected") or policy.get("no_kill") or "protected" in flags or "trainer_protected" in flags or tmpl.get("kind") == "trainer":
+            return False
+        return policy.get("attackable") is True or "hostile" in flags or "attackable" in flags
+
+    def validate_room_occupancy(self) -> list[str]:
+        problems: list[str] = []
+        seen: dict[str, str] = {}
+        for room_id, occupants in self.resident_occupants_by_room.items():
+            if self.canonical_room_id(room_id) != room_id:
+                problems.append(f"noncanonical room index key {room_id}")
+            for actor_id in occupants:
+                actor = self.combat_runtime.resident_actors.get(actor_id)
+                if actor is None:
+                    problems.append(f"room {room_id} lists missing actor {actor_id}")
+                    continue
+                if actor_id in seen and seen[actor_id] != room_id:
+                    problems.append(f"actor {actor_id} listed in multiple rooms: {seen[actor_id]} and {room_id}")
+                seen[actor_id] = room_id
+                if self.canonical_room_id(actor.identity.current_location) != room_id:
+                    problems.append(f"actor {actor_id} location {actor.identity.current_location} missing from room index {room_id}")
+                if actor_id.startswith("entity:") and not self.actor_id_to_entity_instance_id.get(actor_id):
+                    problems.append(f"actor {actor_id} missing entity instance mapping")
+        return problems
+
+    def rebuild_room_occupancy_admin_only(self) -> dict[str, int]:
+        self.resident_occupants_by_room.clear()
+        self.entity_instance_to_actor_id.clear()
+        self.actor_id_to_entity_instance_id.clear()
+        count = 0
+        for ent in self._fetch_entities("owner_type='room' AND entity_type IN ('npc','mob')", ()):
+            if ent.get("is_alive") and ent.get("current_state") not in {"dead", "corpse", "despawned"}:
+                self.register_resident_entity_actor(ent)
+                count += 1
+        return {"resident_actors": len(self.combat_runtime.resident_actors), "resident_occupants": count}
+
     def find_entity(self, entity_id: str) -> dict[str, Any] | None: return next(iter(self._fetch_entities("entity_id=?", (entity_id,))), None)
-    def find_room_entities(self, room_id: str) -> list[dict[str, Any]]: return self._fetch_entities("owner_type='room' AND current_room_id=?", (room_id,))
+    def find_room_entities(self, room_id: str) -> list[dict[str, Any]]: return self._fetch_entities("owner_type='room' AND current_room_id=?", (self.canonical_room_id(room_id),))
     def get_room_contents(self, room_id: str, viewer: Any = None, include_builder_metadata: bool = False) -> dict[str, Any]:
         groups = {"features": self._resolved_room_features(room_id, viewer), "item_instances": self.get_visible_room_items(room_id), "entity_instances": [], "players": [], "exits": []}
         seen_instance_ids: set[str] = set()
@@ -3129,7 +3241,16 @@ class MudRuntime:
     def find_visible_entities(self, room_id: str, viewer: Any = None) -> dict[str, list[dict[str, Any]]]:
         contents = self.get_room_contents(room_id, viewer)
         groups = {"players": [], "npcs": [], "mobs": [], "objects": list(contents["item_instances"]), "corpses": []}
+        resident_ids = set()
+        for actor in self.occupants_in_room(room_id):
+            ent = self._entity_for_resident_actor(actor.actor_id)
+            if not ent or not self.is_entity_visible(ent, viewer):
+                continue
+            resident_ids.add(str(ent.get("entity_id") or ""))
+            groups[{"npc":"npcs", "mob":"mobs"}.get(ent.get("entity_type"), "objects")].append(ent)
         for ent in contents["entity_instances"]:
+            if str(ent.get("entity_id") or "") in resident_ids:
+                continue
             groups[{"npc":"npcs", "mob":"mobs", "corpse":"corpses"}.get(ent.get("entity_type"), "objects")].append(ent)
         return groups
 
@@ -3158,25 +3279,43 @@ class MudRuntime:
 
     def move_entity(self, entity_id: str, room_id: str, source_system: str = "runtime", **ctx: Any) -> dict[str, Any]:
         old = self.find_entity(entity_id); now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("UPDATE entity_instances SET current_room_id=?, owner_type='room', updated_at=? WHERE entity_id=? AND destroyed_at IS NULL", (room_id, now, entity_id))
+        new_room = self.canonical_room_id(room_id)
+        with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("UPDATE entity_instances SET current_room_id=?, owner_type='room', updated_at=? WHERE entity_id=? AND destroyed_at IS NULL", (new_room, now, entity_id))
         ent = self.find_entity(entity_id) or {}
+        if ent.get("entity_type") in {"npc", "mob"}:
+            self.move_occupant(self.actor_id_for_entity_instance(ent), (old or {}).get("room_id") or (old or {}).get("current_room_id"), new_room)
         self._publish_entity_event("entity_moved", ent, source_system=source_system, previous_room_id=(old or {}).get("current_room_id"), **ctx); self._publish_entity_event("room_entities_changed", ent, source_system=source_system, **ctx)
         return ent
 
     def update_entity_state(self, entity_id: str, state: dict[str, Any], source_system: str = "runtime", **ctx: Any) -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("UPDATE entity_instances SET state=?, updated_at=? WHERE entity_id=? AND destroyed_at IS NULL", (json.dumps(state), now, entity_id))
-        ent = self.find_entity(entity_id) or {}; self._publish_entity_event("entity_state_changed", ent, source_system=source_system, **ctx); return ent
+        ent = self.find_entity(entity_id) or {}
+        if ent.get("entity_type") in {"npc", "mob"} and (not ent.get("is_alive") or ent.get("current_state") in {"dead", "corpse", "despawned"}):
+            self.remove_occupant(ent.get("room_id") or ent.get("current_room_id"), self.actor_id_for_entity_instance(ent))
+        self._publish_entity_event("entity_state_changed", ent, source_system=source_system, **ctx); return ent
 
     def despawn_entity(self, entity_id: str, source_system: str = "runtime", **ctx: Any) -> bool:
         ent = self.find_entity(entity_id)
         with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("UPDATE entity_instances SET destroyed_at=?, destroy_reason='despawned', updated_at=? WHERE entity_id=?", (datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat(), entity_id))
+        if ent:
+            actor_id = self.actor_id_for_entity_instance(ent)
+            self.remove_occupant(ent.get("room_id") or ent.get("current_room_id"), actor_id)
+            self.combat_runtime.remove_resident_actor(actor_id)
+            self.entity_instance_to_actor_id.pop(str(ent.get("entity_id") or ""), None)
+            self.actor_id_to_entity_instance_id.pop(actor_id, None)
         if ent: self._publish_entity_event("entity_despawned", ent, source_system=source_system, **ctx); self._publish_entity_event("room_entities_changed", ent, source_system=source_system, **ctx)
         return bool(ent)
 
     def destroy_entity(self, entity_id: str, reason: str = "destroyed", source_system: str = "runtime", **ctx: Any) -> bool:
         ent = self.find_entity(entity_id)
         with sqlite3.connect(self.state_store.db_path) as conn: conn.execute("UPDATE entity_instances SET destroyed_at=?, destroy_reason=?, updated_at=? WHERE entity_id=?", (datetime.now(timezone.utc).isoformat(), reason, datetime.now(timezone.utc).isoformat(), entity_id))
+        if ent:
+            actor_id = self.actor_id_for_entity_instance(ent)
+            self.remove_occupant(ent.get("room_id") or ent.get("current_room_id"), actor_id)
+            self.combat_runtime.remove_resident_actor(actor_id)
+            self.entity_instance_to_actor_id.pop(str(ent.get("entity_id") or ""), None)
+            self.actor_id_to_entity_instance_id.pop(actor_id, None)
         if ent: self._publish_entity_event("entity_destroyed", ent, source_system=source_system, **ctx); self._publish_entity_event("room_entities_changed", ent, source_system=source_system, **ctx)
         return bool(ent)
 
