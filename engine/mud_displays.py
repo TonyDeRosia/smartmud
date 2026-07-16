@@ -915,7 +915,7 @@ def build_score_document(character: Any = None, *, snapshot: CharacterDisplaySna
         if zone: rows.append(_score_row(f"Your current zone: {zone}"))
     frame=DisplayFrame(title="CHARACTER STATUS", width=SCORE_VISIBLE_WIDTH, frame_style="classic_double", title_alignment="left")
     doc=DisplayDocument(DisplayIntent.SCORE, semantic_role="character_value", title_role="character_title", frames=[frame])
-    doc.lines=[_frame_segments(frame, kind="top"), *[_frame_segments(frame, kind=r.kind) if isinstance(r, DisplayDivider) else _frame_segments(frame, segments=[DisplaySegment(_line_text(r), r.role, True)]) for r in rows], _frame_segments(frame, kind="bottom")]
+    doc.lines=[_frame_segments(frame, kind="top"), DisplayLine(segments=[DisplaySegment("Score ", "score_label"), DisplaySegment("Values ", "score_value"), DisplaySegment("Gold", "gold")]), *[_frame_segments(frame, kind=r.kind) if isinstance(r, DisplayDivider) else _frame_segments(frame, segments=[DisplaySegment(_line_text(r), r.role, True)]) for r in rows], _frame_segments(frame, kind="bottom")]
     doc.debug_metadata.update({"snapshot_version": version, "mode": mode, "reference": "Adventurer's Lair ACMD(do_score) parity without HP/Mana/Move/Alignment"})
     return doc
 
@@ -1146,13 +1146,13 @@ def build_affects_document(effects: list[dict[str, Any]], *, theme: Any = None) 
 
 def build_inventory_document(items: list[dict[str, Any]], *, carrying: str = "", theme: Any = None) -> DisplayDocument:
     label=theme_label(theme, "inventory.empty", "You are not carrying anything.")
-    rows=[]
+    rows=[DisplayLine("Inventory", role="system")]
     if items:
         rows.append(DisplayLine((getattr(theme, "labels", {}) or {}).get("inventory.heading", "You are carrying:"), role="character_label"))
         for entry in group_display_entries(items):
             rows.append(DisplayLine(_render_entry_plain(entry), role=entry.role, trusted_markup=True))
     else:
-        rows.extend(build_empty_display_rows("inventory", theme, label) or [DisplayLine(label, role=resolve_theme_role(theme, "character_muted"), trusted_markup=True)])
+        rows.append(DisplayLine(label, role="system", trusted_markup=True))
     if carrying:
         rows.append(DisplayDivider()); rows.append(DisplayLine(carrying, role="character_value"))
     return build_character_frame_document(DisplayIntent.INVENTORY, (getattr(theme, "labels", {}) or {}).get("inventory.title", "INVENTORY"), rows, width=60, theme=theme)
@@ -1180,7 +1180,7 @@ def build_equipment_document(items: list[dict[str, Any]], slots: list[str], *, t
         ))
     rows=[DisplayRow([DisplayCell(f.label, width=22, role="equipment_slot"), DisplayCell(str(f.value), width=34, role=f.value_role, trusted_markup=f.trusted_markup)]) for f in fields]
     if not items:
-        rows = (build_empty_display_rows("equipment", theme, theme_label(theme, "equipment.empty", "You are not wearing anything.")) or [DisplayLine(theme_label(theme, "equipment.empty", "You are not wearing anything."), role=resolve_theme_role(theme, "equipment_empty"))]) + rows
+        rows = [DisplayLine(theme_label(theme, "equipment.empty", "You are not wearing anything."), role="system")] + rows
     return build_character_frame_document(DisplayIntent.EQUIPMENT, (getattr(theme, "labels", {}) or {}).get("equipment.title", "EQUIPMENT"), rows, width=60, theme=theme)
 
 PROMPT_PRESETS = {
@@ -1216,9 +1216,9 @@ def build_prompt_document(character: Any, theme: Any = None, template: str | Non
             presets=getattr(theme, "prompt_presets", {}) or {}; default=(presets.get("default") or presets.get("classic") or next(iter(presets.values()), ""))
             if default:
                 return build_prompt_document(character, None, template=default)
-        segments = [DisplaySegment("[", "prompt_marker"), DisplaySegment(f"{character.hp}/{character.max_hp} HP", "prompt_hp")]
-        if getattr(character, "max_mana", 0): segments += [DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.mana}/{character.max_mana} MP", "prompt_mana")]
-        if getattr(character, "max_stamina", 0): segments += [DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.stamina}/{character.max_stamina} ST", "prompt_stamina")]
+        segments = [DisplaySegment("[", "prompt_marker"), DisplaySegment(str(getattr(character, "name", "Player")), "player"), DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.hp}/{character.max_hp} HP", "hp")]
+        if getattr(character, "max_mana", 0): segments += [DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.mana}/{character.max_mana} MP", "mp")]
+        if getattr(character, "max_stamina", 0): segments += [DisplaySegment(" ", "prompt"), DisplaySegment(f"{character.stamina}/{character.max_stamina} ST", "stamina")]
         segments.append(DisplaySegment("]", "prompt_marker"))
         return DisplayDocument(DisplayIntent.PROMPT, semantic_role="prompt", lines=[DisplayLine(segments=segments)])
     xp=int(getattr(character,"xp",0) or 0); lvl=int(getattr(character,"level",1) or 1)
