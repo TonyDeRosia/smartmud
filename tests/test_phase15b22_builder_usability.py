@@ -32,11 +32,15 @@ def test_phase15b22_mlist_olist_aligned_and_location_from_room(isolated_builder_
     assert "Mob List" in text
     assert "Area : Emberwood" in text
     assert "Zone : Emberwood Edge" in text
-    assert "VNUM" in text and "ID" in text and "Lvl" in text
-    assert "1501" in text and "dire_forest_wolf" in text
+    assert text.count("Index VNum") == 1
+    assert "Mobile Name" in text and "Level" in text
+    assert "[1501]" in text and "Dire Forest Wolf" in text
+    assert "dire_forest_wolf" not in text.split("Index VNum", 1)[1]
+    assert " | " not in text
     assert "Missing keywords" in out(e, a, "mlist incomplete")
     otext = out(e, a, "olist")
-    assert "Object List" in otext and "ash_sword" in otext and "weapon" in otext and "wield" in otext
+    assert "Object List" in otext and "Ash Sword" in otext and "[weapon]" in otext
+    assert " | " not in otext
 
 
 def test_phase15b22_alist_zlist_service_format(isolated_builder_world):

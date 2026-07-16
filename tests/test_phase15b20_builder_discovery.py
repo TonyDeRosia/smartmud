@@ -17,15 +17,20 @@ def test_builder_content_query_lists_drafts_without_json_ids(tmp_path):
     drafts.setdefault("rooms", {})["wolf_den"] = {"id": "wolf_den", "name": "Wolf Den", "vnum": 1002, "area_id": "starter_guildlands", "zone_id": "guildhall_crossing", "exits": {"south": {"target_room_id": "guildhall_crossing_square"}}}
     ws.save_drafts("shattered_realms", drafts)
 
-    mlist = svc.list_content(a, "mob", ["wolf"])
+    mlist = svc.list_content(a, "mob", ["all"])
     assert mlist.ok
-    assert "1501 | dire_forest_wolf | Dire Forest Wolf | 8 | wolf" in mlist.message
+    assert mlist.message.count("Index VNum") == 1
+    assert "   1) [1501] Dire Forest Wolf" in mlist.message
+    assert "dire_forest_wolf" not in mlist.message.split("Index VNum", 1)[1]
+    assert " | " not in mlist.message
 
     olist = svc.list_content(a, "object", ["vnum", "1301"])
-    assert "1301 | iron_sword | Iron Sword | weapon | main_hand" in olist.message
+    assert "1301" in olist.message and "iron_sword" in olist.message and "Iron Sword" in olist.message
+    assert "1301 | iron_sword" not in olist.message
 
     rlist = svc.list_content(a, "room", ["vnum", "1002"])
-    assert "1002 | wolf_den | Wolf Den | starter_guildlands | guildhall_crossing | 1" in rlist.message
+    assert "1002" in rlist.message and "wolf_den" in rlist.message and "Wolf Den" in rlist.message
+    assert "1002 | wolf_den" not in rlist.message
 
 
 def test_builder_editor_discovery_resolves_vnum_to_same_session(tmp_path):

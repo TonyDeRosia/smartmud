@@ -864,6 +864,9 @@ class CombatRuntimeService:
     def actor_flee(self, actor_source: Any, direction: str = "") -> CombatRuntimeResult:
         aid = self._actor_id_from_source(actor_source); eid = self.find_actor_encounter(aid)
         if not eid: return CombatRuntimeResult(False, ["You are not fighting."])
+        enc = self.resident_encounters.get(eid)
+        if enc and aid not in enc.participants:
+            aid = next((alias for alias in self._actor_id_aliases(aid) if alias in enc.participants), aid)
         actor = self._actor_from_source(actor_source)
         old_room = self.runtime.canonical_room_id(actor.identity.current_location)
         exits = self.runtime.canonical_exits(actor_source, old_room) if hasattr(self.runtime, "canonical_exits") else {}
@@ -970,11 +973,25 @@ class CombatRuntimeService:
         for eid in list({r[0] for r in sqlite3.connect(self.db_path).execute("SELECT encounter_id FROM combat_participants WHERE actor_id=?", (actor_id,))}):
             self.end_if_finished(eid)
 
+    def _actor_id_aliases(self, actor_id: str) -> list[str]:
+        raw = str(actor_id or "")
+        aliases = [raw]
+        if raw and ":" not in raw:
+            aliases.append(f"character:{raw}")
+            aliases.append(f"entity:{raw}")
+        elif raw.startswith("character:") or raw.startswith("entity:"):
+            aliases.append(raw.split(":", 1)[1])
+        return list(dict.fromkeys(a for a in aliases if a))
+
     def find_actor_encounter(self, actor_id: str) -> str:
+        aliases = self._actor_id_aliases(actor_id)
         for eid, enc in self.resident_encounters.items():
-            part = enc.participants.get(actor_id)
-            if enc.status == 'active' and part and part.participation_status == 'active' and not part.defeated and not part.fled:
-                return eid
+            if enc.status != 'active':
+                continue
+            for aid in aliases:
+                part = enc.participants.get(aid)
+                if part and part.participation_status == 'active' and not part.defeated and not part.fled:
+                    return eid
         return ''
     def find_room_encounters(self, room_id: str) -> list[str]:
         return [eid for eid, enc in self.resident_encounters.items() if enc.room_id == room_id and enc.status == 'active']
