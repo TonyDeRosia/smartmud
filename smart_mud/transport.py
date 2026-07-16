@@ -136,16 +136,11 @@ class WebTransportAdapter(RuntimeTransportAdapter):
         view = result.get("view") or {}
         narrative = str(result.get("semantic_output") or result.get("output") or "")
         room_html = str(view.get("html") or "")
-        if not room_html and session.character_id and hasattr(self.mud_runtime, "play_view"):
-            try:
-                room_html = str((self.mud_runtime.play_view(session.character_id) or {}).get("html") or "")
-            except Exception:
-                room_html = ""
         if narrative and room_html:
             output = f'{semantic_html(narrative)}\n{room_html}'
         else:
             output = room_html or (semantic_html(narrative) if narrative else "")
-        return TransportResponse(session=session, output=output, output_format=self.output_format, prompt=str(view.get("prompt") or view.get("prompt_html") or ">"), metadata={"result": result, "used_mud_runtime": True})
+        return TransportResponse(session=session, output=output, output_format=self.output_format, prompt=str(view.get("prompt") or ">"), metadata={"result": result, "used_mud_runtime": True})
 
 
 class TelnetTransportAdapter(RuntimeTransportAdapter):
