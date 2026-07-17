@@ -1,0 +1,9 @@
+# Smart MUD Runtime Architectural Gaps — Phase 16A
+
+| Service gap | Evidence needed | AL behaviors depending on it | Reuse | Do not duplicate | Minimal contract | Owner | Tests | Phase |
+| Persistent exit/door state service | doors/open/lock/key/reset rows in matrix are partial/missing | movement, keys, locks, resets, hidden exits | `MudRuntime`, world registry, EventBus | Builder-only door flags | query/mutate/persist door state; validate key refs; emit events | `engine/mud_runtime.py` + new narrow module if needed | movement/door/reset tests | 16B |
+| Object-use dispatcher | many object values map to behavior | food/drink/lights/wands/scrolls/containers | item instance API, AbilityService, SurvivalNeeds | ad hoc command branches | dispatch by item type/profile to service | runtime item service | object command tests | 16C-16E |
+| Script/trigger runtime | DG `src/dg_*.c` present; Smart path absent | quests, mobiles, rooms, objects, specials | EventBus, QuestService, ConversationService | unsafe C/DG clone | declarative trigger conditions/effects | new service | trigger fixtures | later |
+| Mobile behavior profile runtime | custom `ai_actor*` files | aggression, hunting, assistance, reactions | CombatBehaviorService, Perception, Faction | separate NPC AI engine | evaluate profiles on ticks/events | combat/living-world | NPC behavior tests | later |
+| Persistent world-state service | resets, doors, corpses, property/storage need shared semantics | door resets, corpses, houses, object decay | SQLite stores, EventBus | per-feature state tables without resolver | namespaced state records and histories | runtime store | persistence tests | foundation |
+| Content dependency graph | VNUM refs in zones/mobs/objects/shops/scripts | validation and Builder publish | Builder validation/content registry | UI-only validators | references, reverse refs, publish blockers | content registry | validation tests | foundation |
