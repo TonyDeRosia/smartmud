@@ -4198,7 +4198,7 @@ class MudCommandEngine:
         if cmd == "oedit" and args:
             self.builder_service.workspace = self.builder
             return out(self.builder_service.object_menu(character, args[0]))
-        if cmd in {"medit", "oedit", "aedit", "zedit"} or (cmd == "redit" and args and str(args[0]).isdigit()):
+        if cmd in {"medit", "oedit", "redit", "aedit", "zedit"}:
             self.builder_service.workspace = self.builder
             res = self.builder_service.discover_editor_target(character, cmd, args)
             return CommandResult(res.message, ok=res.ok)
