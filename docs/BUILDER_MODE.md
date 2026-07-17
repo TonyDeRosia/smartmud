@@ -343,3 +343,23 @@ Rest, sleep, rest-location profiles, rest quality, campfire profiles, campsite p
 ## Phase 11E Cooking Integration
 
 Cooking is a canonical CraftingService specialization. The runtime uses recipe definitions, exact item-instance input reservations, crafting jobs, workstation profiles, production profiles, item quality, profession XP, and reward delivery for cooked outputs. SurvivalNeedsService remains authoritative for consumable profiles, portions, servings, freshness interpretation, spoilage, and need mutation. GatheringService remains authoritative for raw gathered materials. Builder/world-package content now includes cooking ingredient, substitution, preparation, serving-yield, consumable-output, nutrition, preservation, heat, failure, message, and render profile collections.
+
+## Phase 15B.43-15B.44 REDIT persistent session parity
+
+`redit <room-id-or-vnum>` now opens a persistent Builder edit session for an existing room; `redit` without a target continues to use the normal Builder discovery/list workflow. The menu is intentionally based on Anthony DeRosia's customized Adventurer's Lair Builder room editor rather than stock TBA MUD, while still storing Smart MUD's canonical room draft fields.
+
+The REDIT main menu shows the room identifier, best available zone summary, draft dirty state, name, multiline description, room flags, sector type, all six classic exit summaries, extra descriptions, resets, script status, copy, delete, and quit shortcuts. Numeric VNUMs are displayed when present, but string room IDs remain valid canonical identifiers.
+
+Implemented shortcuts:
+
+- `1` edits the room name on the session scratch draft.
+- `2` opens the shared multiline text editor for the room description; use `.save` to accept or `.cancel` to abort.
+- `3` opens the shared flag toggler using Smart MUD canonical room flags.
+- `4` selects the Smart MUD sector/environment value.
+- `5`, `6`, `7`, `8`, `9`, and `A` intentionally route to exit summaries and report that detailed exit editing is reserved for the next phase.
+- `F`, `R`, and `S` intentionally route to current extra-description, reset, and script boundaries without claiming unsupported subeditor parity.
+- `W` copies room-local editable content into a new room draft after explicit `COPY ROOM` confirmation. Outgoing exits are copied; inbound/reverse links, live occupants, and reset populations are not created.
+- `X` runs a dependency safety summary and requires `DELETE ROOM`; deletion is refused while inbound exits, zone membership, reset/spawn references, or the builder's current location would make removal unsafe.
+- `Q` exits immediately when clean. Dirty sessions show `S) Save Draft`, `D) Discard Changes`, and `C) Continue Editing`.
+
+Saving from REDIT validates the scratch room and writes only Builder draft data through the existing Builder session/mutate lifecycle. Saving a Builder draft does not publish or directly mutate live runtime world-package JSON; publishing/activation remains a separate Builder lifecycle step.

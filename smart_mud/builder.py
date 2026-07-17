@@ -75,6 +75,9 @@ TBA_OEDIT_EXTRA_FLAGS = ("glow", "hum", "dark", "lock", "evil", "invisible", "ma
 TBA_OEDIT_WEAR_FLAGS = ("take", "finger", "neck", "body", "head", "legs", "feet", "hands", "arms", "shield", "about", "waist", "wrist", "wield", "hold", "float", "light", "mainhand", "offhand")
 TBA_OEDIT_PERM_AFFECTS = ("blind", "invisible", "detect_invisible", "detect_magic", "sense_life", "waterwalk", "sanctuary", "group", "curse", "infravision", "poison", "protect_evil", "protect_good", "sleep", "notrack", "flying")
 TBA_ITEM_TYPES = ("light", "scroll", "wand", "staff", "potion", "weapon", "armor", "container", "drink_container", "fountain", "food", "money", "furniture", "note", "other", "worn", "treasure", "trash", "key", "pen", "boat", "misc")
+REDIT_DIRECTIONS = ("north", "east", "south", "west", "up", "down")
+REDIT_ROOM_FLAGS = ("dark", "death", "indoors", "peaceful", "soundproof", "nomob", "private")
+REDIT_SECTORS = ("inside", "city", "field", "forest", "hills", "mountain", "water", "air")
 TBA_APPLY_TYPES = ("strength", "dexterity", "intelligence", "wisdom", "constitution", "charisma", "class", "level", "age", "weight", "height", "mana", "hit", "move", "gold", "experience", "armor", "hitroll", "damroll", "saving_para", "saving_rod", "saving_petri", "saving_breath", "saving_spell")
 
 OBJECT_NUMERIC_FIELDS = {"weight", "cost", "stack_size", "destroy_timer", "speed", "range", "capacity", "weight_capacity", "lock_difficulty", "charges", "recharge", "fuel", "burn_time", "brightness", "nutrition", "decay", "servings"}
@@ -992,6 +995,11 @@ class BuilderSessionManager:
         self.service = service; self.active: dict[str, BuilderEditSession] = {}
     def actor_key(self, actor: Any) -> str: return str(getattr(actor, 'id', '') or getattr(actor, 'name', 'builder'))
     def start(self, actor: Any, editor: str, collection: str, object_id: str) -> BuilderResult:
+        existing = self.active.get(self.actor_key(actor))
+        if existing:
+            if existing.editor_type == editor and existing.collection == collection and existing.object_id == object_id:
+                return BuilderResult(True, self.service.render_session(existing))
+            return BuilderResult(False, f"You are already editing {existing.editor_type.upper()} {existing.object_id}. Save, discard, or quit that editor before opening another.")
         lock = self.service.acquire_lock(actor, collection, object_id)
         if not lock.ok: return lock
         world_id = self.service.workspace.world_id(actor); now = self.service.workspace.stamp(); rec = self.service._record(world_id, collection, object_id)
@@ -2218,6 +2226,9 @@ class BuilderService:
         if sess.editor_type == "oedit" and not sess.section and sess.mode in {"main_menu", "section_menu"}:
             sess.mode = "main_menu"
             return self._render_oedit_menu(sess)
+        if sess.editor_type == "redit" and not sess.section and sess.mode in {"main_menu", "section_menu"}:
+            sess.mode = "main_menu"
+            return self._render_redit_menu(sess)
         if sess.editor_type != "medit" and sess.section:
             lines = [f"{sess.editor_type.upper()} {sess.object_id} > Fields", f"Draft status: {'modified' if sess.dirty else 'clean'}"]
             for i, f in enumerate(self._field_descriptors(sess), 1):
@@ -2232,6 +2243,46 @@ class BuilderService:
             return self._render_mobile_section(sess, sess.section)
         return self.menu(sess.editor_type, str(title), sess)
 
+
+    def _room_display_id(self, rec: dict[str, Any], fallback: str) -> str:
+        return str(rec.get("vnum") if rec.get("vnum") is not None else rec.get("legacy_vnum") or fallback)
+
+    def _room_zone_summary(self, sess: BuilderEditSession, rec: dict[str, Any]) -> str:
+        zid = str(rec.get("zone_id") or "")
+        if zid:
+            zones = self.workspace.load(sess.world_id).get("zones", {})
+            z = zones.get(zid) if isinstance(zones, dict) else None
+            return str((z or {}).get("vnum") if isinstance(z, dict) and (z or {}).get("vnum") is not None else zid)
+        return "Unassigned"
+
+    def _exit_summary(self, actor: Any | None, sess: BuilderEditSession, direction: str) -> str:
+        ex = (sess.working_record.get("exits") or {}).get(direction)
+        if not isinstance(ex, dict):
+            return "-1"
+        target = ex.get("target_room_id") or ex.get("destination_room_id") or ex.get("room_id") or ex.get("to")
+        if not target:
+            return "-1"
+        records = self.resolve_collection_records(actor, "rooms") if actor is not None else self.workspace.load(sess.world_id).get("rooms", {})
+        return f"{target}" + (" (invalid)" if str(target) not in records else "")
+
+    def _render_redit_menu(self, sess: BuilderEditSession) -> str:
+        rec = sess.working_record or {}
+        flags = ", ".join(str(f).upper() for f in (rec.get("flags") or [])) or "None"
+        sector = str(rec.get("sector") or rec.get("sector_type") or "inside")
+        lines = [f"-- Room number: [{self._room_display_id(rec, sess.object_id)}] Room zone: [{self._room_zone_summary(sess, rec)}]", f"Room ID      : {sess.object_id}", f"Draft status : {'modified' if sess.dirty else 'clean'}", ""]
+        lines.append(f"1) Name        : {rec.get('name') or ''}")
+        lines.append("2) Description :")
+        desc = str(rec.get("description") or "")
+        lines.extend(["   " + line for line in (desc.splitlines() or [""])])
+        lines.append(f"3) Room flags  : {flags}")
+        lines.append(f"4) Sector type : {sector.replace('_',' ').title()}")
+        keys = ["5", "6", "7", "8", "9", "A"]
+        for key, direction in zip(keys, REDIT_DIRECTIONS):
+            lines.append(f"{key}) Exit {direction:<5}: {self._exit_summary(None, sess, direction)}")
+        scripts = rec.get("scripts") or rec.get("script_ids") or rec.get("script")
+        script_summary = (", ".join(map(str, scripts)) if isinstance(scripts, list) else str(scripts)) if scripts else "Not Set."
+        lines += ["F) Extra descriptions menu", "R) Room Resets", f"S) Script      : {script_summary}", "W) Copy Room", "X) Delete Room", "Q) Quit", "Enter choice :"]
+        return "\n".join(lines)
 
     def _render_oedit_menu(self, sess: BuilderEditSession) -> str:
         rec = normalize_object_template(sess.object_id, sess.working_record or {})
@@ -2385,7 +2436,7 @@ class BuilderService:
         if sess.editor_type == "oedit":
             return [OlcFieldDescriptor("keywords","Keywords",("keywords",),"string_list"), OlcFieldDescriptor("short_description","Short description",("short_description",),"string",required=True), OlcFieldDescriptor("long_description","Long description",("long_description",),"multiline"), OlcFieldDescriptor("look_description","Action/look description",("look_description",),"multiline"), OlcFieldDescriptor("item_type","Item type",("item_type",),"enum",choices=TBA_ITEM_TYPES), OlcFieldDescriptor("extra_flags","Extra flags",("extra_flags",),"flag_set",flags=TBA_OEDIT_EXTRA_FLAGS), OlcFieldDescriptor("wear_flags","Wear flags",("wear_flags",),"flag_set",flags=TBA_OEDIT_WEAR_FLAGS), OlcFieldDescriptor("weight","Weight",("weight",),"integer",minimum=0,maximum=100000), OlcFieldDescriptor("cost","Cost",("cost",),"integer",minimum=0,maximum=100000000), OlcFieldDescriptor("cost_per_day","Cost per day",("cost_per_day",),"integer",minimum=0,maximum=100000000), OlcFieldDescriptor("destroy_timer","Timer",("destroy_timer",),"integer",minimum=0,maximum=1000000), OlcFieldDescriptor("values","Type-specific values",("type_values",),"list"), OlcFieldDescriptor("affects","Applies",("affects",),"list"), OlcFieldDescriptor("extra_descriptions","Extra descriptions",("extra_descriptions",),"list"), OlcFieldDescriptor("min_level","Minimum level",("min_level",),"integer",minimum=0,maximum=100), OlcFieldDescriptor("perm_affects","Permanent affects",("perm_affects",),"flag_set",flags=TBA_OEDIT_PERM_AFFECTS), OlcFieldDescriptor("scripts","Scripts",("scripts",),"list")]
         if sess.editor_type == "redit":
-            return [OlcFieldDescriptor("name","Room name",("name",),"string",required=True), OlcFieldDescriptor("vnum","Room VNUM",("vnum",),"integer",minimum=1,maximum=999999), OlcFieldDescriptor("description","Room description",("description",),"multiline"), OlcFieldDescriptor("sector","Sector/terrain",("sector",),"enum",choices=("inside","city","field","forest","hills","mountain","water","air")), OlcFieldDescriptor("room_flags","Room flags",("flags",),"flag_set",flags=("dark","death","indoors","peaceful","soundproof","nomob","private")), OlcFieldDescriptor("exits","Exits",("exits",),"list")]
+            return [OlcFieldDescriptor("name","Room name",("name",),"string",required=True), OlcFieldDescriptor("vnum","Room VNUM",("vnum",),"integer",minimum=1,maximum=999999), OlcFieldDescriptor("description","Room description",("description",),"multiline"), OlcFieldDescriptor("sector","Sector/terrain",("sector",),"enum",choices=REDIT_SECTORS), OlcFieldDescriptor("room_flags","Room flags",("flags",),"flag_set",flags=REDIT_ROOM_FLAGS), OlcFieldDescriptor("exits","Exits",("exits",),"list")]
         if sess.editor_type in {"zedit","aedit"}:
             return [OlcFieldDescriptor("name","Name",("name",),"string",required=True), OlcFieldDescriptor("id","Stable ID",("id",),"slug",read_only=True), OlcFieldDescriptor("flags","Flags",("flags",),"flag_set",flags=("starter","safe","builder","published"))]
         return []
@@ -2671,6 +2722,12 @@ class BuilderService:
             errors = [i for i in issues if i.get("severity") == "error" or i.get("blocking")]
             if errors:
                 return BuilderResult(False, "Save blocked by validation errors:\n" + "\n".join(f"- {e.get('field_path')}: {e.get('message')}" for e in errors), {"issues": issues})
+        if sess.collection == "rooms":
+            rec = sess.working_record or {}
+            if not str(rec.get("name") or "").strip():
+                return BuilderResult(False, "Save blocked by validation errors:\n- name: Room name is required.")
+            if not isinstance(rec.get("exits", {}), dict):
+                return BuilderResult(False, "Save blocked by validation errors:\n- exits: Room exits must be a dictionary.")
         if sess.collection == "items":
             issues = validate_object_template(normalize_object_template(sess.object_id, sess.working_record))
             errors = [i for i in issues if i.get("severity") == "error"]
@@ -2735,6 +2792,55 @@ class BuilderService:
         sess.mode = next_mode; sess.active_field = f.key if keep_field else ""; sess.field_input_type = ""; sess.pending_value = None; sess.multiline_lines = []
         msg = prefix or f"{f.label} changed from {self._fmt_value(before)} to {self._fmt_value(value)}."
         return BuilderResult(True, msg + "\n" + self.render_session(sess), sess.working_record)
+
+    def _room_dependencies(self, actor: Any, room_id: str) -> list[str]:
+        records = self.resolve_collection_records(actor, "rooms")
+        deps: list[str] = []
+        for rid, room in records.items():
+            if str(rid) == str(room_id):
+                continue
+            for direction, ex in (room.get("exits") or {}).items() if isinstance(room, dict) else []:
+                if isinstance(ex, dict) and str(ex.get("target_room_id") or ex.get("destination_room_id") or ex.get("room_id") or "") == str(room_id):
+                    deps.append(f"inbound exit from room {rid} {direction}")
+        drafts = self.workspace.load(self.workspace.world_id(actor))
+        for zid, z in (drafts.get("zones") or {}).items():
+            if room_id in [str(x) for x in (z or {}).get("room_ids") or []]: deps.append(f"zone membership {zid}")
+        for sid, sp in (self.resolve_collection_records(actor, "spawns") or {}).items():
+            if room_id in json.dumps(sp, default=str): deps.append(f"spawn/reset reference {sid}")
+        for sid, rs in (self.resolve_collection_records(actor, "resets") or {}).items():
+            if room_id in json.dumps(rs, default=str): deps.append(f"reset reference {sid}")
+        if str(getattr(actor, "room_id", "")) == str(room_id): deps.append("your character is currently in this room")
+        return sorted(set(deps))
+
+    def _handle_redit_confirmation(self, actor: Any, sess: BuilderEditSession, text: str, low: str) -> BuilderResult | None:
+        if sess.confirmation_type == "redit_copy":
+            if low in {"q","quit","cancel","back"}: sess.confirmation_type=""; return BuilderResult(True,"Copy room cancelled.\n"+self._render_redit_menu(sess))
+            dest = text.strip()
+            if not re.fullmatch(r"[A-Za-z0-9_:-]+", dest): return BuilderResult(False,"Target room ID must be an identifier, or Q to cancel.")
+            if self._record(self.workspace.world_id(actor), "rooms", dest) is not None or dest in self.resolve_collection_records(actor, "rooms"):
+                return BuilderResult(False, f"Room {dest} already exists; copy never overwrites silently.")
+            denied = self._check_permission(actor, "rooms", dest, "mutate")
+            if denied: return denied
+            sess.pending_value = dest; sess.confirmation_type = "redit_copy_confirm"
+            return BuilderResult(True, f"Clone current room draft to {dest}? Outgoing exits are copied; inbound/reverse links and reset populations are not. Type COPY ROOM to confirm, or Q to cancel.")
+        if sess.confirmation_type == "redit_copy_confirm":
+            if low in {"q","quit","cancel","back"}: sess.confirmation_type=""; return BuilderResult(True,"Copy room cancelled.\n"+self._render_redit_menu(sess))
+            if low != "copy room": return BuilderResult(False,"Type COPY ROOM to confirm, or Q to cancel.")
+            dest = str(sess.pending_value or "")
+            rec = deepcopy(sess.working_record); rec["id"] = dest; rec["name"] = str(rec.get("name") or dest).strip(); rec.pop("_builder_revision", None)
+            lock = self.acquire_lock(actor, "rooms", dest, admin=True)
+            if not lock.ok: return lock
+            try: res = self.mutate(actor, "rooms", dest, rec, "redit copy", admin_override=True)
+            finally: self.release_lock(actor, "rooms", dest)
+            sess.confirmation_type=""; sess.pending_value=None
+            return BuilderResult(res.ok, res.message + (f"\nCopied room draft {dest}. Current editor remains on {sess.object_id}. Reverse exits/inbound links were not created.\n" + self._render_redit_menu(sess) if res.ok else ""), res.data)
+        if sess.confirmation_type == "redit_delete":
+            if low in {"q","quit","cancel","back"}: sess.confirmation_type=""; return BuilderResult(True,"Delete room cancelled.\n"+self._render_redit_menu(sess))
+            if text.strip() != "DELETE ROOM": return BuilderResult(False,"Type DELETE ROOM to confirm deletion, or Q to cancel.")
+            deps = self._room_dependencies(actor, sess.object_id)
+            if deps: return BuilderResult(False,"Delete protected; dependencies exist:\n"+"\n".join(f"- {d}" for d in deps)+"\nMove/remove dependencies before deleting.\n"+self._render_redit_menu(sess))
+            self.sessions.end(actor); return self.workspace.delete(actor, "rooms", sess.object_id, "room")
+        return None
 
     def handle_session_input(self, actor: Any, sess: BuilderEditSession, text: str) -> BuilderResult:
         low = text.lower().strip(); sess.last_activity_at = self.workspace.stamp()
@@ -2869,7 +2975,9 @@ class BuilderService:
                 return BuilderResult(True, "Editor changes discarded; lock released.")
             if low in {"cancel", "c", "back"}:
                 sess.quit_pending = False
-                return BuilderResult(True, "Quit cancelled.\n" + self.render_session(sess))
+                return BuilderResult(True, ("Continue editing." if sess.editor_type == "redit" else "Quit cancelled.") + "\n" + self.render_session(sess))
+            if sess.editor_type == "redit":
+                return BuilderResult(False, "You have unsaved room changes.\n\nS) Save Draft\nD) Discard Changes\nC) Continue Editing")
             return BuilderResult(False, "Unsaved changes: type Save, Discard, or Cancel.")
         if parts and parts[0].lower() == "name" and len(parts) > 1:
             self._session_checkpoint(sess)
@@ -2893,6 +3001,29 @@ class BuilderService:
             if topic in {"spawn", "spawns", "spawn maximum"}: return BuilderResult(True, "Spawn help: add <room> [max] [chance] creates a canonical spawn/reset draft reference. Max must be positive; chance is 0-100. Live world changes only after publish.")
             if topic in {"damage dice", "action flags", "capacity"}: return BuilderResult(True, f"{topic.title()} help: edit through the structured field menu; values are validated immediately and saved only to Builder drafts.")
             return BuilderResult(True, "Builder help: use menu numbers; structured editors support preview, validate, undo, redo, save, and back. Use help equipment, help spawn maximum, help action flags, help damage dice, or help capacity.")
+        if sess.editor_type == "redit" and sess.confirmation_type:
+            handled = self._handle_redit_confirmation(actor, sess, text, low)
+            if handled is not None: return handled
+        if sess.editor_type == "redit" and not sess.section:
+            rmap = {"1":"name","2":"description","3":"room_flags","4":"sector"}
+            if low in rmap:
+                field = rmap[low]; desc = self._descriptor(sess, field); sess.active_field = field
+                if desc.input_type == "multiline": sess.mode = "multiline_text"; sess.multiline_lines = []; return BuilderResult(True, self._render_multiline(sess))
+                if desc.input_type == "flag_set": sess.mode = "flag_editor"; return BuilderResult(True, self._render_flag_editor(sess))
+                sess.mode = "field_prompt"; return BuilderResult(True, self._render_field_prompt(sess))
+            if low in {"5","6","7","8","9","a"}:
+                idx = {"5":0,"6":1,"7":2,"8":3,"9":4,"a":5}[low]; direction = REDIT_DIRECTIONS[idx]
+                return BuilderResult(True, f"Exit editing is not yet available in this interface. Current {direction} destination is {self._exit_summary(actor, sess, direction)}.\n" + self._render_redit_menu(sess))
+            if low == "f": return BuilderResult(True, f"Extra description editing is not yet available in REDIT. Current extra descriptions: {len(sess.working_record.get('extra_descriptions') or [])}.\n" + self._render_redit_menu(sess))
+            if low == "r": return BuilderResult(True, "Room reset editing is not yet available in REDIT. Use existing reset/spawn Builder commands for detailed reset work.\n" + self._render_redit_menu(sess))
+            if low == "s": return BuilderResult(True, "Script attachment editing is not yet available until script runtime support is enabled for rooms.\n" + self._render_redit_menu(sess))
+            if low == "w": sess.confirmation_type="redit_copy"; return BuilderResult(True, "Copy room: enter a new target room ID, or Q to cancel.")
+            if low == "x":
+                deps = self._room_dependencies(actor, sess.object_id)
+                summary = "\n".join(f"- {d}" for d in deps) if deps else "- no blocking dependencies found"
+                sess.confirmation_type="redit_delete"
+                return BuilderResult(True, "Delete room safety check:\n" + summary + "\nType DELETE ROOM to confirm deletion, or Q to cancel.")
+
         if sess.editor_type == "oedit" and sess.confirmation_type:
             if sess.confirmation_type in {"copy", "copy_destination", "copy_source"}:
                 if low in cancel_words: sess.confirmation_type = ""; return BuilderResult(True, "Copy cancelled.\n" + self._render_oedit_menu(sess))
@@ -2944,7 +3075,7 @@ class BuilderService:
                 return BuilderResult(True, self.render_session(sess))
             if sess.dirty:
                 sess.quit_pending = True
-                return BuilderResult(True, "Unsaved changes: Save, Discard, or Cancel?")
+                return BuilderResult(True, "You have unsaved room changes.\n\nS) Save Draft\nD) Discard Changes\nC) Continue Editing" if sess.editor_type == "redit" else "Unsaved changes: Save, Discard, or Cancel?")
             self.sessions.end(actor); return BuilderResult(True, "Editor closed and lock released.")
         if low in {"back", "cancel"}: sess.section=""; sess.mode="main_menu"; return BuilderResult(True, self.render_session(sess))
         if sess.editor_type == "medit" and sess.section == "equipment":
