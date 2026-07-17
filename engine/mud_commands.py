@@ -282,6 +282,16 @@ class MudCommandEngine:
             "inventory": self._cmd_inventory,
             "equipment": self._cmd_equipment,
             "sacrifice": self._cmd_runtime_item,
+            "get": self._cmd_runtime_item,
+            "take": self._cmd_runtime_item,
+            "pickup": self._cmd_runtime_item,
+            "drop": self._cmd_runtime_item,
+            "put": self._cmd_runtime_item,
+            "give": self._cmd_runtime_item,
+            "examine": self._cmd_runtime_item,
+            "exa": self._cmd_runtime_item,
+            "exam": self._cmd_runtime_item,
+            "inspect": self._cmd_runtime_item,
             "resists": self._cmd_resists,
             "spellup": self._cmd_spellup,
             "spells": self._cmd_spells,
@@ -2344,7 +2354,10 @@ class MudCommandEngine:
     def _cmd_inventory(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Display inventory."""
         rt = getattr(self, "runtime", None)
-        inv = rt.build_projection(character, "inventory") if rt and hasattr(rt, "build_projection") else list(getattr(character, "inventory", []) or [])
+        if rt and hasattr(rt, "find_inventory_items"):
+            inv = rt.find_inventory_display_items(getattr(character, "id", "")) if hasattr(rt, "find_inventory_display_items") else rt.find_inventory_items(getattr(character, "id", ""))
+        else:
+            inv = rt.build_projection(character, "inventory") if rt and hasattr(rt, "build_projection") else list(getattr(character, "inventory", []) or [])
         theme = resolve_effective_display_theme(character, family="inventory")
         doc = build_inventory_document(list(inv or []), theme=theme)
         return CommandResult(narrative=render_display_mud(doc, color_enabled=theme.color_enabled), display_document=doc, display_intent="INVENTORY")
@@ -2992,6 +3005,11 @@ class MudCommandEngine:
     def _cmd_look(self, character: Any, args: list[str], raw: str) -> CommandResult:
         """Look around or at draft Builder features when present."""
         if args:
+            rt = getattr(self, "runtime", None)
+            if rt and hasattr(rt, "_handle_item_command"):
+                res = rt._handle_item_command(character, raw, "look", args)
+                if res is not None:
+                    return res
             room_id = self.builder.current_room_id(character)
             features = self.builder.load(self.builder.world_id(character)).get("rooms", {}).get(room_id, {}).get("features", {})
             target = args[0].lower()

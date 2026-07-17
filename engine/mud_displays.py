@@ -1148,13 +1148,10 @@ def build_inventory_document(items: list[dict[str, Any]], *, carrying: str = "",
     label=theme_label(theme, "inventory.empty", "You are not carrying anything.")
     rows=[]
     if items:
-        rows.append(DisplayLine((getattr(theme, "labels", {}) or {}).get("inventory.heading", "You are carrying:"), role="character_label"))
-        for entry in group_display_entries(items):
-            rows.append(DisplayLine(_render_entry_plain(entry), role=entry.role, trusted_markup=True))
+        for item in items:
+            rows.append(DisplayLine(str(item.get("display_line") or item.get("name") or item.get("template_id") or item), role=str(item.get("role") or "content"), trusted_markup=bool(item.get("trusted_markup", True)) if isinstance(item, dict) else False))
     else:
         rows.extend(build_empty_display_rows("inventory", theme, label) or [DisplayLine(label, role=resolve_theme_role(theme, "character_muted"), trusted_markup=True)])
-    if carrying:
-        rows.append(DisplayDivider()); rows.append(DisplayLine(carrying, role="character_value"))
     return build_character_frame_document(DisplayIntent.INVENTORY, (getattr(theme, "labels", {}) or {}).get("inventory.title", "INVENTORY"), rows, width=60, theme=theme)
 
 def build_equipment_document(items: list[dict[str, Any]], slots: list[str], *, theme: Any = None) -> DisplayDocument:
