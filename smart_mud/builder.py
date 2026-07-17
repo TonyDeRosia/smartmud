@@ -1393,10 +1393,20 @@ class BuilderService:
     def object_menu(self, actor: Any, object_id: str) -> BuilderResult:
         rec = normalize_object_template(object_id, self._record(self.workspace.world_id(actor), "items", object_id))
         issues = validate_object_template(rec)
-        lines = [f"Object Builder: {object_id}", "Grouped sections:"]
+        item_type = str(rec.get("item_type") or rec.get("type") or "misc").lower()
+        visible_sections = []
         for name, fields in OBJECT_BUILDER_SECTIONS.items():
+            if name in {"combat", "weapon"} and item_type not in {"weapon", "armor"}: continue
+            if name == "container" and item_type != "container": continue
+            if name == "light" and item_type != "light": continue
+            if name == "food" and item_type not in {"food", "consumable"}: continue
+            if name == "drink" and item_type not in {"drink", "drink_container"}: continue
+            visible_sections.append((name, fields))
+        lines = [f"Object Builder: {object_id}", "Object Editor", f"Type-specific sections for {item_type}:", "Grouped sections:"]
+        for name, fields in visible_sections:
             present = sum(1 for f in fields if rec.get(f) not in (None, "", [], {}))
-            lines.append(f"- {name.title()} ({present}/{len(fields)}): " + ", ".join(fields))
+            label = {"combat":"Combat / Weapon Data / Armor Data", "container":"Container Data", "light":"Light Data", "food":"Food Data", "drink":"Drink Container Data"}.get(name, name.title())
+            lines.append(f"- {label} ({present}/{len(fields)}): " + ", ".join(fields))
         lines += ["", "Commands:", "  ocreate <id>", "  oedit <id>", "  oset <id> <field> <value>", "  opreview <id>", "  ovalidate <id>", "  owhere <id>", "  ofind <query>", "  oclone <source_id> <new_id>"]
         if issues:
             lines += ["", "Validation:"] + [f"- {i['severity']}: {i['field_path']} {i['message']}" for i in issues]
@@ -1751,7 +1761,19 @@ class BuilderService:
         elif mode == "source" and len(args) > 1: source = args[1].lower(); mode = "all"
         elif mode in {"draft", "live", "active"}: source = "generation" if mode == "active" else mode; mode = "all"
         elif re.fullmatch(r"\d+-\d+", mode):
-            a,b = [int(x) for x in mode.split("-",1)]; rows = [r for r in rows if r.legacy_vnum is not None and a <= r.legacy_vnum <= b]; mode = "filtered"
+            a,b = [int(x) for x in mode.split("-",1)]
+            if kind == "zone":
+                def _zone_overlaps(r):
+                    try:
+                        zs = int(r.record.get("vnum_start") if r.record.get("vnum_start") not in (None, "") else (r.legacy_vnum if r.legacy_vnum is not None else -1))
+                        ze = int(r.record.get("vnum_end") if r.record.get("vnum_end") not in (None, "") else zs)
+                    except Exception:
+                        return False
+                    return zs <= b and ze >= a
+                rows = [r for r in rows if _zone_overlaps(r)]
+            else:
+                rows = [r for r in rows if r.legacy_vnum is not None and a <= r.legacy_vnum <= b]
+            mode = "filtered"
         elif mode == "id" and len(args) > 1: rows = [r for r in rows if r.canonical_id == args[1]]; mode = "filtered"; detail_mode = "detail"
         elif mode == "vnum" and len(args) > 1 and args[1].isdigit(): rows = [r for r in rows if r.legacy_vnum == int(args[1])]; mode = "filtered"; detail_mode = "detail"
         elif mode not in {"all","world","zone","area","here","current","invalid","incomplete"}:
@@ -1848,7 +1870,12 @@ class BuilderService:
             all_resets = self.resolve_collection_records(actor, "resets")
             for r in shown:
                 aid = r.canonical_id
-                rc = sum(1 for x in all_rooms.values() if x.get("area_id") == aid)
+                zone_ids = set(map(str, r.record.get("zone_ids") or []))
+                zone_room_ids = set()
+                for zid, zrec in self.resolve_collection_records(actor, "zones").items():
+                    if str(zid) in zone_ids or str(zrec.get("area_id") or "") == aid:
+                        zone_room_ids.update(map(str, zrec.get("room_ids") or []))
+                rc = len(zone_room_ids) if zone_room_ids else sum(1 for x in all_rooms.values() if x.get("area_id") == aid)
                 table_rows.append([r.display_name, aid, rc, sum(1 for x in all_mobs.values() if x.get("area_id") == aid), sum(1 for x in all_objs.values() if x.get("area_id") == aid), sum(1 for x in all_resets.values() if x.get("area_id") == aid or aid in json.dumps(x, default=str)), self._validation_text(r)])
         elif kind == "zone":
             headers = ["Zone","VNUM range","Rooms","Mobs","Objects","Spawns","Resets"]
@@ -1872,11 +1899,14 @@ class BuilderService:
         if kind == "mob": title = "Mob List - Mobiles in " + world_id.replace("_", " ").title()
         elif kind == "object": title = "Object List - Objects in " + world_id.replace("_", " ").title()
         lines = self._builder_list_header(title, total, world_id, cur_area if mode not in {"all","world"} else "", cur_zone if mode not in {"all","world"} else "", cur_room, page, pages)
-        if kind in {"mob", "object"} and detail_mode != "brief":
+        if kind in {"mob", "object"}:
             lines.append(f"Current zone: {cur_zone or 'none'}")
             lines.append(f"Usage: {'mlist 1500-1599' if kind == 'mob' else 'olist 1300-1399'} | {kind}list all | zone | area | id | vnum | source draft|active|live")
         if kind == "area":
             lines.append("ID | Name | Range | Rooms | Zones | Source | Current")
+            for row in table_rows:
+                if len(row) >= 3:
+                    lines.append(f"{row[1]} | {row[0]} | {row[2]} | ")
             if len(shown) == 1:
                 rec = shown[0].record
                 lines += ["Area detail:", f"room_vnum_start-room_vnum_end: {rec.get('room_vnum_start')}-{rec.get('room_vnum_end')}"]
@@ -2199,6 +2229,10 @@ class BuilderService:
             lines += ["", "Q. Back", "V. Validate", "U. Undo", "R. Redo", "S. Save"]
             return "\n".join(lines)
         if sess.section:
+            if sess.editor_type == "medit" and sess.section == "equipment":
+                return self._render_equipment_editor(None, sess)
+            if sess.editor_type == "medit" and sess.section == "spawns":
+                return self._render_spawns_editor(None, sess)
             return self._render_mobile_section(sess, sess.section)
         return self.menu(sess.editor_type, str(title), sess)
 
@@ -2362,6 +2396,146 @@ class BuilderService:
             "abilities": ("ability_loadout_id","granted_abilities"), "ai": ("ai_actor_enabled","behavior_profile_id","personality_profile_id","goal_profile_id","need_profile_id","memory_profile_id","schedule_id"),
             "faction": ("faction_id","organization_id","relationship_seed_ids","hostility_profile_id"), "scripts": ("script_ids","scripts"), "spawns": ("spawn_refs",), "diagnostics": ("schema_version","_builder_revision")}
         return "\n".join(f"- {k}: {rec.get(k,'')}" for k in mapping.get(section, ())) or "No fields configured."
+
+
+    def _item_label(self, actor: Any, item_id: str) -> str:
+        rec = self.resolve_collection_records(actor, "items").get(str(item_id), {})
+        return f"{rec.get('name') or rec.get('short_description') or item_id} [{item_id}]"
+
+    def _render_equipment_editor(self, actor: Any, sess: BuilderEditSession) -> str:
+        rec = sess.working_record or {}
+        loadout = rec.setdefault("equipment_loadout", {})
+        equipped = loadout.get("equipped") if isinstance(loadout, dict) else {}
+        carried = loadout.get("carried") if isinstance(loadout, dict) else []
+        lines = [f"MEDIT Equipment Loadout: {rec.get('name') or sess.object_id}", f"Draft status: {'modified' if sess.dirty else 'clean'}", "", "Equipped slots:"]
+        slots = sorted(VALID_WEAR_SLOTS)
+        for slot in slots:
+            entry = (equipped or {}).get(slot) if isinstance(equipped, dict) else None
+            if isinstance(entry, dict):
+                lines.append(f"- {slot}: {self._item_label(actor, entry.get('item_template_id',''))} chance={entry.get('chance',100)} qty={entry.get('quantity',1)}")
+            else:
+                lines.append(f"- {slot}: empty")
+        lines.append("Carried inventory:")
+        for i, entry in enumerate(carried if isinstance(carried, list) else [], 1):
+            lines.append(f"{i}. {self._item_label(actor, entry.get('item_template_id',''))} chance={entry.get('chance',100)} qty={entry.get('quantity',1)}")
+        if not carried: lines.append("- none")
+        lines += ["", "A. Assign equipment slot", "B. Edit equipment-slot entry", "C. Remove equipment-slot entry", "D. Add carried inventory object", "E. Edit carried inventory entry", "F. Remove carried inventory entry", "G. Clear complete loadout", "P. Preview spawned mobile loadout", "V. Validate", "U. Undo", "R. Redo", "Q. Back", "Commands: assign <slot> <object> [chance] [qty]; carry <object> [chance] [qty]; remove <slot|#>; search <text>; help equipment"]
+        return "\n".join(lines)
+
+    def _equipment_validate(self, actor: Any, sess: BuilderEditSession) -> list[str]:
+        items = self.resolve_collection_records(actor, "items")
+        loadout = (sess.working_record or {}).get("equipment_loadout") or {}
+        errors=[]
+        for slot, entry in (loadout.get("equipped") or {}).items():
+            iid = str((entry or {}).get("item_template_id") or "")
+            rec = items.get(iid)
+            if slot not in VALID_WEAR_SLOTS: errors.append(f"equipment.slot {slot}: invalid equipment slot")
+            if not rec: errors.append(f"equipment.{slot}: missing object template {iid}")
+            else:
+                wear=set(rec.get("wear_flags") or rec.get("wear_slots") or rec.get("slot_restrictions") or [])
+                if wear and slot not in wear and not ({slot,"mainhand","wield","main_hand"} & wear): errors.append(f"equipment.{slot}: object cannot be worn in selected slot")
+            try:
+                ch=int((entry or {}).get("chance",100)); qty=int((entry or {}).get("quantity",1))
+                if ch < 0 or ch > 100: errors.append(f"equipment.{slot}: chance must be 0-100")
+                if qty <= 0: errors.append(f"equipment.{slot}: quantity must be positive")
+            except Exception: errors.append(f"equipment.{slot}: chance and quantity must be whole numbers")
+        for i, entry in enumerate(loadout.get("carried") or [], 1):
+            iid=str((entry or {}).get("item_template_id") or "")
+            if iid not in items: errors.append(f"carried.{i}: missing object template {iid}")
+        return errors
+
+    def _handle_equipment_editor(self, actor: Any, sess: BuilderEditSession, text: str) -> BuilderResult:
+        low=text.lower().strip(); parts=text.split()
+        if low in {"q","back","quit"}: sess.section=""; sess.mode="main_menu"; return BuilderResult(True,self.render_session(sess))
+        if low in {"u","undo"}:
+            if not sess.undo_stack: return BuilderResult(False,"Nothing to undo.")
+            sess.redo_stack.append(deepcopy(sess.working_record)); sess.working_record=sess.undo_stack.pop(); sess.dirty=sess.working_record!=sess.savepoint; sess.saved=not sess.dirty; return BuilderResult(True,"Session undo applied.\n"+self._render_equipment_editor(actor,sess))
+        if low in {"r","redo"}:
+            if not sess.redo_stack: return BuilderResult(False,"Nothing to redo.")
+            sess.undo_stack.append(deepcopy(sess.working_record)); sess.working_record=sess.redo_stack.pop(); sess.dirty=sess.working_record!=sess.savepoint; sess.saved=not sess.dirty; return BuilderResult(True,"Session redo applied.\n"+self._render_equipment_editor(actor,sess))
+        if low in {"v","validate"}: 
+            errs=self._equipment_validate(actor,sess); return BuilderResult(not errs, "Equipment validation:\n"+("\n".join("error: "+e for e in errs) if errs else "- no focused issues"))
+        if low in {"p","preview"}: return BuilderResult(True, "Equipment loadout preview:\n"+self._render_equipment_editor(actor,sess))
+        if low.startswith("search "):
+            rows=self.content_query.search(actor,"object",text[7:].strip())[:10]
+            return BuilderResult(True,"Object search results:\n"+"\n".join(f"{i}. {r.display_name} [{r.canonical_id}] type={r.record.get('item_type') or r.record.get('type')} wear={','.join(r.record.get('wear_flags') or [])}" for i,r in enumerate(rows,1)))
+        if low in {"a","assign"}: return BuilderResult(True,"Enter: assign <slot> <object_id|vnum|search-term> [chance 0-100] [quantity]")
+        if low in {"d","carry"}: return BuilderResult(True,"Enter: carry <object_id|vnum|search-term> [chance 0-100] [quantity]")
+        if low in {"g","clear"}:
+            self._session_checkpoint(sess); sess.working_record["equipment_loadout"]={"equipped":{},"carried":[]}; sess.dirty=True; sess.saved=False; return BuilderResult(True,"Equipment loadout cleared.\n"+self._render_equipment_editor(actor,sess))
+        if parts and parts[0].lower() in {"assign","a"} and len(parts)>=3:
+            slot=parts[1].lower(); match=self.content_query.by_id_or_vnum(actor,"object",parts[2]);
+            if slot not in VALID_WEAR_SLOTS: return BuilderResult(False,f"Invalid equipment slot {slot}.")
+            if len(match)!=1: return BuilderResult(False,"Object selection is ambiguous or missing; use search <text> then exact ID.")
+            item=match[0]; wear=set(item.record.get("wear_flags") or item.record.get("wear_slots") or [])
+            if wear and slot not in wear and not ({slot,"mainhand","wield","main_hand"} & wear): return BuilderResult(False,f"{item.canonical_id} cannot be worn in {slot}. Valid wear locations: {', '.join(sorted(wear)) or 'none'}.")
+            chance=int(parts[3]) if len(parts)>3 and parts[3].isdigit() else 100; qty=int(parts[4]) if len(parts)>4 and parts[4].isdigit() else 1
+            if not (0<=chance<=100) or qty<=0: return BuilderResult(False,"Chance must be 0-100 and quantity must be positive.")
+            self._session_checkpoint(sess); load=sess.working_record.setdefault("equipment_loadout",{}); load.setdefault("equipped",{})[slot]={"slot":slot,"item_template_id":item.canonical_id,"chance":chance,"quantity":qty}; load.setdefault("carried",[]); sess.dirty=True; sess.saved=False
+            return BuilderResult(True,"Equipment slot assigned.\n"+self._render_equipment_editor(actor,sess))
+        if parts and parts[0].lower() in {"carry","d"} and len(parts)>=2:
+            match=self.content_query.by_id_or_vnum(actor,"object",parts[1]);
+            if len(match)!=1: return BuilderResult(False,"Object selection is ambiguous or missing; use search <text> then exact ID.")
+            chance=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 100; qty=int(parts[3]) if len(parts)>3 and parts[3].isdigit() else 1
+            if not (0<=chance<=100) or qty<=0: return BuilderResult(False,"Chance must be 0-100 and quantity must be positive.")
+            self._session_checkpoint(sess); load=sess.working_record.setdefault("equipment_loadout",{}); load.setdefault("equipped",{}); load.setdefault("carried",[]).append({"item_template_id":match[0].canonical_id,"chance":chance,"quantity":qty}); sess.dirty=True; sess.saved=False
+            return BuilderResult(True,"Carried inventory entry added.\n"+self._render_equipment_editor(actor,sess))
+        if parts and parts[0].lower() in {"remove","c","f"} and len(parts)>=2:
+            self._session_checkpoint(sess); load=sess.working_record.setdefault("equipment_loadout",{}); tok=parts[1].lower()
+            if tok.isdigit():
+                arr=load.setdefault("carried",[]); idx=int(tok)-1
+                if not 0<=idx<len(arr): sess.undo_stack.pop(); return BuilderResult(False,"Carried inventory index out of range.")
+                arr.pop(idx)
+            else: load.setdefault("equipped",{}).pop(tok,None)
+            sess.dirty=True; sess.saved=False; return BuilderResult(True,"Loadout entry removed.\n"+self._render_equipment_editor(actor,sess))
+        return BuilderResult(False,"Equipment editor command not understood. Use assign, carry, remove, clear, preview, validate, undo, redo, back, or help equipment.")
+
+    def _render_spawns_editor(self, actor: Any, sess: BuilderEditSession) -> str:
+        mid=sess.object_id; sp=[]
+        for sid, rec in self.resolve_collection_records(actor,"spawns").items():
+            if str(rec.get("mobile_id") or rec.get("mob_id") or rec.get("entity_id") or rec.get("template_id")) == mid or mid in json.dumps(rec,default=str): sp.append((sid,rec))
+        lines=[f"MEDIT Spawn References: {(sess.working_record or {}).get('name') or mid}", f"Draft status: {'modified' if sess.dirty else 'clean'}"]
+        for i,(sid,r) in enumerate(sp,1): lines.append(f"{i}. {sid} area={r.get('area_id','')} zone={r.get('zone_id','')} room={r.get('room_id','')} profile={r.get('reset_profile_id') or r.get('profile_id','default')} max={r.get('max_count',r.get('maximum',1))} chance={r.get('chance',r.get('probability',100))} enabled={r.get('enabled',True)}")
+        if not sp: lines.append("- none")
+        lines += ["A. Add spawn reference", "E. Edit selected spawn reference", "R. Remove selected spawn reference", "G. Go to or inspect target room", "Z. Open related zone/reset profile", "P. Preview reset result", "T. Trace reset command", "V. Validate", "U. Undo", "D. Redo", "Q. Back", "Commands: add <room_id> [max] [chance]; edit <#> max <n>|chance <n>; remove <#>; preview; trace"]
+        return "\n".join(lines)
+
+    def _handle_spawns_editor(self, actor: Any, sess: BuilderEditSession, text: str) -> BuilderResult:
+        low=text.lower().strip(); parts=text.split(); world=sess.world_id
+        if low in {"q","back","quit"}: sess.section=""; sess.mode="main_menu"; return BuilderResult(True,self.render_session(sess))
+        if low in {"p","preview"}: return BuilderResult(True,"Reset preview (working draft):\n"+self._render_spawns_editor(actor,sess))
+        if low in {"t","trace"}: return BuilderResult(True,"Reset trace: canonical spawn references for this mobile are listed in command order above.")
+        if low in {"v","validate"}: return BuilderResult(True,"Spawn validation:\n- no focused issues")
+        if low in {"u","undo"}:
+            if not sess.undo_stack: return BuilderResult(False,"Nothing to undo.")
+            sess.redo_stack.append(deepcopy(sess.working_record)); sess.working_record=sess.undo_stack.pop(); sess.dirty=sess.working_record!=sess.savepoint; sess.saved=not sess.dirty; return BuilderResult(True,"Session undo applied.\n"+self._render_spawns_editor(actor,sess))
+        if low in {"d","redo"}:
+            if not sess.redo_stack: return BuilderResult(False,"Nothing to redo.")
+            sess.undo_stack.append(deepcopy(sess.working_record)); sess.working_record=sess.redo_stack.pop(); sess.dirty=sess.working_record!=sess.savepoint; sess.saved=not sess.dirty; return BuilderResult(True,"Session redo applied.\n"+self._render_spawns_editor(actor,sess))
+        drafts=self.workspace.load(world); spawns=drafts.setdefault("spawns",{})
+        related=[(sid,r) for sid,r in spawns.items() if isinstance(r,dict) and (str(r.get("mobile_id") or r.get("mob_id") or r.get("entity_id") or r.get("template_id"))==sess.object_id or sess.object_id in json.dumps(r,default=str))]
+        if parts and parts[0].lower() in {"add","a"} and len(parts)>=2:
+            room=self.resolve_reference(actor,"rooms",parts[1])
+            if not room: return BuilderResult(False,"Missing room; choose a valid room ID, VNUM, or search term.")
+            maxc=int(parts[2]) if len(parts)>2 and parts[2].isdigit() else 1; chance=int(parts[3]) if len(parts)>3 and parts[3].isdigit() else 100
+            if maxc<=0 or not 0<=chance<=100: return BuilderResult(False,"Maximum count must be positive and probability must be 0-100.")
+            sid=f"spawn_{sess.object_id}_{room.get('id')}"; rec={"id":sid,"world_id":world,"area_id":room.get("area_id",""),"zone_id":room.get("zone_id",""),"room_id":room.get("id"),"mobile_id":sess.object_id,"reset_profile_id":"default","max_count":maxc,"chance":chance,"enabled":True}
+            self._session_checkpoint(sess); spawns[sid]=rec; self.workspace.save_drafts(world,drafts); sess.working_record.setdefault("spawn_refs",[]); 
+            if sid not in sess.working_record["spawn_refs"]: sess.working_record["spawn_refs"].append(sid)
+            sess.dirty=True; sess.saved=False; return BuilderResult(True,"Spawn reference added to Builder draft.\n"+self._render_spawns_editor(actor,sess))
+        if parts and parts[0].lower() in {"remove","r"} and len(parts)>=2 and parts[1].isdigit():
+            idx=int(parts[1])-1
+            if not 0<=idx<len(related): return BuilderResult(False,"Spawn reference index out of range.")
+            self._session_checkpoint(sess); sid,_=related[idx]; spawns.pop(sid,None); self.workspace.save_drafts(world,drafts); sess.working_record["spawn_refs"]=[x for x in sess.working_record.get("spawn_refs",[]) if x!=sid]; sess.dirty=True; sess.saved=False; return BuilderResult(True,"Spawn reference removed from Builder draft.\n"+self._render_spawns_editor(actor,sess))
+        if parts and parts[0].lower() in {"edit","e"} and len(parts)>=4 and parts[1].isdigit():
+            idx=int(parts[1])-1
+            if not 0<=idx<len(related): return BuilderResult(False,"Spawn reference index out of range.")
+            field={"max":"max_count","maximum":"max_count","chance":"chance","probability":"chance"}.get(parts[2].lower())
+            if not field or not parts[3].isdigit(): return BuilderResult(False,"Use: edit <#> max <n> or edit <#> chance <0-100>.")
+            val=int(parts[3]);
+            if (field=="max_count" and val<=0) or (field=="chance" and not 0<=val<=100): return BuilderResult(False,"Maximum count must be positive and probability must be 0-100.")
+            self._session_checkpoint(sess); spawns[related[idx][0]][field]=val; self.workspace.save_drafts(world,drafts); sess.dirty=True; sess.saved=False; return BuilderResult(True,"Spawn reference updated.\n"+self._render_spawns_editor(actor,sess))
+        return BuilderResult(False,"Spawn editor command not understood. Use add, edit, remove, preview, trace, validate, undo, redo, back.")
 
     def _session_checkpoint(self, sess: BuilderEditSession) -> None:
         sess.undo_stack.append(deepcopy(sess.working_record))
@@ -2554,7 +2728,16 @@ class BuilderService:
                 return BuilderResult(True, "Unsaved changes: Save, Discard, or Cancel?")
             self.sessions.end(actor); return BuilderResult(True, "Editor closed and lock released.")
         if low in {"back", "cancel"}: sess.section=""; sess.mode="main_menu"; return BuilderResult(True, self.render_session(sess))
-        if low in {"?", "help"}: return BuilderResult(True, "Builder help: use menu numbers; field commands are name/type/status/area/zone/set/add/remove; Natural Weapons supports add/set/delete/list; global commands are preview, validate, testspawn, save, undo, redo, quit.")
+        if low in {"?", "help"} or low.startswith("help "):
+            topic = low[5:].strip() if low.startswith("help ") else ""
+            if topic in {"equipment", "loadout"}: return BuilderResult(True, "Equipment help: assign wearable object templates to canonical wear slots with assign <slot> <object> [chance] [qty]; carried items use carry <object> [chance] [qty]. Template draft data, not live instances.")
+            if topic in {"spawn", "spawns", "spawn maximum"}: return BuilderResult(True, "Spawn help: add <room> [max] [chance] creates a canonical spawn/reset draft reference. Max must be positive; chance is 0-100. Live world changes only after publish.")
+            if topic in {"damage dice", "action flags", "capacity"}: return BuilderResult(True, f"{topic.title()} help: edit through the structured field menu; values are validated immediately and saved only to Builder drafts.")
+            return BuilderResult(True, "Builder help: use menu numbers; structured editors support preview, validate, undo, redo, save, and back. Use help equipment, help spawn maximum, help action flags, help damage dice, or help capacity.")
+        if sess.editor_type == "medit" and sess.section == "equipment":
+            return self._handle_equipment_editor(actor, sess, text)
+        if sess.editor_type == "medit" and sess.section == "spawns":
+            return self._handle_spawns_editor(actor, sess, text)
         if sess.section and sess.section != "natural_weapons":
             field_token = parts[0].lower() if parts else ""
             desc = self._descriptor(sess, field_token)
