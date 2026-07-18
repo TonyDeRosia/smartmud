@@ -19,3 +19,7 @@ Character creation selects class/race, initializes progression state, reconciles
 ## Displayed skills
 
 Build Campfire and Set Camp are canonical active skills. They can be invoked by direct ability command names or generic `use` syntax, and currently return a real handler outcome when camp prerequisites are met or a truthful blocked/handler status when they are not.
+
+## Phase 18K invocation integrity
+
+Room-visible NPCs are now registered into the shared live ActorRegistry so spell, skill, combat, and render paths resolve the same runtime instance. Build Campfire and Set Camp expose direct command syntax in skills; remaining combat work includes broader AI retaliation and complete direct-skill handlers.

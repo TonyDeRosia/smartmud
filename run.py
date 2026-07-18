@@ -89,6 +89,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8000, help="Web port (web mode only)")
     parser.add_argument("--backend-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--ability-smoke-test", action="store_true", help="Run the production ability command smoke test and exit.")
+    parser.add_argument("--target-smoke-test", action="store_true", help="Run the production room target smoke test and exit.")
     return parser.parse_args()
 
 
@@ -212,6 +213,16 @@ def _run_ability_smoke_test() -> int:
                 (character_id, ability_id, 1, 100, 100),
             )
     runtime.enter_world(character_id)
+    mud = runtime.mud_runtime
+    character = mud.active_characters.get(character_id)
+    if character is not None:
+        old_room = character.room_id
+        character.room_id = "emberwood_hunting_trail"
+        mud.move_occupant("character:" + character_id, old_room, character.room_id)
+        mud.state_store.save_character(character, mud.active_world_id or "shattered_realms")
+        actor = mud.actor_registry.get(character_id)
+        if actor:
+            actor.identity.current_location = character.room_id
     for ability_id in ("armor", "detect_magic", "magic_missile", "strength"):
         runtime.mud_runtime.abilities.grant_ability(character_id, ability_id, source_type="smoke")
         runtime.mud_runtime.abilities.grant_ability("character:" + character_id, ability_id, source_type="smoke")
@@ -231,6 +242,55 @@ def _run_ability_smoke_test() -> int:
         print("\n[startup diagnostics]")
         for key in sorted(diagnostics):
             print(f"{key}: {diagnostics[key]}")
+    return 0 if ok else 1
+
+def _run_target_smoke_test() -> int:
+    """Exercise canonical room actor targeting in desktop/web composition."""
+    from app.web import WebRuntime
+    import sqlite3
+
+    runtime = WebRuntime(project_root())
+    try:
+        runtime.login_account({"username": "target_smoke"})
+    except Exception:
+        runtime.create_account({"username": "target_smoke", "password": ""})
+    runtime.select_world("shattered_realms")
+    name = "Target Smoke " + chr(65 + int(time.time()) % 26) + chr(65 + (int(time.time()) // 26) % 26)
+    created = runtime.create_character({"name": name, "race_id": "human", "class_id": "mage"})["character"]
+    character_id = str(created.get("character_id") or created.get("id"))
+    with sqlite3.connect(runtime.mud_runtime.state_store.db_path) as conn:
+        for ability_id in ("magic_missile", "set_camp", "build_campfire"):
+            conn.execute(
+                "INSERT OR REPLACE INTO actor_ability_progression(actor_id, ability_id, rank, maximum_rank, proficiency, active) VALUES(?,?,?,?,?,1)",
+                (character_id, ability_id, 1, 100, 100),
+            )
+    runtime.enter_world(character_id)
+    mud = runtime.mud_runtime
+    character = mud.active_characters[character_id]
+    old_room = character.room_id
+    character.room_id = "emberwood_hunting_trail"
+    mud.move_occupant("character:" + character_id, old_room, character.room_id)
+    mud.state_store.save_character(character, mud.active_world_id or "shattered_realms")
+    actor = mud.actor_registry.get(character_id)
+    if actor:
+        actor.identity.current_location = character.room_id
+    commands = ["look", "c magic missile wolf", "c magic wolf", "c 'magic missile' wolf", 'c "magic missile" wolf', "skills", "set camp", "look", "build campfire"]
+    transcript: list[str] = []
+    ok = True
+    for command in commands:
+        result = runtime.handle_input(command)
+        output = str(result.get("output_text") or result.get("output") or result.get("command_result_text") or "").strip()
+        transcript.append(f"> {command}\n{output}")
+        lower = output.lower()
+        if command == "look" and "forest wolf" not in lower:
+            ok = False
+        if command.startswith("c ") and "invalid target" in lower:
+            ok = False
+        if command == "skills" and ("command: build campfire" not in lower or "command: set camp" not in lower):
+            ok = False
+        if command == "build campfire" and "help topic" in lower:
+            ok = False
+    print("\n\n".join(transcript))
     return 0 if ok else 1
 
 def _run_backend_server(host: str, port: int) -> int:
@@ -256,6 +316,8 @@ def main() -> int:
 
         if args.ability_smoke_test:
             return _run_ability_smoke_test()
+        if args.target_smoke_test:
+            return _run_target_smoke_test()
 
         launch_mode = "terminal" if args.terminal else args.mode
         if args.backend_only:

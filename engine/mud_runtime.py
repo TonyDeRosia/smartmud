@@ -2084,14 +2084,14 @@ class MudRuntime:
 
     def _match_player_ability_command(self, words: list[str]) -> dict[str, Any] | None:
         phrase = " ".join(words).lower().strip()
+        ability_phrases = self._player_ability_phrases()
+        if phrase in ability_phrases:
+            return {"tokens": words, "raw_cmd": phrase, "cmd": "use", "args": phrase.split(), "alias_note": "ability command"}
         if words:
             first = words[0].lower()
             resolved, kind = self.command_engine.registry.resolve(first)
             if kind in {"exact", "alias", "abbreviation"} and resolved in self.command_engine.command_handlers:
                 return None
-        ability_phrases = self._player_ability_phrases()
-        if phrase in ability_phrases:
-            return {"tokens": words, "raw_cmd": phrase, "cmd": "use", "args": phrase.split(), "alias_note": "ability command"}
         return None
 
     def _player_ability_phrases(self) -> dict[str, str]:
@@ -3833,6 +3833,14 @@ class MudRuntime:
         self.entity_instance_to_actor_id[iid] = actor.actor_id
         self.actor_id_to_entity_instance_id[actor.actor_id] = iid
         self.resident_entities_by_actor_id[actor.actor_id] = dict(ent)
+        # NPCs/mobs are live Actors, not renderer-only rows.  Register the same
+        # resident Actor with the shared ActorRegistry used by ability targeting
+        # so room rendering, combat, and spells enumerate one canonical object.
+        if hasattr(self, "actor_registry"):
+            self.actor_registry.register(actor)
+        if getattr(self, "abilities", None):
+            self.abilities.actor_registry = self.actor_registry
+            self.abilities.actors = self.actor_registry.actors
         self.add_occupant(room_id, actor.actor_id)
         return actor
 
