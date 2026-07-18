@@ -121,3 +121,10 @@ Campfire and Set Camp now have a shared typed request/runtime boundary.  Their
 status remains evidence-based: only real command/runtime effects and persistence
 qualify as implemented; the 73 authored definitions are not a complete legacy
 inventory.
+
+## Phase 21B canonical-path evidence
+
+Armor, Detect Magic, Magic Missile, Strength, Build Campfire, and Set Camp all
+enter `AbilityRuntimeService` from production commands. Magic Missile is the
+damaging entry and uses combat/death authorities; the other five use canonical
+affect or survival effect authorities.

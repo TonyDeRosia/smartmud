@@ -11,3 +11,12 @@
 | Item activation | PLACEHOLDER | Typed request supported; no item command migration claimed |
 | Summoning | PARTIALLY_WIRED | Existing summon runtime hooks |
 | NPC AI/scripts | PARTIALLY_WIRED | Typed request supported; decision/scheduler migration pending |
+
+## Phase 21B update
+
+| Adapter | Status | Evidence |
+|---|---|---|
+| canonical effect handler | PRODUCTION_WIRED | `AbilityRuntimeService` invokes `execute_effect_handler` after common lifecycle work. |
+| damage component adapter | PRODUCTION_WIRED | Magic Missile dispatches through `_apply_damage_component` to combat runtime. |
+| camp/campfire adapter | PRODUCTION_WIRED | Registered effects call the survival-needs authority. |
+| legacy instant executor | PARTIALLY_WIRED | Retained for compatibility callers; production requests no longer delegate to it. |

@@ -2869,7 +2869,9 @@ class MudCommandEngine:
                     classification = "invalid target mode"
             diagnostics.append({"ability_id": aid, "name": name, "classification": classification, "actor_id": actor_id})
             if classification == "offensive":
-                lines.append(f"{name}: offensive")
+                # SPELLUP is a self-buff convenience command, not an ability
+                # availability report.  Keep offensive spells in diagnostics
+                # but omit them from its player-facing narrative.
                 continue
             if classification == "invalid target mode":
                 blocked += 1; lines.append(f"{name}: invalid target mode")

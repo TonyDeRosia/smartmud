@@ -2,6 +2,34 @@
 
 ## Findings and production decision
 
+### Before and after call graph
+
+**Before:** `MudCommandEngine._cmd_use_ability` →
+`AbilityRuntimeGateway.execute_result` → `AbilityRuntimeGateway.execute` →
+`AbilityExecutionService.start_ability` → `execute_instant_ability`.  The
+last method performed validation, target resolution, cost payment, cooldown,
+effect invocation and proficiency improvement as one opaque operation.
+
+**After:** cast and multiword skill command parsing →
+`AbilityExecutionRequest` → `AbilityRuntimeService.execute` → definition
+resolution → `validate_ability_use`/`AbilityTargetResolver` →
+`SpellResourceCostService` calculation → `RuntimeResourceService` payment →
+centralized recorded roll → `execute_effect_handler` → combat runtime
+(`DamageService` authority) → Phase 20 death runtime when terminal →
+proficiency improvement → cooldown persistence → event publication → command
+result rendering.  `execute_effect_handler` is effect-only and cannot charge
+costs, start generic cooldowns, or improve proficiency.
+
+The exact six routes share that post-request graph: `cast armor`, `cast detect
+magic`, `cast magic missile`, and `cast strength` originate in
+`_cmd_use_ability`; `build campfire` and `set camp` originate in the command
+router's multiword ability route.  Damage is absent for the five non-damaging
+routes.  Magic Missile's handler calls `_apply_damage_component`, which
+submits a `CombatActionRequest`; combat owns hostile engagement and invokes
+the configured death runtime for terminal results.  Browser and Telnet both
+render the resulting `CommandResult`, rather than running a separate gameplay
+path.
+
 Before Phase 21B, `MudCommandEngine._cmd_use_ability` parsed `cast` input and
 called `AbilityRuntimeGateway`, while multiword survival commands were also
 recognized by the survival command handler.  Both ultimately use
@@ -35,3 +63,11 @@ runtime; the ability handler does not create corpses or rewards.
 * Existing persistence remains authoritative for resource, affect, cooldown,
   combat, damage and death projections.  No second persistence overlay was
   added.
+
+## Phase 18A regression conclusion
+
+The spellup assertion was correct: Magic Missile is intentionally learnable
+and appears in `spells`, but is offensive and therefore must not appear in the
+self-buff `spellup` narrative.  The regression was presentation leakage, not
+an eligibility or fixture-state issue.  The command now retains the offensive
+classification in diagnostics while omitting it from the player-facing output.
