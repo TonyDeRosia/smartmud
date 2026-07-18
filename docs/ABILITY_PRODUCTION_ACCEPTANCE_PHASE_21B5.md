@@ -31,3 +31,10 @@ Phase 21B is **not yet complete**.  Durable restart idempotency, duplicate
 transport submission, nonterminal/failure coverage, event-chain assertions,
 heartbeat assertions, and normalized Browser/Telnet parity remain to be added
 before Phase 21C can be considered unblocked.
+
+### Phase 21B.6 replay acceptance update
+
+Transport-neutral request identity now reaches the canonical ability request
+through both production adapters.  Durable duplicate receipts retain original
+damage/death references, and prompt projections refresh canonical paid
+resources before rendering.  See `ABILITY_PHASE_21B_FINAL_ACCEPTANCE.md`.

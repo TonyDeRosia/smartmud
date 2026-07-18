@@ -3022,9 +3022,10 @@ class MudCommandEngine:
         if runtime_service:
             invocation = AbilityInvocationType.CAST_COMMAND if canonical_cmd == "cast" else AbilityInvocationType.SKILL_COMMAND
             request = AbilityExecutionRequest(
-                request_id=f"command:{character.id}:{__import__('uuid').uuid4().hex}", world_id=getattr(svc, "world_id", ""),
+                request_id=str(getattr(character, "_command_request_id", "") or f"command:{character.id}:{__import__('uuid').uuid4().hex}"), world_id=getattr(svc, "world_id", ""),
                 actor_id=character.id, ability_id=aid, invocation_type=invocation,
                 raw_argument_text=target or "self", source_command=raw,
+                idempotency_key=str(getattr(character, "_command_idempotency_key", "") or ""),
             )
             result = runtime_service.execute(request)
             return CommandResult(result.player_message or ("Ability activated." if result.ok else "You cannot use that ability."), ok=result.ok,

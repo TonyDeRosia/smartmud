@@ -46,6 +46,11 @@ class TransportMessage:
     session: TransportSession
     text: str
     raw: bytes | None = None
+    # Optional transport-neutral submission identity.  It is intentionally
+    # metadata rather than player-visible command syntax, so browser retries
+    # and in-process telnet instrumentation share the runtime ledger.
+    request_id: str = ""
+    idempotency_key: str = ""
 
 
 @dataclass
@@ -114,7 +119,11 @@ class RuntimeTransportAdapter:
             self.event_bus.publish("transport_message_received", {"session_id": message.session.session_id, "transport_type": message.session.transport_type, "output_format": self.output_format.value, "character_id": message.session.character_id or "", "world_id": message.session.world_id or "", "command": message.text}, source_system="transport", session_id=message.session.session_id, transport_type=message.session.transport_type, character_id=message.session.character_id or "", world_id=message.session.world_id or "", command=message.text)
         if not message.session.character_id:
             raise ValueError("Transport session has no character_id; authentication/character selection is required.")
-        result = self.mud_runtime.handle_input(message.session.character_id, message.text)
+        result = self.mud_runtime.handle_input(
+            message.session.character_id, message.text,
+            request_id=message.request_id or None,
+            idempotency_key=message.idempotency_key or None,
+        )
         response = self.render_runtime_result(message.session, result, command=message.text)
         if self.event_bus:
             self.event_bus.publish("transport_response_sent", {"session_id": message.session.session_id, "transport_type": message.session.transport_type, "output_format": response.output_format.value, "character_id": message.session.character_id or "", "world_id": message.session.world_id or "", "command": message.text}, source_system="transport", session_id=message.session.session_id, transport_type=message.session.transport_type, character_id=message.session.character_id or "", world_id=message.session.world_id or "", command=message.text)
