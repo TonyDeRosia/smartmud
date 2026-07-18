@@ -1051,23 +1051,37 @@ class MudCommandEngine:
         data = getattr(character, "actor_data", {}) if isinstance(getattr(character, "actor_data", {}), dict) else {}
         pos = str(data.get("position") or data.get("posture") or "standing").lower()
         def finish(msg: str, ok: bool = True, newpos: str | None = None) -> CommandResult:
+            oldpos = pos
             if newpos:
                 data["position"] = newpos; data["posture"] = newpos; character.actor_data = data
-                if rt: rt.mark_character_dirty(getattr(character, "id", ""), "position")
+                actor = getattr(cr, "resident_actors", {}).get(actor_id) if cr else None
+                if actor:
+                    actor.combat_profile["position"] = newpos
+                    actor.combat_profile["combat_state"] = "idle" if newpos == "standing" else newpos
+                if rt:
+                    rt.mark_character_dirty(getattr(character, "id", ""), "position")
+                    if getattr(rt, "event_bus", None):
+                        rt.event_bus.publish("character.position.changed", {"character_id": getattr(character, "id", ""), "actor_id": actor_id, "old_position": oldpos, "new_position": newpos}, source_system="position", world_id=getattr(rt, "active_world_id", ""))
+                        if newpos == "resting": rt.event_bus.publish("character.rest.started", {"actor_id": actor_id}, source_system="position", world_id=getattr(rt, "active_world_id", ""))
+                        if newpos == "sleeping": rt.event_bus.publish("character.sleep.started", {"actor_id": actor_id}, source_system="position", world_id=getattr(rt, "active_world_id", ""))
+                        if oldpos in {"sleeping","resting","sitting"} and newpos == "standing": rt.event_bus.publish("character.woke", {"actor_id": actor_id, "old_position": oldpos}, source_system="position", world_id=getattr(rt, "active_world_id", ""))
             if rt: rt.performance_counters["position_command_duration_ms"] = int((time.monotonic()-t0)*1000)
-            return CommandResult(msg, ok=ok, state_updates={"prompt": True})
+            return CommandResult(msg, ok=ok, state_updates={"prompt": True, "prompt_changed": True, "position_changed": bool(newpos)})
         if cmd == "sit":
             if in_combat: return finish("Sit down while fighting? Are you MAD?", False)
             if pos == "sitting": return finish("You're sitting already.")
             return finish("You sit down.", True, "sitting")
         if cmd == "rest":
             if in_combat: return finish("Rest while fighting? Are you MAD?", False)
+            if pos == "sleeping": return finish("You are asleep.", False)
+            if pos in {"stunned", "incapacitated", "dead"}: return finish(f"You are {pos}.", False)
             if pos == "resting": return finish("You are already resting.")
             return finish("You sit down and rest your tired bones." if pos == "standing" else "You rest your tired bones.", True, "resting")
         if cmd == "sleep":
             if in_combat: return finish("Sleep while fighting? Are you MAD?", False)
-            if pos == "sleeping": return finish("You are already sound asleep.")
-            return finish("You go to sleep.", True, "sleeping")
+            if pos in {"stunned", "incapacitated", "dead"}: return finish(f"You are {pos}.", False)
+            if pos == "sleeping": return finish("You are already asleep.")
+            return finish("You lie down and go to sleep." if pos == "standing" else "You go to sleep.", True, "sleeping")
         if cmd == "stand":
             if in_combat: return finish("Do you not consider fighting as standing?", False)
             if pos == "sleeping": return finish("You have to wake up first!", False)
@@ -1075,9 +1089,10 @@ class MudCommandEngine:
             if pos == "sitting": return finish("You stand up.", True, "standing")
             return finish("You are already standing.")
         if cmd == "wake":
-            if pos == "sleeping": return finish("You awaken, and stand up.", True, "standing")
-            if pos in {"resting", "sitting"}: return finish("You stand up.", True, "standing")
-            return finish("You are already awake...")
+            if pos == "sleeping": return finish("You wake and stand up.", True, "standing")
+            if pos == "resting": return finish("You stop resting, and stand up.", True, "standing")
+            if pos == "sitting": return finish("You stand up.", True, "standing")
+            return finish("You are already awake.")
         return finish("You cannot do that right now.", False)
 
     def _cmd_survival_needs(self, character: Any, args: list[str], raw: str) -> CommandResult:

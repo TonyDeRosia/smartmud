@@ -312,8 +312,10 @@ class RuntimeResourceService:
                 health_before = _num(actor.resources.health)
                 applied = self.apply_regeneration(actor, {"health": mult, "mana": mult, "stamina": mult})
                 if any(r.applied_amount for r in applied):
-                    changes += sum(1 for r in applied if r.applied_amount)
-                    counters["point_update_resource_changes"] = counters.get("point_update_resource_changes", 0) + sum(1 for r in applied if r.applied_amount)
+                    changed_count = sum(1 for r in applied if r.applied_amount)
+                    changes += changed_count
+                    counters["point_update_resource_changes"] = counters.get("point_update_resource_changes", 0) + changed_count
+                    self._publish("character.resources.regenerated", {"actor_id": actor.actor_id, "world_id": self.world_id, "resources": {r.resource: r.applied_amount for r in applied if r.applied_amount}, "position": state, "resource_changed": True, "prompt_changed": True})
                 health_after = _num(actor.resources.health)
                 _stored, new_state, transitioned = reconcile_actor_position(actor, rt, reason="regeneration")
                 if transitioned and old_state in {"stunned", "incapacitated", "mortally_wounded"} and new_state not in {"stunned", "incapacitated", "mortally_wounded", "dead"} and actor.actor_id.startswith("character:"):
