@@ -417,6 +417,9 @@ class CombatRuntimeResult:
     encounter_id: str = ""
 
 class CombatRuntimeService:
+    # The MudRuntime heartbeat is the only scheduler.  This value documents the
+    # normal violence delay and is deliberately not used to start a second
+    # timer; `MudRuntime.pulse_config` remains the scheduler authority.
     ROUND_DELAY = 2.0
     MAX_ACTIONS_PER_PULSE = 8
     FLEE_BASE_CHANCE = 50.0
@@ -735,6 +738,10 @@ class CombatRuntimeService:
         except Exception:
             pass
         if already:
+            resident = self.resident_encounters.get(enc)
+            participant = resident.participants.get(attacker.actor_id) if resident else None
+            if participant and participant.wait_pulses > 0:
+                return CombatRuntimeResult(False, ['You are not ready to act again yet.'], enc)
             return CombatRuntimeResult(True, [f'You keep fighting {defender.identity.name}.'], enc)
         print(f'[combat-start] actor={attacker.identity.name} target={defender.identity.name} encounter={enc} opening_ms=0')
         if _trace is not None: _trace["opening_attack_started"] = time.monotonic()
@@ -1093,7 +1100,19 @@ class CombatRuntimeService:
         self._append_audit_event(eid, {'encounter_id': eid, 'round': self._resident_round(eid), 'pulse': getattr(self.runtime, '_runtime_pulse_counter', 0), 'attacker': attacker.actor_id, 'defender': defender.actor_id, 'action': request.attack_kind, 'outcome': outcome, 'damage': dmg, 'critical': bool(res.damage_event and res.damage_event.critical), 'trace': res.trace, 'messages': res.messages, 'created_monotonic': time.monotonic(), 'created_utc': datetime.now(timezone.utc).isoformat(), 'source_type': request.source_type, 'action_id': request.action_id})
         enc = self.resident_encounters.get(eid)
         if enc and attacker.actor_id in enc.participants:
-            part = enc.participants[attacker.actor_id]; part.contribution_damage += dmg; part.last_action_pulse = getattr(self.runtime, '_runtime_pulse_counter', 0); enc.dirty = True
+            part = enc.participants[attacker.actor_id]
+            part.contribution_damage += dmg
+            part.last_action_pulse = getattr(self.runtime, '_runtime_pulse_counter', 0)
+            # A successful or missed ordinary swing consumes the same one
+            # violence-round readiness window for PCs and NPCs.  The next
+            # heartbeat expires it before choosing that participant's action.
+            if request.attack_kind in {'basic_attack', 'melee', 'ranged', 'unarmed'}:
+                before = part.wait_pulses
+                part.wait_pulses = max(part.wait_pulses, 1)
+                self._publish('combat.wait.applied', {'encounter_id': eid, 'actor_id': attacker.actor_id,
+                    'target_actor_id': defender.actor_id, 'round': self._resident_round(eid),
+                    'wait_before': before, 'wait_after': part.wait_pulses, 'world_time': wt})
+            enc.dirty = True
         self._publish('combat_attack_resolved',{'encounter_id':eid,'actor_id':attacker.actor_id,'target_actor_id':defender.actor_id,'result':outcome,'damage':dmg,'round':self._resident_round(eid),'world_time':wt})
         if dmg: self._publish('combat_damage_applied',{'encounter_id':eid,'actor_id':attacker.actor_id,'target_actor_id':defender.actor_id,'damage':dmg,'round':self._resident_round(eid),'world_time':wt})
         self._publish('combat_action_completed',{'encounter_id':eid,'actor_id':attacker.actor_id,'target_actor_id':defender.actor_id,'result':outcome,'world_time':wt})
@@ -1273,7 +1292,12 @@ class CombatRuntimeService:
             if part.last_action_pulse == pulse_no:
                 invalid += 1; continue
             if part.wait_pulses > 0:
-                part.wait_pulses -= 1; waiting += 1; continue
+                before = part.wait_pulses
+                part.wait_pulses -= 1
+                waiting += 1
+                self._publish('combat.wait.expired', {'encounter_id': eid, 'actor_id': aid,
+                    'round': rnd, 'wait_before': before, 'wait_after': part.wait_pulses,
+                    'world_time': wt})
             with self.violence_profiler.section('actor_lookup'):
                 a=self._load_actor(aid); d=self._load_actor(tid)
             if not a or a.resources.health<=0:
@@ -1286,6 +1310,18 @@ class CombatRuntimeService:
             if a.identity.current_location!=d.identity.current_location:
                 self._stop_actor_fighting(eid, aid, status='separated', reason='room_separation')
                 invalid += 1; continue
+            # Health-derived posture is canonical.  A seated NPC can rise to
+            # retaliate, while sleeping/resting/down actors retain their
+            # stronger blocking state and yield a structured skipped event.
+            action_state = build_action_state(a, self.runtime, active_encounter_id=eid, active_target_id=tid)
+            if action_state.derived_position == 'sitting' and a.actor_id.startswith('entity:'):
+                a.combat_profile['position'] = 'fighting'; a.combat_profile['combat_state'] = 'in_combat'
+            elif action_state.derived_position in {'resting', 'sleeping', 'stunned', 'incapacitated', 'mortally_wounded', 'dead'}:
+                self._publish('combat.actor.skipped', {'encounter_id': eid, 'actor_id': aid,
+                    'target_actor_id': tid, 'round': rnd, 'reason': action_state.derived_position,
+                    'world_time': wt})
+                invalid += 1
+                continue
             with self.violence_profiler.section('queued_action_resolution'):
                 act=self.consume_resident_action(eid, aid)
             if act:

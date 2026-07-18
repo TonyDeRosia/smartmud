@@ -2438,8 +2438,9 @@ class MudRuntime:
             old_room = self.canonical_room_id((actor.identity.current_location if actor else "") or (ent or {}).get("room_id") or (ent or {}).get("current_room_id"))
         if not destination:
             return CommandResult(narrative="You cannot go that way.", ok=False)
-        if not bypass_combat and getattr(self, "combat_runtime", None) and self.combat_runtime.is_actor_in_active_combat(actor_id):
-            return CommandResult(narrative="You are fighting! Use FLEE to escape." if char else "The actor is fighting and cannot move normally.", ok=False)
+        active_encounter = self.combat_runtime.find_actor_encounter(actor_id) if getattr(self, "combat_runtime", None) else ""
+        if not bypass_combat and active_encounter:
+            return CommandResult(narrative="You are too busy fighting to move normally. Use FLEE to escape." if char else "The actor is fighting and cannot move normally.", ok=False)
         self.remove_occupant(old_room, actor_id)
         if actor:
             actor.identity.current_location = destination
@@ -2458,6 +2459,11 @@ class MudRuntime:
             if hasattr(self.combat_runtime, "dirty_resident_entities"):
                 self.combat_runtime.dirty_resident_entities.add(eid)
         self.add_occupant(destination, actor_id)
+        # Builder/admin relocation deliberately bypasses the player movement
+        # gate, but it must never leave opponent links scheduled in another
+        # room.  The combat runtime owns the complete, idempotent cleanup.
+        if active_encounter and old_room and old_room != destination and getattr(self, "combat_runtime", None):
+            self.combat_runtime.end_encounter(active_encounter, "room_separation")
         if old_room and old_room != destination:
             direction = str(movement_context.get("direction") or source or "away")
             reverse = {"north":"south","south":"north","east":"west","west":"east","up":"down","down":"up","in":"out","out":"in"}.get(direction, direction)
@@ -2480,7 +2486,7 @@ class MudRuntime:
         if position == "sleeping":
             return CommandResult(narrative="You are asleep.", ok=False, state_updates={"prompt": True})
         if not bypass_combat and getattr(self, 'combat_runtime', None) and self.combat_runtime.is_actor_in_active_combat(aid):
-            return CommandResult(narrative='You are fighting! Use FLEE to escape.', ok=False)
+            return CommandResult(narrative='You are too busy fighting to move normally. Use FLEE to escape.', ok=False)
         self.event_bus.publish("movement_attempted", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)
         exit_data, reason = self.resolve_exit(char, room_id, direction)
         if exit_data and reason == "ok":

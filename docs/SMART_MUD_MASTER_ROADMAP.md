@@ -258,3 +258,15 @@ Room-visible NPCs are now registered into the shared live ActorRegistry so spell
 ## Phase 19C spell resources and natural weapons
 
 Phase 19C adds canonical legacy spell mana costs via `SpellResourceCostService`. Magic Missile uses `mana_max=25`, `mana_min=10`, `mana_change=3`, and class-specific unlock level 1 for Adventurer and Magic User/Mage, producing costs 25/22/19/16/13/10 by level. Cast and spellup validation consume the same service result; low-mana cast failures now show required and available mana. Resource payment is centralized through `RuntimeResourceService` so live score/prompt state and persistence stay aligned. The forest wolf natural attack miss path now carries the selected bite profile rather than falling back to punch wording.
+
+## Phase 19B combat heartbeat and readiness
+
+Phase 19B makes the existing runtime violence pulse the sole combat scheduler.
+Resident encounters receive deterministic PC auto-attacks and NPC retaliation
+through the established physical resolver, with one-pulse readiness waits,
+async browser/Telnet combat packets, and cleanup for defeat, removal, logout,
+separation, and restart. Ordinary movement is blocked during active fighting;
+future `flee` is the intended escape path. The next recommended phase is
+canonical death processing, NPC corpses, item/currency transfer, kill
+attribution, XP/group rewards, flee, assist, and rescue. Combat skills and
+spells should then use this same action/readiness framework.
