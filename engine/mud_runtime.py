@@ -866,6 +866,10 @@ class MudRuntime:
                 except Exception as exc:
                     errors["world_hour"] = str(exc)[:160]; logger.exception("world hour pulse failed")
         completed = time.monotonic(); duration_ms = int(max(0, (completed - started) * 1000))
+        if getattr(self, "event_bus", None):
+            self.event_bus.publish("runtime.pulse", {"pulse": self._runtime_pulse_counter, "subsystems_attempted": attempted, "subsystems_processed": processed}, source_system="runtime", world_id=self.active_world_id or "")
+            if "point_update" in attempted:
+                self.event_bus.publish("runtime.tick", {"pulse": self._runtime_pulse_counter, "processed": "point_update" in processed}, source_system="runtime", world_id=self.active_world_id or "")
         self.performance_counters["runtime_pulse_duration_ms"] = duration_ms
         self.performance_counters["runtime_pulse_max_duration_ms"] = max(self.performance_counters.get("runtime_pulse_max_duration_ms", 0), duration_ms)
         return {"started_at": started, "completed_at": completed, "duration_ms": duration_ms, "scheduler_lag_ms": int(max(0, scheduler_lag_ms)), "pulse": self._runtime_pulse_counter, "missed_pulses": missed, "catchup_pulses": catchup, "subsystems_attempted": attempted, "subsystems_processed": processed, "subsystem_errors": errors, "backlog_counts": {"combat": self.performance_counters.get("combat_backlog", 0)}}
@@ -2231,6 +2235,14 @@ class MudRuntime:
             item_preview = self._handle_item_command(char, command, cmd_name, args)
             if item_preview is not None and not item_preview.narrative.startswith("You don't see that"):
                 return item_preview
+        from engine.character_state import normalize_position
+        position = normalize_position((getattr(char, "actor_data", {}) or {}).get("position") or (getattr(char, "actor_data", {}) or {}).get("posture") or "standing")
+        if cmd_name in {"look", "l"} and not args and position == "sleeping":
+            from engine.mud_commands import CommandResult
+            return CommandResult("In your dreams, or what?", ok=False, state_updates={"prompt": True})
+        if cmd_name in {"north", "south", "east", "west", "up", "down", "in", "out"} and position in {"resting", "sleeping", "sitting"}:
+            from engine.mud_commands import CommandResult
+            return CommandResult("You need to stand up first." if position != "sleeping" else "You are asleep.", ok=False, state_updates={"prompt": True})
         if cmd_name in {"look", "examine"} and args and args[0].lower() == "in":
             item_preview = self._handle_item_command(char, command, cmd_name, args)
             if item_preview is not None:
@@ -2249,6 +2261,8 @@ class MudRuntime:
                 self.event_bus.publish("command_executed", {"raw_input": command, "canonical_command": cmd_name, "arguments": args, "character_id": char.id, "character_name": char.name, "current_room_id": char.room_id, "result_summary": item_preview.narrative[:120]}, source_system="command", world_id=self.active_world_id or "", character_id=char.id, command=command)
                 return item_preview
         if cmd_name in {"cast", "invoke", "perform", "ability", "abilities", "skills", "spells", "cancel", "cooldowns", "abilitylist", "abilitystat", "abilitycreate", "abilityclone", "abilityset", "abilitydelete", "abilityvalidate", "abilitypreview", "abilitytrace", "loadoutlist", "loadoutstat", "loadoutcreate", "loadoutclone", "loadoutset", "loadoutability", "loadoutdelete", "loadoutvalidate", "abilitygrant", "abilityrevoke", "actorabilities", "abilitycooldowns", "abilitycasts"}:
+            return self.command_engine.handle_command(char, command)
+        if cmd_name in {"sit", "stand", "rest", "sleep", "wake"}:
             return self.command_engine.handle_command(char, command)
         if cmd_name == "use" and " ".join(args).lower() in self._player_ability_phrases():
             return self.command_engine.handle_command(char, "use " + " ".join(args))
@@ -2330,6 +2344,12 @@ class MudRuntime:
         if getattr(self, 'combat_runtime', None):
             actor = self.combat_runtime._resident_character_actor(char)
             self.add_occupant(room_id, aid)
+        from engine.character_state import normalize_position
+        position = normalize_position((getattr(char, "actor_data", {}) or {}).get("position") or (getattr(char, "actor_data", {}) or {}).get("posture") or "standing")
+        if position in {"resting", "sitting"}:
+            return CommandResult(narrative="You need to stand up first.", ok=False, state_updates={"prompt": True})
+        if position == "sleeping":
+            return CommandResult(narrative="You are asleep.", ok=False, state_updates={"prompt": True})
         if not bypass_combat and getattr(self, 'combat_runtime', None) and self.combat_runtime.is_actor_in_active_combat(aid):
             return CommandResult(narrative='You are fighting! Use FLEE to escape.', ok=False)
         self.event_bus.publish("movement_attempted", {"canonical_command": direction, "character_id": char.id, "character_name": char.name, "current_room_id": room_id}, source_system="movement", world_id=self.active_world_id or "", character_id=char.id, command=direction)

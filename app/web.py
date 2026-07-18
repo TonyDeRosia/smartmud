@@ -266,7 +266,7 @@ class WebRuntime:
         }, source_system="account", session_id=self.web_session.session_id, transport_type=self.web_session.transport_type, world_id=world_id or self.active_world_id)
 
     def create_account(self, payload: dict[str, Any]) -> dict[str, Any]:
-        account = self.mud_runtime.create_account(str(payload.get("username") or payload.get("account_name") or "local_dev"), str(payload.get("password") or ""), str(payload.get("email") or ""), str(payload.get("notes") or ""))
+        account = self.mud_runtime.create_account(str(payload.get("username") or payload.get("account_name") or "local_dev"), str(payload.get("password") or ""), str(payload.get("email") or ""), str(payload.get("notes") or ""), str(payload.get("role") or "player"))
         self.web_session.account_id = account["account_id"]; self.web_session.authenticated = True; self.web_session.state = "account_authenticated"
         self.mud_runtime.authenticate_session(self.web_session.session_id, account["account_id"])
         return {"ok": True, "account": account, "session": self.account_session()}
@@ -438,8 +438,6 @@ class WebRuntime:
         clean_command = command.strip().lower()
         if clean_command == "history" and "Recent commands:" not in command_output:
             command_output = "Recent commands:\nlook\nscore\nhistory"
-        if clean_command in {"u", "up", "d", "down"} and "You cannot go that way." not in command_output:
-            command_output = "You cannot go that way."
         if clean_command in {"n", "north"}:
             command_output = command_output.replace("You travel north.", "You head north.")
         if "view" in result:

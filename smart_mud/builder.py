@@ -3313,9 +3313,68 @@ class BuilderService:
 
     def _handle_medit_advanced(self, actor: Any, sess: BuilderEditSession, text: str) -> BuilderResult:
         low=text.lower().strip(); key='combat_abilities' if sess.section in {'abilities','combat_abilities'} else 'event_reactions'; entries=sess.working_record.setdefault(key,[]); kind='combat_ability' if key=='combat_abilities' else 'event_reaction'
+        if sess.mode in {'medit_ability_value','medit_reaction_value'}:
+            idx=int(sess.pending_value or 0); field=str(sess.active_field or '')
+            if low in {'q','quit','back'}:
+                sess.mode='medit_ability_slot' if key=='combat_abilities' else 'medit_reaction_slot'; sess.active_field=''
+                return BuilderResult(True,(self._render_medit_ability_slot(sess) if key=='combat_abilities' else self._render_medit_reaction_slot(sess)))
+            self._session_checkpoint(sess); e=entries[idx]
+            def as_int(v, default=0):
+                try: return int(v)
+                except Exception: return default
+            if key=='combat_abilities':
+                if field=='ability_type':
+                    if low not in MEDIT_ADVANCED_ABILITY_TYPES: return BuilderResult(False,'Choose: '+', '.join(MEDIT_ADVANCED_ABILITY_TYPES))
+                    e['ability_type']=low
+                elif field=='ability_id': e['ability_id']=text.strip()
+                elif field=='target_selector':
+                    if low not in MEDIT_ADVANCED_TARGETS: return BuilderResult(False,'Choose: '+', '.join(MEDIT_ADVANCED_TARGETS))
+                    e['target_selector']=low
+                elif field=='trigger':
+                    val = 'cooldown_ready' if low == 'cooldown' else low
+                    if val not in MEDIT_ADVANCED_ABILITY_TRIGGERS: return BuilderResult(False,'Choose: '+', '.join(MEDIT_ADVANCED_ABILITY_TRIGGERS))
+                    e['trigger']=val
+                elif field=='timing':
+                    parts=dict(x.split('=',1) for x in text.split() if '=' in x)
+                    for k in ('cooldown','minimum_round','maximum_round','chance'): e[k]=as_int(parts.get(k,''), as_int(e.get(k, 0 if k!='chance' else 100)))
+                elif field=='limits':
+                    parts=dict(x.split('=',1) for x in text.split() if '=' in x)
+                    for k in ('uses_per_combat','uses_per_spawn','priority'): e[k]=as_int(parts.get(k,''), as_int(e.get(k,0)))
+                elif field=='flags':
+                    vals={v.lower() for v in text.replace(',', ' ').split()}
+                    if 'enabled' in vals: e['enabled']=True
+                    if 'disabled' in vals: e['enabled']=False
+                    e['requires_line_of_sight']='requires_line_of_sight' in vals or 'los' in vals; e['interruptible']='interruptible' in vals
+            else:
+                if field=='event_type':
+                    if low not in MEDIT_ADVANCED_EVENT_TYPES: return BuilderResult(False,'Choose: '+', '.join(MEDIT_ADVANCED_EVENT_TYPES))
+                    e['event_type']=low
+                elif field=='action_type':
+                    if low not in MEDIT_ADVANCED_ACTION_TYPES: return BuilderResult(False,'Choose: '+', '.join(MEDIT_ADVANCED_ACTION_TYPES))
+                    e['action_type']=low
+                elif field=='action_data':
+                    try: e['action_data']=json.loads(text) if text.strip().startswith('{') else {'text':text.strip()}
+                    except Exception: return BuilderResult(False,'Enter JSON object or plain action text.')
+                elif field=='target_selector':
+                    if low not in MEDIT_ADVANCED_TARGETS: return BuilderResult(False,'Choose: '+', '.join(MEDIT_ADVANCED_TARGETS))
+                    e['target_selector']=low
+                elif field=='cooldown':
+                    parts=dict(x.split('=',1) for x in text.split() if '=' in x)
+                    for k in ('cooldown','chance','priority'): e[k]=as_int(parts.get(k,''), as_int(e.get(k, 0 if k!='chance' else 100)))
+                elif field=='limits':
+                    parts=dict(x.split('=',1) for x in text.split() if '=' in x)
+                    for k in ('uses_per_spawn','maximum_triggers'): e[k]=as_int(parts.get(k,''), as_int(e.get(k,0)))
+                    if 'once' in low: e['once']=True
+                    if 'stop' in low: e['stop_processing']=True
+            sess.working_record[key]=[_canonical_advanced_entry(x,sess.object_id,kind,i+1) for i,x in enumerate(entries)]; sess.dirty=True; sess.saved=False; sess.mode='medit_ability_slot' if key=='combat_abilities' else 'medit_reaction_slot'; sess.active_field=''
+            return BuilderResult(True,'Field updated.\n'+(self._render_medit_ability_slot(sess) if key=='combat_abilities' else self._render_medit_reaction_slot(sess)))
         if sess.mode in {'medit_ability_slot','medit_reaction_slot'}:
             if low in {'q','quit','back'}: sess.mode='section_menu'; return BuilderResult(True,self._render_medit_advanced_list(sess,key))
-            return BuilderResult(True,"Field editing prompt opened; enter a value or Q to cancel.\n"+(self._render_medit_ability_slot(sess) if key=='combat_abilities' else self._render_medit_reaction_slot(sess)))
+            field_map={'1':'ability_type','2':'ability_id','3':'target_selector','4':'trigger','5':'timing','6':'limits','7':'flags'} if key=='combat_abilities' else {'1':'event_type','2':'action_type','3':'action_data','4':'target_selector','5':'cooldown','6':'limits'}
+            if low in field_map:
+                sess.active_field=field_map[low]; sess.mode='medit_ability_value' if key=='combat_abilities' else 'medit_reaction_value'
+                return BuilderResult(True,'Enter value for '+sess.active_field.replace('_',' ')+':')
+            return BuilderResult(False,("Invalid choice. Use 1-7 or Q.\n" if key=='combat_abilities' else "Invalid choice. Use 1-6 or Q.\n")+(self._render_medit_ability_slot(sess) if key=='combat_abilities' else self._render_medit_reaction_slot(sess)))
         if low in {'q','quit','back'}: sess.section=''; sess.mode='main_menu'; return BuilderResult(True,self.render_session(sess))
         def commit(msg):
             sess.working_record[key]=[_canonical_advanced_entry(e,sess.object_id,kind,i+1) for i,e in enumerate(entries)]; sess.dirty=True; sess.saved=False; return BuilderResult(True,msg+'\n'+self._render_medit_advanced_list(sess,key))
@@ -3374,7 +3433,7 @@ class BuilderService:
 
     def _render_medit_advanced_list(self, sess: BuilderEditSession, key: str) -> str:
         title='Combat Abilities' if key=='combat_abilities' else 'Event Reactions'; entries=sess.working_record.get(key) or []
-        lines=[f"{title} ({len(entries)})",""]
+        maxn=10; lines=[f"{title} ({len(entries)}/{maxn})",""]
         if not entries: lines.append('   [NONE]')
         else:
             for i,e in enumerate(entries,1):
@@ -3385,11 +3444,11 @@ class BuilderService:
 
     def _render_medit_ability_slot(self, sess: BuilderEditSession) -> str:
         entries=sess.working_record.get('combat_abilities') or []; idx=int(sess.pending_value or 0); e=entries[idx] if 0<=idx<len(entries) else {}
-        return "\n".join([f"Combat Ability Editor (slot {idx+1})","Choose what this mob can do during combat, who it targets, and when it should attempt the action.","",f"1) Type: {e.get('ability_type','ability')}",f"2) Spell/Skill: {e.get('ability_id') or '<unset>'}",f"3) Target: {e.get('target_selector','current_enemy')}",f"4) Trigger mode: {e.get('trigger','every_round')}","5) Timing / Condition Details","6) Usage Limits","7) Status Flags","Q) Back","Enter field:"])
+        return "\n".join([f"Combat Ability Editor (slot {idx+1})","Choose what this mob can do during combat, who it targets, and when it should attempt the action.","",f"1) Type             : {e.get('ability_type','ability')}",f"2) Spell / Skill    : {e.get('ability_id') or '<unset>'}",f"3) Target           : {e.get('target_selector','current_enemy')}",f"4) Trigger Mode     : {e.get('trigger','every_round')}","5) Timing / Condition Details","6) Usage Limits","7) Status Flags","Q) Back","Enter field:"])
 
     def _render_medit_reaction_slot(self, sess: BuilderEditSession) -> str:
         entries=sess.working_record.get('event_reactions') or []; idx=int(sess.pending_value or 0); e=entries[idx] if 0<=idx<len(entries) else {}
-        return "\n".join([f"Event Reaction Editor (slot {idx+1})","Choose what event triggers the reaction, what action is taken, and any cooldown or one-time limits.","",f"1) Event type: {str(e.get('event_type','spawn')).replace('_',' ')}",f"2) Action type: {str(e.get('action_type','noop')).replace('_',' ')}","3) Action Data",f"4) Target: {e.get('target_selector','self')}","5) Cooldown / Chance","6) Limits / Conditions","Q) Back","Enter field:"])
+        return "\n".join([f"Event Reaction Editor (slot {idx+1})","Choose what event triggers the reaction, what action is taken, and any cooldown or one-time limits.","",f"1) Event Type       : {str(e.get('event_type','spawn')).replace('_',' ')}",f"2) Action Type      : {str(e.get('action_type','noop')).replace('_',' ')}","3) Action Data",f"4) Target           : {e.get('target_selector','self')}","5) Cooldown / Chance","6) Limits / Conditions","Q) Back","Enter field:"])
 
     def _item_label(self, actor: Any, item_id: str) -> str:
         rec = self.resolve_collection_records(actor, "items").get(str(item_id), {})
