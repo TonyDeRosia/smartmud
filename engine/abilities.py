@@ -502,9 +502,19 @@ class AbilityRuntimeService:
                 self._ledger[key] = stored
         if key and key in self._ledger:
             prior = self._ledger[key]
-            self.service._pub("ability.duplicate_ignored", {"request_id": request.request_id, "actor_id": request.actor_id, "ability_id": request.ability_id})
-            return AbilityExecutionResult(status="DUPLICATE_IGNORED", request_id=request.request_id, ability_id=prior.ability_id, ability_name=prior.ability_name,
-                actor_id=request.actor_id, target_id=prior.target_id, stage_reached="idempotency", player_message="That ability request was already processed.", failure_code="DUPLICATE_IGNORED", metadata={"original_status": prior.status})
+            self.service._pub("ability.duplicate_ignored", {"request_id": request.request_id, "idempotency_key": key, "actor_id": request.actor_id, "ability_id": request.ability_id})
+            # A duplicate is a receipt for the original committed consequence,
+            # not a lossy diagnostic.  Preserve all stable consequence IDs for
+            # adapters, restart recovery, and future instrumentation.
+            duplicate = {name: getattr(prior, name) for name in AbilityExecutionResult.__dataclass_fields__}
+            duplicate.update(status="DUPLICATE_IGNORED", request_id=request.request_id,
+                             actor_id=request.actor_id, stage_reached="idempotency",
+                             player_message="That ability request was already processed.",
+                             failure_code="DUPLICATE_IGNORED")
+            duplicate["metadata"] = {**(prior.metadata or {}), "original_status": prior.status,
+                                       "original_request_id": prior.request_id,
+                                       "idempotency_key": key}
+            return AbilityExecutionResult(**duplicate)
         if request.preview:
             preview = self.preview_cost(request)
             return AbilityExecutionResult(status="SUCCESS" if preview.validation.valid else "FAILED_VALIDATION", request_id=request.request_id, ability_id=request.ability_id,

@@ -32,3 +32,10 @@ not merely adapter capability.  This change adds no migrations or abilities.
 Transport-level terminal acceptance, durable restart, and parity evidence still
 need dedicated deterministic fixtures before Phase 21C can honestly be marked
 unblocked.
+
+### Phase 21B.6 replay acceptance update
+
+Transport-neutral request identity now reaches the canonical ability request
+through both production adapters.  Durable duplicate receipts retain original
+damage/death references, and prompt projections refresh canonical paid
+resources before rendering.  See `ABILITY_PHASE_21B_FINAL_ACCEPTANCE.md`.

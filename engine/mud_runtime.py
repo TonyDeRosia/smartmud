@@ -1922,10 +1922,11 @@ class MudRuntime:
             return CommandResult("\n".join(lines))
         return None
 
-    def handle_input(self, character_id: str, command: str) -> dict[str, Any]:
+    def handle_input(self, character_id: str, command: str, *, request_id: str | None = None,
+                     idempotency_key: str | None = None) -> dict[str, Any]:
         """Execute a command and return canonical immediate response data."""
         import time, uuid
-        request_id = uuid.uuid4().hex
+        request_id = request_id or uuid.uuid4().hex
         perf_debug = bool(getattr(self, "performance_debug", False))
         self._current_command_trace = None
         trace = {"request_id": request_id, "trace_id": request_id, "command": command, "browser_command_submission": time.monotonic(), "request_received": time.monotonic(), "request_started": time.monotonic(), "awaits": []}
@@ -1937,6 +1938,11 @@ class MudRuntime:
         if self.active_world_id == "shattered_realms":
             self._ensure_starter_progression(char)
         setattr(char, "runtime", self)
+        # The command parser reads these transient fields to construct the
+        # transport-neutral AbilityExecutionRequest.  They never affect
+        # gameplay syntax and are cleared before returning to the caller.
+        setattr(char, "_command_request_id", request_id)
+        setattr(char, "_command_idempotency_key", idempotency_key or request_id)
         self.active_characters[character_id] = char
         trace["session_lookup"] = time.monotonic(); trace["resident_character_lookup"] = trace["session_lookup"]; trace["routing_started"] = time.monotonic(); trace["command_routing_started"] = trace["routing_started"]; self._current_command_trace = trace
         from engine.mud_commands import CommandResult
@@ -1973,6 +1979,13 @@ class MudRuntime:
             trace["gameplay_sql_before_response"] = int(sql_trace.get("count", 0))
             trace["gameplay_sql_statements"] = list(sql_trace.get("statements", []))
         trace["command_execution_completed"] = time.monotonic(); trace.setdefault("response_returned_from_command_engine", trace["command_execution_completed"])
+        # Ability resource payment is authoritative in RuntimeResourceService.
+        # Refresh the resident character before prompt/room projections so an
+        # immediate transport response cannot display pre-cast mana.
+        if getattr(result, "ability_result", None) is not None:
+            self.state_store._overlay_canonical_resources(char)
+            if hasattr(self, "projection_cache"):
+                self.projection_cache.evict_character(character_id)
         if getattr(result, "display_document", None) is not None:
             color_enabled = not bool(getattr(char, "preferences", {}).get("no_color"))
             result.narrative = render_display_mud(result.display_document, color_enabled=color_enabled)

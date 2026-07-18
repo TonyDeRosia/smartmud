@@ -81,3 +81,10 @@ The verified input path is `WebTransportAdapter.handle_message` or
 `AbilityExecutionService._apply_damage_component`.  Structured Magic Missile damage receipts
 are retained by `AbilityExecutionResult.damage_results`.  Terminal delegation is available only
 when a `DeathRuntimeService` is injected; normal `MudRuntime` does not yet provide that wiring.
+
+### Phase 21B.6 replay acceptance update
+
+Transport-neutral request identity now reaches the canonical ability request
+through both production adapters.  Durable duplicate receipts retain original
+damage/death references, and prompt projections refresh canonical paid
+resources before rendering.  See `ABILITY_PHASE_21B_FINAL_ACCEPTANCE.md`.

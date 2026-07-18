@@ -25,3 +25,10 @@ a structured execution receipt. Phase 21C remains a separate future phase.
 > request/source/target/HP linkage and durable duplicate references.  Terminal death linkage is
 > injectable but is not wired through normal `MudRuntime`; transport terminal acceptance remains
 > unproven, so Phase 21C is not unblocked.
+
+### Phase 21B.6 replay acceptance update
+
+Transport-neutral request identity now reaches the canonical ability request
+through both production adapters.  Durable duplicate receipts retain original
+damage/death references, and prompt projections refresh canonical paid
+resources before rendering.  See `ABILITY_PHASE_21B_FINAL_ACCEPTANCE.md`.

@@ -32,3 +32,10 @@ still required; Phase 21C is therefore **not unblocked**.
 
 Telnet tests use `TelnetTransportAdapter` in-process; they open no socket, avoid port conflicts,
 and render ANSI text through `html_to_ansi_text`.  The default Telnet enablement remains unchanged.
+
+### Phase 21B.6 replay acceptance update
+
+Transport-neutral request identity now reaches the canonical ability request
+through both production adapters.  Durable duplicate receipts retain original
+damage/death references, and prompt projections refresh canonical paid
+resources before rendering.  See `ABILITY_PHASE_21B_FINAL_ACCEPTANCE.md`.
