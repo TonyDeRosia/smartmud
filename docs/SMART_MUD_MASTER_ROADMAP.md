@@ -242,3 +242,7 @@ Status: Implemented. Runtime class identity now hydrates from canonical progress
 ## Phase 18G follow-up
 
 Next phase should attach the missing customized TBA/CircleMUD source ZIP to the workspace and complete source-verified parity for Kick, Bash, Bandage, Magic Missile, Armor, Bless, Strength, Spellup, and WAIT_STATE/action-delay timing. Phase 18G in this checkout repaired the canonical command/spell/target input path and added regression tests, but does not claim full legacy formula/message parity without the custom source.
+
+## Phase 18H ability truth invariant
+
+Phase 18H establishes a single learned-ability service: `AbilityExecutionService.list_known_abilities()`. `skills`, `spells`, direct ability commands, `cast`, `spellup`, and gateway validation consume the same projection, so a displayed ability must either execute or return the gateway's handler-not-implemented classification. Formatting-only ability fallbacks and the old player-facing `spellup` permission gate were removed.
