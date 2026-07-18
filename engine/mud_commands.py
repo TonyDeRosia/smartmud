@@ -2816,8 +2816,6 @@ class MudCommandEngine:
         return CommandResult(narrative=render_display_mud(doc), display_document=doc, display_intent=title)
 
     def _cmd_spellup(self, character: Any, args: list[str], raw: str) -> CommandResult:
-        if self._effective_role(character) not in {"admin", "owner", "developer", "builder"}:
-            return CommandResult("You do not have permission to use spellup.", ok=False)
         svc = self._ability_service(character)
         if not svc:
             return CommandResult("Spellup casting is unavailable.", ok=False)
@@ -2827,9 +2825,7 @@ class MudCommandEngine:
             return CommandResult("Spellup complete: 0 cast, 0 already active, 0 low mana, 1 blocked in combat.", ok=False)
         actor_id = character.id
         rows = []
-        known = svc.get_actor_abilities(actor_id)
-        if not known and not str(actor_id).startswith("character:"):
-            known = svc.get_actor_abilities("character:" + str(actor_id))
+        known = svc.list_known_spells(actor_id) if hasattr(svc, "list_known_spells") else svc.get_actor_abilities(actor_id)
         for r in known:
             tags = set(r.get("tags") or [])
             if r.get("ability_type") != "spell" or "spellup_eligible" not in tags or not r.get("enabled", True):
@@ -2843,8 +2839,9 @@ class MudCommandEngine:
         cast=active=low=blocked=0; lines=[]
         for r in sorted(rows, key=lambda x: ((x.get("plugin_data") or {}).get("spellup_priority", 100), x.get("id"))):
             aid=str(r.get("id"))
-            # Preview first so duplicate unique/refresh effects are reported as already active when applicable.
-            res = svc.execute_instant_ability(actor_id, aid, "self")
+            # Execute through the same gateway used by CAST so known checks and handler status stay canonical.
+            gres = svc.gateway().execute(actor_id, aid, "self", {"command": f"spellup {aid}", "source": "spellup"})
+            res = {"ok": gres.ok, "message": gres.player_message, "reason_code": gres.reason_code, "effect_events": gres.effects_applied}
             if res.get("ok"):
                 if any(e.get("refreshed") for e in res.get("effect_events", []) if isinstance(e, dict)):
                     active += 1; lines.append(f"{r.get('name')}: already active")
@@ -2893,16 +2890,14 @@ class MudCommandEngine:
     def _cmd_spells(self, character: Any, args: list[str], raw: str) -> CommandResult:
         svc = self._ability_service(character)
         rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "spells")) if svc else []
-        if not rows:
-            rows = [r for r in self._ability_rows(character) if str(r.get("ability_type")) == "spell"]
+        # No fallback: display must be the canonical known-ability service.
         doc = build_abilities_document(rows, title="SPELLS", empty="You know no spells.", theme=resolve_effective_display_theme(character, family="spells"))
         return CommandResult(render_display_mud(doc), display_document=doc, display_intent="SPELLS")
 
     def _cmd_skills(self, character: Any, args: list[str], raw: str) -> CommandResult:
         svc = self._ability_service(character)
         rows = ability_snapshots_as_rows(AbilityDisplaySnapshotService(svc).list_snapshots(character, "skills")) if svc else []
-        if not rows:
-            rows = [r for r in self._ability_rows(character) if str(r.get("ability_type")) not in {"spell", "passive"}]
+        # No fallback: display must be the canonical known-ability service.
         doc = build_abilities_document(rows, title="SKILLS", empty="You know no skills.", theme=resolve_effective_display_theme(character, family="skills"))
         return CommandResult(render_display_mud(doc), display_document=doc, display_intent="SKILLS")
 
@@ -2936,7 +2931,7 @@ class MudCommandEngine:
             phrase_parts=list(args)
             target=''
             # Prefer longest learned ability name prefix; remaining words become target text.
-            learned=svc.get_actor_abilities(character.id)
+            learned=svc.list_known_abilities(character.id) if hasattr(svc, "list_known_abilities") else svc.get_actor_abilities(character.id)
             best=None
             joined=' '.join(phrase_parts).lower()
             for row in learned:
@@ -2960,19 +2955,17 @@ class MudCommandEngine:
             spell = gateway.resolve_spell_tokens(character.id, query, require_known=True)
             if spell.get("status") == "AMBIGUOUS_ABILITY":
                 return CommandResult("Which spell did you mean? " + ", ".join(str(x).replace("_", " ").title() for x in spell.get("candidates", [])), ok=False)
-            if spell.get("status") == "NOT_KNOWN":
-                name = str(spell.get("ability_id") or query).replace("_", " ").title()
-                return CommandResult(f"You do not know {name}.", ok=False)
             if spell.get("status") != "RESOLVED":
                 defined = gateway.resolve_definition(query)
                 if defined and getattr(svc.registry.abilities.get(defined), "ability_type", "") != "spell":
                     return CommandResult("You can only cast spells with CAST.", ok=False)
-                return CommandResult("Unknown spell.", ok=False)
-            aid = str(spell["ability_id"]); target = str(spell.get("target_text") or "self")
+                aid = defined or query; target = "self"
+            else:
+                aid = str(spell["ability_id"]); target = str(spell.get("target_text") or "self")
         else:
             aid, target = gateway.resolve_ability_prefix(character.id, query) if gateway else ("", "")
         if not aid:
-            return CommandResult("Unknown ability.", ok=False)
+            return CommandResult("Ability resolution failed before the canonical gateway.", ok=False)
         res = gateway.execute(character.id, aid, target or "self", {"command": raw, "source": canonical_cmd}) if gateway else None
         if res is None:
             return CommandResult("Ability system is unavailable.", ok=False)

@@ -537,7 +537,7 @@ class AbilityRuntimeGateway:
             aid = self.resolve_ability(actor_id, m.group(1))
             return (aid, (m.group(2) or "").strip() or "self") if aid else ("", "")
         q = self._normalize_query(raw)
-        learned = {str(r["id"]) for r in self.service.get_actor_abilities(actor_id)}
+        learned = {str(r["id"]) for r in self.service.list_known_abilities(actor_id)}
         matches=[]
         for aid, ab in self.service.registry.abilities.items():
             if aid not in learned: continue
@@ -567,7 +567,7 @@ class AbilityRuntimeGateway:
         self.service._pub("spell_resolution_started", {"actor_id": actor_id, "input": text, "tokens": tokens})
         if not tokens:
             return {"status": "UNKNOWN_ABILITY", "ability_id": "", "consumed_tokens": 0, "target_text": "", "candidates": []}
-        learned = {str(r["id"]) for r in self.service.get_actor_abilities(actor_id)}
+        learned = {str(r["id"]) for r in self.service.list_known_abilities(actor_id)}
         candidates: list[tuple[int, int, int, str, str]] = []
         # score tuple: rank, consumed token count, matched character count, ability id, candidate phrase
         for aid, ab in self.service.registry.abilities.items():
@@ -626,7 +626,7 @@ class AbilityRuntimeGateway:
 
     def resolve_ability(self, actor_id: str, query: str) -> str:
         q = self._normalize_query(query)
-        learned = {str(r["id"]) for r in self.service.get_actor_abilities(actor_id)}
+        learned = {str(r["id"]) for r in self.service.list_known_abilities(actor_id)}
         matches: list[str] = []
         for aid, ab in self.service.registry.abilities.items():
             if aid not in learned:
@@ -763,35 +763,87 @@ class AbilityExecutionService:
     def _ability_success_message(self, ability_id: str) -> str:
         ab=self.registry.abilities.get(ability_id); pdata=(ab.plugin_data or {}) if ab else {}
         return str(pdata.get("success_message") or (ab.messages or {}).get("complete_self") or "").strip()
-    def get_actor_abilities(self, actor_id: str) -> list[dict[str, Any]]:
-        lookup_ids = [str(actor_id)]
-        if str(actor_id).startswith("character:"):
-            lookup_ids.append(str(actor_id).split(":", 1)[1])
-        elif str(actor_id):
-            lookup_ids.append("character:" + str(actor_id))
-        grants = []
-        progression=[]
+    def _actor_lookup_ids(self, actor_id: str) -> list[str]:
+        aid = str(actor_id or "")
+        ids = [aid]
+        if aid.startswith("character:"):
+            ids.append(aid.split(":", 1)[1])
+        elif aid:
+            ids.append("character:" + aid)
+        return [x for x in dict.fromkeys(ids) if x]
+
+    def list_known_abilities(self, actor_id: str, ability_type: str | None = None) -> list[dict[str, Any]]:
+        """Canonical learned-ability projection shared by display, parsing, and execution.
+
+        Definition existence/enabled checks happen here so callers never display
+        orphaned grants and never execute from a different learned source than
+        SKILLS/SPELLS used.  Both legacy character ids and live ``character:``
+        actor ids are treated as aliases for the same player actor.
+        """
+        lookup_ids = self._actor_lookup_ids(actor_id)
+        grants: list[dict[str, Any]] = []
+        progression: list[dict[str, Any]] = []
         if self.db_path:
-            for lookup_id in dict.fromkeys(lookup_ids):
+            for lookup_id in lookup_ids:
                 grants.extend(self._grants(lookup_id))
             try:
                 with sqlite3.connect(self.db_path) as c:
                     c.row_factory=sqlite3.Row
-                    for lookup_id in dict.fromkeys(lookup_ids):
+                    for lookup_id in lookup_ids:
                         progression.extend([dict(r) for r in c.execute("SELECT ability_id,rank,maximum_rank,proficiency,metadata_json FROM actor_ability_progression WHERE actor_id=? AND active=1", (lookup_id,))])
             except Exception:
                 progression=[]
         else:
-            grants = self._grants(actor_id)
-        ids={g["ability_id"] for g in grants} | {p["ability_id"] for p in progression} | set(getattr(self.actors.get(actor_id), "plugin_data", {}).get("ability_ids", []) or [])
+            for lookup_id in lookup_ids:
+                grants.extend(self._grants(lookup_id))
+        plugin_ids: set[str] = set()
+        for lookup_id in lookup_ids:
+            plugin_ids |= set(getattr(self.actors.get(lookup_id), "plugin_data", {}).get("ability_ids", []) or [])
+        ids={str(g["ability_id"]) for g in grants} | {str(p["ability_id"]) for p in progression} | plugin_ids
         out=[]
         for i in sorted(ids):
-            if i in self.registry.abilities and self.registry.abilities[i].enabled:
-                row=dict(self.registry.abilities[i].to_dict(), grants=[g for g in grants if g["ability_id"]==i])
-                prog=next((p for p in progression if p["ability_id"]==i), None)
-                if prog: row.update(rank=int(prog.get("rank") or 0), maximum_rank=int(prog.get("maximum_rank") or 100), proficiency=max(1, min(100, int(prog.get("proficiency") or 1))), maximum_proficiency=max(1, min(100, int(prog.get("maximum_rank") or 100))), progression_metadata=jload(prog.get("metadata_json"), {}))
-                out.append(row)
+            definition = self.registry.abilities.get(i)
+            if not definition or not definition.enabled:
+                continue
+            if ability_type and str(definition.ability_type) != ability_type:
+                continue
+            row=dict(definition.to_dict(), grants=[g for g in grants if g["ability_id"]==i])
+            prog=next((p for p in progression if p["ability_id"]==i), None)
+            if prog: row.update(rank=int(prog.get("rank") or 0), maximum_rank=int(prog.get("maximum_rank") or 100), proficiency=max(1, min(100, int(prog.get("proficiency") or 1))), maximum_proficiency=max(1, min(100, int(prog.get("maximum_rank") or 100))), progression_metadata=jload(prog.get("metadata_json"), {}))
+            out.append(row)
         return out
+
+    def get_actor_abilities(self, actor_id: str) -> list[dict[str, Any]]:
+        return self.list_known_abilities(actor_id)
+
+    def list_known_spells(self, actor_id: str) -> list[dict[str, Any]]:
+        return self.list_known_abilities(actor_id, "spell")
+
+    def list_known_skills(self, actor_id: str) -> list[dict[str, Any]]:
+        skill_kinds={"skill", "proficiency", "trade_skill", "combat_skill", "technique"}
+        return [r for r in self.list_known_abilities(actor_id) if str(r.get("ability_type") or "").lower() in skill_kinds]
+
+    def knows(self, actor_id: str, ability_id: str) -> bool:
+        return any(str(r.get("id")) == str(ability_id) for r in self.list_known_abilities(actor_id))
+
+    def find_known(self, actor_id: str, query: str, ability_type: str | None = None) -> dict[str, Any] | None:
+        gateway = self.gateway()
+        q = gateway._normalize_query(query)
+        for row in self.list_known_abilities(actor_id, ability_type):
+            ab = self.registry.abilities[str(row["id"])]
+            pdata = ab.plugin_data or {}; aliases = pdata.get("aliases") or []
+            if isinstance(aliases, str): aliases=[aliases]
+            candidates={gateway._normalize_query(row.get("id")), gateway._normalize_query(str(row.get("name") or "")), gateway._normalize_query(ab.short_name), gateway._normalize_query(str(pdata.get("command") or ""))} | {gateway._normalize_query(str(a)) for a in aliases}
+            if q and q in {c for c in candidates if c}:
+                return row
+        return None
+
+    def find_known_spell(self, actor_id: str, query: str) -> dict[str, Any] | None:
+        return self.find_known(actor_id, query, "spell")
+
+    def find_known_skill(self, actor_id: str, query: str) -> dict[str, Any] | None:
+        row = self.find_known(actor_id, query)
+        return row if row and str(row.get("ability_type") or "").lower() != "spell" else None
     def grant_ability(self, actor_id: str, ability_id: str, source_type: str="admin", source_id: str="", source_instance_id: str="", temporary: bool=False) -> str:
         if ability_id not in self.registry.abilities: raise ValueError(f"Unknown ability: {ability_id}")
         gid=f"grant_{actor_id}_{ability_id}_{source_type}_{source_instance_id or source_id or 'manual'}"; ts=now()
@@ -893,16 +945,11 @@ class AbilityExecutionService:
         if not a: return {"ok":False,"errors":["actor not found"],"trace":[{"step":"resolve_actor","ok":False}]}
         if not ab: return {"ok":False,"errors":["ability not found"],"trace":[{"step":"resolve_ability","ok":False}]}
         steps.append({"step":"resolve_actor","actor_id":actor_id,"ok":True}); steps.append({"step":"resolve_ability","ability_id":ability_id,"ok":True})
-        grants=self._grants(actor_id)
-        progression_known=False
-        if self.db_path:
-            try:
-                with sqlite3.connect(self.db_path) as c:
-                    progression_known=bool(c.execute("SELECT 1 FROM actor_ability_progression WHERE actor_id=? AND ability_id=? AND active=1", (actor_id, ability_id)).fetchone())
-            except Exception:
-                progression_known=False
-        available=bool([g for g in grants if g["ability_id"]==ability_id]) or progression_known or ability_id in getattr(a,"plugin_data",{}).get("ability_ids",[]) or ab.ability_type in {"natural","monster","administrative"}
-        steps.append({"step":"confirm_grant","ok":available,"sources":grants,"progression_known":progression_known}); ok &= available
+        known_rows = self.list_known_abilities(actor_id)
+        grants=[g for row in known_rows for g in (row.get("grants") or [])]
+        progression_known=any(str(row.get("id")) == ability_id and row.get("progression_metadata") is not None for row in known_rows)
+        available=self.knows(actor_id, ability_id) or ab.ability_type in {"natural","monster","administrative"}
+        steps.append({"step":"confirm_grant","ok":available,"sources":grants,"progression_known":progression_known,"canonical_service":"list_known_abilities"}); ok &= available
         targets=self.resolve_target(a, ab, target); steps.append({"step":"resolve_target", **targets}); ok &= targets.get("ok",False)
         mats=self._validate_materials(actor_id, ab); steps.append({"step":"validate_materials", **mats}); ok &= mats.get("ok", True)
         costs=self._validate_costs(a, ab); steps.append({"step":"validate_resources", **costs}); ok &= costs.get("ok",False)

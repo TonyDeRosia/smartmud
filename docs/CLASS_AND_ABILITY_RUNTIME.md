@@ -43,3 +43,9 @@ Existing characters are preserved. The class identity repair is idempotent and o
 ## Phase 18G command usability note
 
 Phase 18G connects displayed active skills and spells to player input by using the canonical command registry, the Phase 18F ability gateway, and shared spell/target token resolution. Completed abilities execute through `execute_result(...)`; known definitions without mechanics continue to return `HANDLER_NOT_IMPLEMENTED` rather than `UNKNOWN_ABILITY`.
+
+## Phase 18H canonical learned ability lifecycle
+
+`AbilityExecutionService.list_known_abilities()` is the single learned-ability source of truth. It accepts either the durable character id or the live `character:<id>` actor id, merges active `actor_ability_grants`, active `actor_ability_progression`, and live actor plugin grants, and filters every row through the enabled ability registry. `get_actor_abilities()` remains only as a compatibility wrapper.
+
+Displays, command parsing, gateway validation, and execution all consume this service. `skills` and `spells` do not fall back to formatting-only projections, and `trace_ability` no longer performs an independent learned check.

@@ -50,3 +50,9 @@ Canonical target resolution now supports exact visible room matches first, then 
 ## Action delays versus cooldowns
 
 Cooldowns remain ability-specific readiness timers tracked by the ability service. Full legacy WAIT_STATE/action-delay parity is documented as deferred until the customized TBA source is available; this pass does not conflate cooldowns with action delay.
+
+## Phase 18H ability input truth
+
+The spell parser resolves names only. It may identify the best spell token prefix and target text, but command execution must enter `AbilityRuntimeGateway`, which asks `AbilityExecutionService.list_known_abilities()` / `knows()` whether the actor knows the resolved ability. Command-layer `Unknown spell` and `You do not know ...` responses are not used for abilities displayed by `spells`.
+
+`spellup` is a normal player gameplay command. It enumerates eligible known self-buff spells from the canonical service and executes each through the same gateway path as `cast`.

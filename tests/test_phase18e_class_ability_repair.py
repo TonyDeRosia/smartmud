@@ -66,3 +66,33 @@ def test_multiword_spell_resolution_and_category_failures(tmp_path):
     assert res.reason_code == 'not_known'
     res = gateway.execute(warrior.id, 'kick', 'self', {'command': 'cast kick'})
     assert res.reason_code == 'wrong_category'
+
+
+def test_phase18h_displayed_mage_spells_cast_through_canonical_gateway(tmp_path):
+    rt = _rt(tmp_path)
+    payload = rt.create_character(world_id='shattered_realms', name='Truth Mage', race_id='human', class_id='mage')
+    char = rt.state_store.load_character(payload['character_id'])
+    rt.register_live_character(char)
+    spells = rt.command_engine._cmd_spells(char, [], 'spells').narrative
+    assert 'Magic Missile' in spells
+    assert rt.abilities.knows(char.id, 'magic_missile')
+
+    for raw in ('cast magic missile wolf', 'c magic missile wolf', 'cast armor self', 'cast strength self'):
+        result = rt.command_engine.handle_command(char, raw)
+        text = result.narrative
+        assert 'Unknown spell' not in text
+        assert 'Unknown ability' not in text
+        assert 'You do not know' not in text
+
+    unknown = rt.command_engine.handle_command(char, 'c magic wolf').narrative
+    assert 'Unknown spell' not in unknown
+
+
+def test_phase18h_spellup_is_player_command_and_uses_known_spells(tmp_path):
+    rt = _rt(tmp_path)
+    payload = rt.create_character(world_id='shattered_realms', name='Truth Spellup', race_id='human', class_id='mage')
+    char = rt.state_store.load_character(payload['character_id'])
+    rt.register_live_character(char)
+    out = rt.command_engine._cmd_spellup(char, [], 'spellup').narrative
+    assert 'permission' not in out.lower()
+    assert out.startswith('Spellup complete:') or '\nSpellup complete:' in out
