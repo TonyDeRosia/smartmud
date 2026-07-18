@@ -305,6 +305,70 @@ class ItemAbilityRuntimeService:
     def __init__(self, ability_service: "AbilityExecutionService"): self.ability_service=ability_service
 
 
+
+ABILITY_EXECUTION_STATUSES = {
+    "SUCCESS", "FAILED", "UNKNOWN_ABILITY", "NOT_KNOWN", "WRONG_CATEGORY",
+    "INVALID_TARGET", "INVALID_POSITION", "INSUFFICIENT_MANA", "INSUFFICIENT_MOVE",
+    "ON_COOLDOWN", "ALREADY_ACTIVE", "TARGET_ALREADY_AFFECTED",
+    "HANDLER_NOT_IMPLEMENTED", "EXECUTION_INTERRUPTED",
+}
+
+
+@dataclass(frozen=True)
+class AbilityExecutionContext:
+    """Strongly typed canonical context passed to ability gameplay handlers."""
+    actor: Actor
+    ability: "AbilityDefinition"
+    actor_id: str
+    ability_id: str
+    ability_progression: dict[str, Any] = field(default_factory=dict)
+    target_actor: Actor | None = None
+    target_object: Any | None = None
+    target_room: Any | None = None
+    current_room: Any | None = None
+    execution_source: str = "player_command"
+    parsed_arguments: dict[str, Any] = field(default_factory=dict)
+    services: dict[str, Any] = field(default_factory=dict)
+    event_bus: Any | None = None
+    world_state: dict[str, Any] = field(default_factory=dict)
+    resolved_targets: tuple[dict[str, Any], ...] = ()
+    invocation_context: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AbilityExecutionResult:
+    """Structured runtime outcome returned by the canonical ability gateway."""
+    status: str
+    ability_id: str = ""
+    ability_name: str = ""
+    actor_id: str = ""
+    target_id: str = ""
+    player_message: str = ""
+    room_message: str = ""
+    target_message: str = ""
+    applied_effects: list[dict[str, Any]] = field(default_factory=list)
+    damage_dealt: list[dict[str, Any]] = field(default_factory=list)
+    healing_done: list[dict[str, Any]] = field(default_factory=list)
+    resource_changes: list[dict[str, Any]] = field(default_factory=list)
+    cooldown_started: bool = False
+    cooldown_remaining: int = 0
+    events_published: list[dict[str, Any]] = field(default_factory=list)
+    context: AbilityExecutionContext | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "SUCCESS"
+
+
+class AbilityTargetResolver:
+    """Canonical target resolver for actor, room, object, and future target kinds."""
+    def __init__(self, service: "AbilityExecutionService"):
+        self.service = service
+
+    def resolve(self, actor: Actor, ability: "AbilityDefinition", target: Any = None) -> dict[str, Any]:
+        return self.service._resolve_target_canonical(actor, ability, target)
+
 @dataclass
 class AbilityDefinition:
     id: str; name: str = ""; short_name: str = ""; description: str = ""; ability_type: str = "custom"
@@ -419,13 +483,45 @@ class AbilityRuntimeGateway:
         before = self.service._proficiency(actor.actor_id, resolved)
         res = self.service.start_ability(actor.actor_id, resolved, target_query or "self")
         after = self.service._proficiency(actor.actor_id, resolved)
+        trace_obj = res.get("trace") or []
+        trace_steps = trace_obj if isinstance(trace_obj, list) else trace_obj.get("trace", []) if isinstance(trace_obj, dict) else []
+        resolved_target = next((t for st in trace_steps if isinstance(st, dict) and st.get("step") == "resolve_target" for t in st.get("targets", []) if isinstance(t, dict)), {})
         return AbilityUseResult(
             ok=bool(res.get("ok")), ability_id=resolved, ability_name=ab.name, reason_code=str(res.get("reason_code") or ("ok" if res.get("ok") else "blocked")),
             player_message=str(res.get("message") or self.service._ability_success_message(resolved) or "Ability activated."), actor_id=actor.actor_id,
-            target_id=str(target_query or ""), resource_changes=list(res.get("resource_changes") or []), cooldown_started=bool(res.get("cooldown_started")),
+            target_id=str(resolved_target.get("actor_id") or target_query or ""), resource_changes=list(res.get("resource_changes") or []), cooldown_started=bool(res.get("cooldown_started")),
             effects_applied=list(res.get("effect_events") or []), proficiency_before=before, proficiency_after=after, proficiency_increased=after is not None and before is not None and after > before,
-            events=list(res.get("events") or []), metadata={k: v for k, v in (res.get("metadata") or {}).items() if k in {"effect_type", "room_id"}},
+            events=list(res.get("events") or []), metadata={**{k: v for k, v in (res.get("metadata") or {}).items() if k in {"effect_type", "room_id"}}, "damage_events": list(res.get("damage_events") or []), "healing_events": list(res.get("healing_events") or [])},
         )
+
+    def execute_result(self, character_id: str, ability_query: str, target_query: Any=None, invocation_context: dict[str, Any] | None=None) -> AbilityExecutionResult:
+        before_events = len(getattr(self.service, "_published_execution_events", []))
+        legacy = self.execute(character_id, ability_query, target_query, invocation_context)
+        status_map = {
+            "ok": "SUCCESS", "unknown_ability": "UNKNOWN_ABILITY", "not_known": "NOT_KNOWN",
+            "wrong_category": "WRONG_CATEGORY", "handler_not_implemented": "HANDLER_NOT_IMPLEMENTED",
+            "BLOCKED_COOLDOWN": "ON_COOLDOWN", "blocked_cooldown": "ON_COOLDOWN",
+            "BLOCKED_RESOURCE": "INSUFFICIENT_MANA", "blocked_resource": "INSUFFICIENT_MANA",
+            "BLOCKED_TARGET": "INVALID_TARGET", "invalid_target": "INVALID_TARGET",
+            "BLOCKED_POSTURE": "INVALID_POSITION", "execution_interrupted": "EXECUTION_INTERRUPTED",
+        }
+        status = "SUCCESS" if legacy.ok else status_map.get(legacy.reason_code, status_map.get(str(legacy.reason_code).upper(), "FAILED"))
+        if not legacy.ok and "move" in legacy.player_message.lower(): status = "INSUFFICIENT_MOVE"
+        events = list(getattr(self.service, "_published_execution_events", [])[before_events:])
+        actor = self.service.actor_registry.get(legacy.actor_id or character_id)
+        ab = self.service.registry.abilities.get(legacy.ability_id)
+        target_actor = self.service.actor_registry.get(legacy.target_id) if legacy.target_id else None
+        ctx = AbilityExecutionContext(
+            actor=actor, actor_id=(actor.actor_id if actor else character_id), ability=ab or AbilityDefinition(legacy.ability_id or ability_query), ability_id=legacy.ability_id,
+            target_actor=target_actor, current_room=getattr(getattr(actor, "identity", None), "current_location", "") if actor else "",
+            execution_source=str((invocation_context or {}).get("source") or "player_command"), parsed_arguments={"target": target_query, "ability_query": ability_query},
+            services={"ability_service": self.service, "target_resolver": getattr(self.service, "target_resolver", None)}, event_bus=self.service.event_bus,
+            world_state={"world_id": self.service.world_id, "world_time": self.service.world_time()}, invocation_context=invocation_context or {},
+        ) if actor else None
+        return AbilityExecutionResult(status=status, ability_id=legacy.ability_id, ability_name=legacy.ability_name, actor_id=legacy.actor_id or character_id,
+            target_id=legacy.target_id, player_message=legacy.player_message, applied_effects=legacy.effects_applied,
+            damage_dealt=list((legacy.metadata or {}).get("damage_events") or []), healing_done=list((legacy.metadata or {}).get("healing_events") or []),
+            resource_changes=legacy.resource_changes, cooldown_started=legacy.cooldown_started, events_published=events, context=ctx, metadata=legacy.metadata)
 
     @staticmethod
     def _normalize_query(query: str) -> str:
@@ -570,6 +666,7 @@ class AbilityExecutionService:
         self.allow_isolated_combat_engine = bool(allow_isolated_combat_engine or combat_runtime is None)
         self.combat = CombatEngine(content=CombatContentRegistry(package)) if self.allow_isolated_combat_engine else None
         self.actor_registry = actor_registry or ActorRegistry(); self.actors = self.actor_registry.actors; self.availability = AbilityAvailabilityService(self); self.effect_operations = AbilityEffectOperationRegistry()
+        self.target_resolver = AbilityTargetResolver(self); self._published_execution_events = []
         self.aura_runtime = AuraRuntimeService(self); self.stance_runtime = StanceRuntimeService(self); self.transformation_runtime = TransformationRuntimeService(self); self.summon_runtime = SummonRuntimeService(self); self.summon_profile_service = SummonProfileService(self); self.passive_trigger_service = PassiveTriggerService(self); self.item_ability_runtime = ItemAbilityRuntimeService(self); self.room_effect_runtime = RoomEffectRuntimeService(self)
         if combat_runtime is not None and self.combat is not None:
             raise RuntimeError("AbilityExecutionService cannot own a duplicate CombatEngine when CombatRuntimeService is injected")
@@ -620,14 +717,15 @@ class AbilityExecutionService:
         grants = []
         progression=[]
         if self.db_path:
+            for lookup_id in dict.fromkeys(lookup_ids):
+                grants.extend(self._grants(lookup_id))
             try:
                 with sqlite3.connect(self.db_path) as c:
                     c.row_factory=sqlite3.Row
                     for lookup_id in dict.fromkeys(lookup_ids):
-                        grants.extend(self._grants(lookup_id))
                         progression.extend([dict(r) for r in c.execute("SELECT ability_id,rank,maximum_rank,proficiency,metadata_json FROM actor_ability_progression WHERE actor_id=? AND active=1", (lookup_id,))])
             except Exception:
-                grants=[]; progression=[]
+                progression=[]
         else:
             grants = self._grants(actor_id)
         ids={g["ability_id"] for g in grants} | {p["ability_id"] for p in progression} | set(getattr(self.actors.get(actor_id), "plugin_data", {}).get("ability_ids", []) or [])
@@ -775,7 +873,7 @@ class AbilityExecutionService:
         actor=self._get_actor(actor_id)
         if actor is None: return self._missing_actor_result(actor_id, ability_id)
         cast_id="instant_"+uuid.uuid4().hex; ab=self.registry.abilities[ability_id]; material_results=self._consume_materials(actor_id, ab, "start"); costs=self._pay_costs(actor,ab,"start"); self._start_cooldown(actor_id,ab)
-        result={"ok":True,"cast_id":cast_id,"trace":tr["trace"],"damage_events":[],"healing_events":[],"effect_events":[],"material_results":material_results,"message": self._ability_success_message(ability_id)}; self._pub("ability_started", {"actor_id":actor_id,"ability_id":ability_id,"cast_id":cast_id})
+        result={"ok":True,"cast_id":cast_id,"trace":tr["trace"],"damage_events":[],"healing_events":[],"effect_events":[],"material_results":material_results,"resource_changes":costs,"cooldown_started": bool(ab.cooldowns), "message": self._ability_success_message(ability_id)}; self._pub("ability_started", {"actor_id":actor_id,"ability_id":ability_id,"cast_id":cast_id})
         for t in tr["targets"]:
             target_actor=self.actors.get(t.get("actor_id"))
             if not target_actor: continue
@@ -1234,21 +1332,32 @@ class AbilityExecutionService:
         with sqlite3.connect(self.db_path) as c: rows=c.execute("SELECT cast_id FROM actor_ability_casts WHERE world_id=? AND state IN ('casting','channeling','pending') AND completes_world_time<=? ORDER BY completes_world_time,cast_id",(world_id,world_time)).fetchall()
         return [self.complete_ability(r[0]) for r in rows]
     def get_ability_status(self, actor_id: str, ability_id: str) -> dict[str, Any]: return self._cooldown_status(actor_id,self.registry.abilities[ability_id])
-    def resolve_target(self, actor: Actor, ab: AbilityDefinition, target: Any=None) -> dict[str, Any]:
-        mode=str((ab.targeting or {}).get("mode") or "self"); allow_dead=bool((ab.targeting or {}).get("allow_dead",False)); targets=[]
+    def _resolve_target_canonical(self, actor: Actor, ab: AbilityDefinition, target: Any=None) -> dict[str, Any]:
+        mode=str((ab.targeting or {}).get("mode") or "self"); allow_dead=bool((ab.targeting or {}).get("allow_dead",False)); allow_self=bool((ab.targeting or {}).get("allow_self", True)); targets=[]; invalid=""
+        q=str(target or "").lower().strip()
         if isinstance(target,list) and target and isinstance(target[0],dict): targets=target
-        elif mode in {"self","none"} or str(target or "").lower() in {"","self","me"}: targets=[{"actor_id":actor.actor_id,"name":actor.identity.name}]
-        elif isinstance(target, Actor): targets=[{"actor_id":target.actor_id,"name":target.identity.name}]
+        elif mode in {"none"}: targets=[]
+        elif mode == "room": return {"ok": True, "mode": mode, "targets": [], "target_room": getattr(actor.identity, "current_location", ""), "target_type": "room", "runtime_instance_ids": []}
+        elif mode == "self" or q in {"", "self", "me"}: targets=[{"actor_id":actor.actor_id,"name":actor.identity.name,"target_type":"self"}]
+        elif isinstance(target, Actor): targets=[{"actor_id":target.actor_id,"name":target.identity.name,"target_type":"actor"}]
         elif isinstance(target,str):
-            q=target.lower().strip(); matches=[x for x in sorted(self.actors.values(), key=lambda z:z.actor_id) if x.actor_id.lower()==q or x.identity.name.lower()==q or q in x.identity.name.lower().split()]
-            targets=[{"actor_id":x.actor_id,"name":x.identity.name} for x in matches[:int((ab.targeting or {}).get("maximum_targets") or 1)]]
+            matches=[x for x in sorted(self.actors.values(), key=lambda z:z.actor_id) if x.actor_id.lower()==q or x.identity.name.lower()==q or q in x.identity.name.lower().split()]
+            targets=[{"actor_id":x.actor_id,"name":x.identity.name,"target_type":"actor"} for x in matches[:int((ab.targeting or {}).get("maximum_targets") or 1)]]
+        if mode == "current_target" and not targets:
+            current=str((getattr(actor, "plugin_data", {}) or {}).get("current_combat_target") or "")
+            if current and current in self.actors: targets=[{"actor_id":current,"name":self.actors[current].identity.name,"target_type":"actor"}]
         if mode.startswith("room_") and not target:
-            maxn=int((ab.targeting or {}).get("maximum_targets") or 99); targets=[{"actor_id":x.actor_id,"name":x.identity.name} for x in sorted(self.actors.values(), key=lambda z:z.actor_id)[:maxn]]
+            maxn=int((ab.targeting or {}).get("maximum_targets") or 99); targets=[{"actor_id":x.actor_id,"name":x.identity.name,"target_type":"actor"} for x in sorted(self.actors.values(), key=lambda z:z.actor_id)[:maxn]]
         ok=bool(targets) or mode in {"none","room"}
         for t in targets:
             ta=self.actors.get(t.get("actor_id"));
-            if ta and not allow_dead and str(ta.lifecycle_state).lower() in {"dead","corpse"}: ok=False; t["invalid"]="dead"
-        return {"ok":ok,"mode":mode,"targets":targets,"runtime_instance_ids":[t.get("actor_id") for t in targets]}
+            if ta and not allow_dead and str(ta.lifecycle_state).lower() in {"dead","corpse"}: ok=False; invalid="dead"; t["invalid"]="dead"
+            if ta and ta.actor_id == actor.actor_id and not allow_self: ok=False; invalid="self_not_allowed"; t["invalid"]="self_not_allowed"
+        if mode in {"single_enemy","current_target"} and targets and targets[0].get("actor_id") == actor.actor_id: ok=False; invalid="self_not_allowed"
+        return {"ok":ok,"mode":mode,"targets":targets,"target_type":targets[0].get("target_type") if targets else mode,"invalid_reason":invalid,"runtime_instance_ids":[t.get("actor_id") for t in targets]}
+
+    def resolve_target(self, actor: Actor, ab: AbilityDefinition, target: Any=None) -> dict[str, Any]:
+        return self.target_resolver.resolve(actor, ab, target) if hasattr(self, "target_resolver") else self._resolve_target_canonical(actor, ab, target)
     def _ensure_item_instance_material_columns(self, c: sqlite3.Connection) -> None:
         try:
             cols={row[1] for row in c.execute("PRAGMA table_info(item_instances)").fetchall()}
@@ -1431,6 +1540,10 @@ class AbilityExecutionService:
                 pass
         return int(getattr(self,"_world_time",0) or 0)
     def _pub(self, name: str, payload: dict[str,Any]) -> None:
+        self._published_execution_events.append({"event_name": name, "payload": dict(payload or {})}) if hasattr(self, "_published_execution_events") else None
+        aliases={"ability_cooldown_started":"cooldown_started","ability_damage_applied":"damage_applied","ability_healing_applied":"healing_applied","ability_effect_applied":"effect_applied"}
+        if name == "ability_completed": self._pub("cooldown_finished", {"ability_id": payload.get("ability_id", ""), "actor_id": payload.get("actor_id", ""), "synthetic": True})
+        if aliases.get(name): self._pub(aliases[name], payload)
         if self.event_bus: self.event_bus.publish(name,payload,source_system="abilities",world_id=self.world_id)
 
 def init_ability_schema(db_path: Path|str) -> None:
