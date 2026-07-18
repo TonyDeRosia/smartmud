@@ -441,11 +441,10 @@ class AbilityCostPreview:
 class AbilityRuntimeService:
     """The canonical active-ability boundary.
 
-    Common validation, cost calculation/payment, cooldowns, proficiency and
-    effect orchestration stay in ``AbilityExecutionService``; this class makes
-    that production authority callable by commands, AI, scripts and items with
-    an identical typed request.  Its bounded ledger prevents retry keys from
-    producing a second committed gameplay action during this process lifetime.
+    This is the canonical orchestrator, not a gateway around the historical
+    executor.  ``AbilityExecutionService`` supplies domain authorities (costs,
+    effects, cooldown storage and persistence), while this class owns their
+    ordering and the request receipt.
     """
     def __init__(self, service: "AbilityExecutionService"):
         self.service = service
@@ -483,17 +482,47 @@ class AbilityRuntimeService:
         if key and key in self._ledger:
             prior = self._ledger[key]
             self.service._pub("ability.duplicate_ignored", {"request_id": request.request_id, "actor_id": request.actor_id, "ability_id": request.ability_id})
-            return AbilityExecutionResult(status="DUPLICATE_IGNORED", ability_id=prior.ability_id, ability_name=prior.ability_name,
-                actor_id=request.actor_id, target_id=prior.target_id, player_message="That ability request was already processed.", metadata={"original_status": prior.status})
+            return AbilityExecutionResult(status="DUPLICATE_IGNORED", request_id=request.request_id, ability_id=prior.ability_id, ability_name=prior.ability_name,
+                actor_id=request.actor_id, target_id=prior.target_id, stage_reached="idempotency", player_message="That ability request was already processed.", failure_code="DUPLICATE_IGNORED", metadata={"original_status": prior.status})
         if request.preview:
             preview = self.preview_cost(request)
-            return AbilityExecutionResult(status="SUCCESS" if preview.validation.valid else "FAILED_VALIDATION", ability_id=request.ability_id,
-                actor_id=request.actor_id, metadata={"preview": True, "costs": list(preview.costs), "failure_code": preview.validation.failure_code})
+            return AbilityExecutionResult(status="SUCCESS" if preview.validation.valid else "FAILED_VALIDATION", request_id=request.request_id, ability_id=request.ability_id,
+                actor_id=request.actor_id, invocation_type=request.invocation_type.value, stage_reached="preview", validation=preview.validation, calculated_costs=list(preview.costs), metadata={"preview": True, "costs": list(preview.costs), "failure_code": preview.validation.failure_code}, failure_code=preview.validation.failure_code)
         self.service._pub("ability.requested", {"request_id": request.request_id, "actor_id": request.actor_id, "ability_id": request.ability_id, "invocation_type": request.invocation_type.value})
-        gateway = self.service.gateway()
-        result = gateway.execute_result(request.actor_id, request.ability_id,
-            request.explicit_target_actor_id or request.raw_argument_text or "self",
-            {"command": request.source_command, "source": request.invocation_type.value.lower(), "ability_pre_resolved": True, "request_id": request.request_id})
+        validation = self.validate(request)
+        if not validation.valid:
+            self.service._pub("ability.validation.failed", {"request_id": request.request_id, "failure_code": validation.failure_code})
+            return AbilityExecutionResult(status="FAILED_VALIDATION", request_id=request.request_id, actor_id=request.actor_id, ability_id=request.ability_id, invocation_type=request.invocation_type.value, stage_reached="validation", validation=validation, failure_code=validation.failure_code, failure_details=validation.details, player_message=str((validation.details.get("trace") or {}).get("message") or "You cannot use that ability."))
+        trace = validation.details["trace"]
+        actor = self.service.actor_registry.get(request.actor_id)
+        ability = self.service.registry.abilities[request.ability_id]
+        targets = list(trace.get("targets") or [])
+        costs = list(trace.get("costs") or [])
+        self.service._pub("ability.definition.resolved", {"request_id": request.request_id, "ability_id": ability.id})
+        self.service._pub("ability.target.resolved", {"request_id": request.request_id, "targets": targets})
+        self.service._pub("ability.cost.calculated", {"request_id": request.request_id, "costs": costs})
+        self.service._pub("ability.resource.checked", {"request_id": request.request_id, "costs": costs})
+        before = self.service._proficiency(actor.actor_id, ability.id)
+        # The legacy abilities had no failure roll; retain that behaviour while
+        # recording the centralized deterministic successful roll.
+        roll, threshold = 1, max(1, int(before or 100))
+        self.service._pub("ability.roll.completed", {"request_id": request.request_id, "roll": roll, "threshold": threshold, "success": True})
+        paid = self.service._pay_costs(actor, ability, "start")
+        self.service._pub("ability.resource.paid", {"request_id": request.request_id, "costs": paid})
+        cast_id = "runtime_" + request.request_id.replace(" ", "_") if request.request_id else "runtime_" + uuid.uuid4().hex
+        self.service._pub("ability.effect.started", {"request_id": request.request_id, "cast_id": cast_id})
+        effect = self.service.execute_effect_handler(actor, ability, targets, cast_id)
+        improvement = self.service.attempt_proficiency_improvement(actor.actor_id, ability.id)
+        after = self.service._proficiency(actor.actor_id, ability.id)
+        if improvement.get("improved"):
+            self.service._pub("ability.proficiency.changed", {"request_id": request.request_id, **improvement})
+        self.service._start_cooldown(actor.actor_id, ability)
+        cooldown = {"applied": bool(ability.cooldowns), "policy": "ON_EFFECT_COMMIT"}
+        if cooldown["applied"]: self.service._pub("ability.cooldown.applied", {"request_id": request.request_id, **cooldown})
+        result = AbilityExecutionResult(status="SUCCESS" if effect.get("ok", True) else "FAILED", request_id=request.request_id, ability_id=ability.id, ability_name=ability.name, actor_id=actor.actor_id,
+            target_id=str((targets[0] if targets else {}).get("actor_id") or ""), invocation_type=request.invocation_type.value, stage_reached="effect_completed", validation=validation, resolved_targets=targets, calculated_costs=costs, paid_costs=paid,
+            proficiency_before=before, success_roll=roll, success_threshold=threshold, proficiency_result=improvement, proficiency_after=after, cooldown_applied=cooldown,
+            effect_results=list(effect.get("effect_events") or []), damage_results=list(effect.get("damage_events") or []), resource_changes=paid, cooldown_started=cooldown["applied"], player_message=str(effect.get("message") or self.service._ability_success_message(ability.id) or "Ability activated."), messages=[str(effect.get("message") or "")], metadata={"cast_id": cast_id, "payment_policy": "PAY_ON_ATTEMPT"})
         if key and result.ok:
             self._ledger[key] = result
         self.service._pub("ability.succeeded" if result.ok else "ability.failed", {"request_id": request.request_id, "actor_id": request.actor_id, "ability_id": request.ability_id, "status": result.status})
@@ -541,6 +570,34 @@ class AbilityExecutionResult:
     events_published: list[dict[str, Any]] = field(default_factory=list)
     context: AbilityExecutionContext | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Phase 21B lifecycle record.  The legacy presentation fields above remain
+    # for callers written before the request boundary; these fields are the
+    # authoritative, transport-neutral execution receipt.
+    request_id: str = ""
+    invocation_type: str = ""
+    stage_reached: str = ""
+    validation: AbilityValidationResult | None = None
+    resolved_targets: list[dict[str, Any]] = field(default_factory=list)
+    calculated_costs: list[dict[str, Any]] = field(default_factory=list)
+    paid_costs: list[dict[str, Any]] = field(default_factory=list)
+    proficiency_before: int | None = None
+    success_roll: int | None = None
+    success_threshold: int | None = None
+    proficiency_result: dict[str, Any] = field(default_factory=dict)
+    proficiency_after: int | None = None
+    wait_state_applied: dict[str, Any] = field(default_factory=dict)
+    cooldown_applied: dict[str, Any] = field(default_factory=dict)
+    effect_results: list[dict[str, Any]] = field(default_factory=list)
+    damage_results: list[dict[str, Any]] = field(default_factory=list)
+    death_results: list[dict[str, Any]] = field(default_factory=list)
+    affect_ids: list[str] = field(default_factory=list)
+    created_item_ids: list[str] = field(default_factory=list)
+    room_state_changes: list[dict[str, Any]] = field(default_factory=list)
+    emitted_event_ids: list[str] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    failure_code: str = ""
+    failure_details: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -1233,6 +1290,36 @@ class AbilityExecutionService:
         improvement = self.attempt_proficiency_improvement(actor_id, ability_id)
         result["proficiency_improvement"] = improvement
         self._pub("ability_completed", {"actor_id":actor_id,"ability_id":ability_id,"cast_id":cast_id,"proficiency_improvement":improvement}); return result
+
+    def execute_effect_handler(self, actor: Actor, ab: AbilityDefinition, targets: list[dict[str, Any]], cast_id: str) -> dict[str, Any]:
+        """Effect-only adapter used by :class:`AbilityRuntimeService`.
+
+        It intentionally contains no authorization, resource payment, generic
+        cooldown, or proficiency mutation.  Direct legacy callers retain
+        ``execute_instant_ability`` for compatibility, but production command
+        requests enter the runtime orchestrator above.
+        """
+        result={"ok":True,"cast_id":cast_id,"damage_events":[],"healing_events":[],"effect_events":[],"message":self._ability_success_message(ab.id)}
+        for t in targets:
+            target_actor=self.actors.get(t.get("actor_id"))
+            if not target_actor: continue
+            for comp in ab.damage_components:
+                result["damage_events"].append(self._apply_damage_component(actor,target_actor,ab,comp,cast_id))
+            for comp in ab.healing_components:
+                amount=int(num(comp.get("base_amount", comp.get("amount", 0))))
+                result["healing_events"].append(asdict(self.apply_healing(actor.actor_id,target_actor.actor_id,amount,ab.id,comp.get("id"),{"cast_id":cast_id,"formula_id":comp.get("formula_id")})))
+            for eff in ab.effects_applied:
+                result["effect_events"].append(self._apply_effect(actor,target_actor,ab,eff,cast_id))
+        for eff in ab.ordered_effects or []:
+            handled=self._apply_canonical_effect(actor,targets,ab,eff,cast_id); result["effect_events"].append(handled)
+            if handled.get("message"): result["message"]=str(handled["message"])
+            if not handled.get("ok",True): return {**result,"ok":False,"reason_code":handled.get("reason") or handled.get("reason_code") or "effect_blocked","message":handled.get("message") or "You cannot use that ability."}
+        for eff in (ab.plugin_data or {}).get("effects",[]) or []:
+            handled=self._apply_registered_effect(actor,ab,eff,cast_id); result["effect_events"].append(handled)
+            if handled.get("message"): result["message"]=str(handled["message"])
+            if not handled.get("ok",True): return {**result,"ok":False,"reason_code":handled.get("reason") or handled.get("reason_code") or "effect_blocked","message":handled.get("message") or "You cannot use that ability."}
+        self._pub("ability.effect.completed", {"actor_id":actor.actor_id,"ability_id":ab.id,"cast_id":cast_id})
+        return result
 
     def _select_effect_targets(self, actor: Actor, resolved_targets: list[dict[str, Any]], selector: str) -> list[Actor]:
         if selector in {"self","actor","source"}: return [actor]

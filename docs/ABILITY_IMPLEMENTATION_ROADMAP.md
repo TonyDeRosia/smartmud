@@ -49,3 +49,8 @@ Phase 21B adds the typed `AbilityRuntimeService` request/result boundary and
 routes command ability execution through it.  The next bounded implementation
 phase is **Phase 21C — Core Physical Combat Commands** (flee, assist, rescue,
 kick, bash), using this runtime rather than a new combat-skill pipeline.
+
+### Phase 21B completion update
+
+Common request orchestration is now explicit in `AbilityRuntimeService`; no
+Phase 21C physical-command work is included in this update.

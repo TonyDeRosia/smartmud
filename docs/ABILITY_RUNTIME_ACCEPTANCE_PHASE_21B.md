@@ -17,3 +17,10 @@
 
 Browser and Telnet continue to render `CommandResult` messages after the same
 runtime result; no transport-specific gameplay path was introduced.
+
+## Canonical lifecycle acceptance
+
+The runtime receipt now records request identity, validation, resolved targets,
+calculated and paid costs, roll/proficiency fields, cooldown policy, structured
+effect and damage results, messages, and failure information. The compatibility
+instant executor is no longer invoked by the request boundary.

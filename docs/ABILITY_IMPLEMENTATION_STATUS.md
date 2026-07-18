@@ -92,3 +92,9 @@ execution.  Magic Missile, Armor, Detect Magic, Strength, Build Campfire and
 Set Camp retain their existing production handlers through the shared registry
 and execution service.  This does **not** claim implementation of the remaining
 authored definitions or complete customized legacy parity.
+
+### Phase 21B orchestration status
+
+The six shipped abilities are **PRODUCTION_WIRED** through the request runtime.
+The former instant executor is **PARTIALLY_WIRED** solely as a compatibility
+adapter for older direct callers.

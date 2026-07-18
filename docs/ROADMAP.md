@@ -15,3 +15,8 @@ activation callers. It delegates to the existing resource, target, effect,
 combat and death authorities and bounds duplicate retries with an idempotency
 ledger. Next: **Phase 21C — Core Physical Combat Commands**: flee, assist,
 rescue, kick and bash through this runtime.
+
+### Phase 21B update
+
+Canonical ability requests now execute the shared lifecycle directly and return
+a structured execution receipt. Phase 21C remains a separate future phase.

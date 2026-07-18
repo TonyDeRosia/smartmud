@@ -34,3 +34,12 @@ ledger; a retry returns `DUPLICATE_IGNORED` and publishes
 
 Phase 21C should route flee, assist, rescue, kick and bash through this same
 contract before broad spell migration.
+
+## Canonical orchestration update
+
+`AbilityRuntimeService.execute` owns the active-request lifecycle: idempotency,
+definition and non-mutating validation, target/cost receipt capture, payment,
+roll record, effect-only invocation, improvement, cooldown, and structured
+result construction. `AbilityExecutionService.execute_effect_handler` is the
+legacy-effect adapter; direct `execute_instant_ability` remains compatibility
+only and is not the production command path.
