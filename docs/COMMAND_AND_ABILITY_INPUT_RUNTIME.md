@@ -22,3 +22,11 @@ Unquoted input is matched from the beginning of the argument with actor-known sp
 ## Execution by canonical ID
 
 Once the parser resolves a spell ID, `MudCommandEngine._cmd_use_ability` calls `AbilityRuntimeGateway.execute_by_id`. The gateway then validates knowledge, target rules, resources, cooldowns, and handlers for that exact canonical ID without reconstructing the spell name from raw text.
+
+## Phase 18K command/ability invocation integrity
+
+Phase 18K keeps command dispatch single-pass while allowing exact multiword active ability invocations to win over generic help fallback. `build campfire` is a player skill invocation for `build_campfire`; Builder/admin `build` remains available through the Builder command path when used as Builder syntax.
+
+Active skills expose invocation metadata in the skill display. `Build Campfire` shows `command: build campfire`; `Set Camp` shows `command: set camp`. If an active ability lacks an implemented handler, the canonical ability gateway returns `HANDLER_NOT_IMPLEMENTED` rather than allowing a help-topic collision to be the only outcome.
+
+Cast parsing continues to resolve quoted, full, and abbreviated spell names before passing remaining words as target text. Named target failures are target failures; target text is not appended back into the spell name.

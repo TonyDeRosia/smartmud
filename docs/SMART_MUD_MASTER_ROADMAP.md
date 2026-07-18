@@ -250,3 +250,7 @@ Phase 18H establishes a single learned-ability service: `AbilityExecutionService
 ### Phase 18I — End-to-End Ability Execution Repair
 
 Status: Implemented. Cast parsing is now a two-part operation that resolves an actor-known spell ID and preserves target text, including quoted spell names and token-prefix spell matching. The cast path executes pre-resolved canonical IDs through the ability gateway, displayed spell/skill rows are validated against canonical learned state, and spellup enumerates the same known-spell projection used by display and casting. New runtime integration coverage verifies `c magic wolf`, quoted Magic Missile casts, self buffs, displayed-row knowledge invariants, and spellup candidate handling.
+
+## Phase 18K runtime entity targeting
+
+Room-visible NPCs are now registered into the shared live ActorRegistry so spell, skill, combat, and render paths resolve the same runtime instance. Build Campfire and Set Camp expose direct command syntax in skills; remaining combat work includes broader AI retaliation and complete direct-skill handlers.
