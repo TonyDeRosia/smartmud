@@ -770,7 +770,7 @@ class CombatRuntimeService:
         if already:
             resident = self.resident_encounters.get(enc)
             participant = resident.participants.get(attacker.actor_id) if resident else None
-            if participant and participant.wait_pulses > 0:
+            if participant and max(int(getattr(attacker, 'wait_state', 0) or 0), participant.wait_pulses) > 0:
                 return CombatRuntimeResult(False, ['You are not ready to act again yet.'], enc)
             return CombatRuntimeResult(True, [f'You keep fighting {defender.identity.name}.'], enc)
         print(f'[combat-start] actor={attacker.identity.name} target={defender.identity.name} encounter={enc} opening_ms=0')
@@ -1148,11 +1148,14 @@ class CombatRuntimeService:
             # violence-round readiness window for PCs and NPCs.  The next
             # heartbeat expires it before choosing that participant's action.
             if request.attack_kind in {'basic_attack', 'melee', 'ranged', 'unarmed'}:
-                before = part.wait_pulses
-                part.wait_pulses = max(part.wait_pulses, 1)
+                before = max(0, int(getattr(attacker, 'wait_state', 0) or 0))
+                attacker.wait_state = max(before, 1)
+                # Kept mirrored for old resident snapshots only; admission
+                # always reads Actor.wait_state first.
+                part.wait_pulses = attacker.wait_state
                 self._publish('combat.wait.applied', {'encounter_id': eid, 'actor_id': attacker.actor_id,
                     'target_actor_id': defender.actor_id, 'round': self._resident_round(eid),
-                    'wait_before': before, 'wait_after': part.wait_pulses, 'world_time': wt})
+                    'wait_before': before, 'wait_after': attacker.wait_state, 'world_time': wt})
             enc.dirty = True
         self._publish('combat_attack_resolved',{'encounter_id':eid,'actor_id':attacker.actor_id,'target_actor_id':defender.actor_id,'result':outcome,'damage':dmg,'round':self._resident_round(eid),'world_time':wt})
         if dmg: self._publish('combat_damage_applied',{'encounter_id':eid,'actor_id':attacker.actor_id,'target_actor_id':defender.actor_id,'damage':dmg,'round':self._resident_round(eid),'world_time':wt})
@@ -1329,7 +1332,8 @@ class CombatRuntimeService:
             return []
         enc.last_violence_pulse = pulse_no; enc.round_number += 1; enc.dirty = True
         rnd = enc.round_number
-        self._publish('combat_round_started',{'encounter_id':eid,'round':rnd,'world_time':wt,'world_id':self.runtime.active_world_id or ''})
+        round_id = f"{enc.world_id}:{eid}:{rnd}"
+        self._publish('combat_round_started',{'encounter_id':eid,'round':rnd,'round_id':round_id,'runtime_tick':pulse_no,'scheduled_world_time':wt,'world_time':wt,'world_id':enc.world_id or self.runtime.active_world_id or '', 'participants': [p.actor_id for p in sorted(enc.participants.values(), key=lambda p: p.actor_id)]})
         msgs=[]; considered=invalid=waiting=defending=queued_consumed=default_generated=actions_executed=attacks_resolved=0
         with self.violence_profiler.section('participant_iteration'):
             rows=sorted([p for p in enc.participants.values() if p.participation_status=='active' and not p.defeated and not p.fled], key=lambda p:(int(p.actor_reference.attributes.get('dexterity') or 10), p.actor_id), reverse=True)
@@ -1338,13 +1342,6 @@ class CombatRuntimeService:
             aid=part.actor_id; tid=part.target_actor_id
             if part.last_action_pulse == pulse_no:
                 invalid += 1; continue
-            if part.wait_pulses > 0:
-                before = part.wait_pulses
-                part.wait_pulses -= 1
-                waiting += 1
-                self._publish('combat.wait.expired', {'encounter_id': eid, 'actor_id': aid,
-                    'round': rnd, 'wait_before': before, 'wait_after': part.wait_pulses,
-                    'world_time': wt})
             with self.violence_profiler.section('actor_lookup'):
                 a=self._load_actor(aid); d=self._load_actor(tid)
             if not a or a.resources.health<=0:
@@ -1357,6 +1354,22 @@ class CombatRuntimeService:
             if a.identity.current_location!=d.identity.current_location:
                 self._stop_actor_fighting(eid, aid, status='separated', reason='room_separation')
                 invalid += 1; continue
+            actor_wait = max(0, int(getattr(a, 'wait_state', 0) or 0))
+            if max(actor_wait, part.wait_pulses) > 0:
+                before = max(actor_wait, part.wait_pulses)
+                # Wait is measured in combat rounds.  Reaching zero at this
+                # boundary does not admit an action until the following round.
+                a.wait_state = max(0, before - 1)
+                part.wait_pulses = a.wait_state
+                waiting += 1
+                self._publish('combat.wait.expired', {'encounter_id': eid, 'actor_id': aid,
+                    'round': rnd, 'wait_before': before, 'wait_after': part.wait_pulses,
+                    'world_time': wt})
+                self._publish('combat.actor.skipped', {'encounter_id': eid, 'actor_id': aid,
+                    'target_actor_id': tid, 'round': rnd, 'round_id': round_id,
+                    'reason': 'WAIT_STATE', 'world_time': wt})
+                invalid += 1
+                continue
             # Health-derived posture is canonical.  A seated NPC can rise to
             # retaliate, while sleeping/resting/down actors retain their
             # stronger blocking state and yield a structured skipped event.

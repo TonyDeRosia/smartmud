@@ -2,15 +2,12 @@
 
 ## Evidence and scope
 
-This is a foundation audit, not a claim of full parity.  The supplied local C
-archive was not present in this checkout; an attempted direct clone of the
-specified reference repository was denied by the environment (HTTP tunnel
-403).  Consequently the C-source columns below are explicitly **unverified**;
-they must be replaced with line-level evidence from `fight.c`, `magic.c`,
-`limits.c`, `config.c`, `comm.c`, `structs.h`, `constants.c`, `spells.c`,
-`handler.c`, `class.c`, `comm.h`, and `lib/misc/messages` when that archive is
-available. Existing project reference notes were consulted only as secondary
-context, never as proof of custom-source behavior.
+This is a foundation audit, not a claim of full parity.  The runtime claims in
+this document are verified against Smart MUD source and tests.  Reference-C
+claims remain explicitly marked **pending line-level verification** until the
+supplied archive is made visible in the working tree; no network clone is used
+as a substitute for that archive.  Existing project reference notes are
+secondary context, never proof of custom-source behavior.
 
 Smart MUD's current clock is authoritative: `base_pulse_ms=100` and
 `violence_pulse_count=20`, hence a two-second round.  The heartbeat invokes
@@ -42,4 +39,3 @@ Magic Missile damage itself to be rendered as a punch.  It was not a scheduler
 round, stale async delivery, or a free physical opening attack.  The repair
 marks spell requests structurally and selects spell narration before delivery;
 surviving targets join combat separately without `_execute_attack()`.
-

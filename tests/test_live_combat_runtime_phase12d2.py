@@ -7,6 +7,9 @@ from engine.mud_runtime import MudRuntime
 def runtime_with_wolf(tmp_path):
     rt = MudRuntime(Path('.'), tmp_path)
     rt.load_world('shattered_realms')
+    # Phase 12D2 exercises the physical command-to-damage path.  It must not
+    # depend on the resolver's seeded production rolls when asserting death.
+    rt.combat_runtime.engine.resolution.rng = lambda *_args: 1
     cid = rt.create_character(world_id='shattered_realms', name='Kraevok')['character_id']
     ch = rt.state_store.load_character(cid)
     ch.room_id = 'emberwood_hunting_trail'
