@@ -150,6 +150,9 @@ class Actor:
     combat_profile: dict[str, Any] = field(default_factory=lambda: {"aggression": "never", "attack": "none", "flee": "immediate", "combat_profile": "Civilian"})
     body_profile_id: str = "humanoid"
     lifecycle_state: str = "alive"
+    # Canonical actor wait authority.  Combat rounds decrement this value; no
+    # encounter-local timer is allowed to grant an extra action.
+    wait_state: int = 0
     lifecycle_profile: dict[str, Any] = field(default_factory=dict)
     equipment_profile: dict[str, Any] = field(default_factory=dict)
     resistance_profile: dict[str, Any] = field(default_factory=dict)

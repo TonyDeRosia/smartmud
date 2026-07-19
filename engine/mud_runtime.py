@@ -786,7 +786,10 @@ class MudRuntime:
             publish=self._publish_death_event,
         )
         self._last_pulse_due_monotonic: float | None = None
-        self.pulse_config = {"pulses_per_second": 10, "pulses_per_tick": 75, "ticks_per_game_hour": 1, "game_hours_per_day": 24, "days_per_month": 30, "months_per_year": 12, "years": 1, "base_pulse_ms": 100, "violence_pulse_count": 20, "mobile_pulse_count": 100, "point_update_pulse_count": 75, "zone_pulse_count": 600, "autosave_pulse_count": 300, "world_hour_pulse_count": 75, "corpse_decay_pulse_count": 50, "maximum_catchup_pulses": 5}
+        # Corpse duration is expressed in the same 75-second object-update
+        # tick used by the reference game.  Seconds are derived at creation;
+        # there is deliberately no second, independently configurable timer.
+        self.pulse_config = {"pulses_per_second": 10, "pulses_per_tick": 75, "ticks_per_game_hour": 1, "game_hours_per_day": 24, "days_per_month": 30, "months_per_year": 12, "years": 1, "base_pulse_ms": 100, "violence_pulse_count": 20, "mobile_pulse_count": 100, "point_update_pulse_count": 75, "zone_pulse_count": 600, "autosave_pulse_count": 300, "world_hour_pulse_count": 75, "corpse_decay_pulse_count": 75, "npc_corpse_ticks": 5, "player_corpse_ticks": 10, "maximum_catchup_pulses": 5}
         self._runtime_pulse_counter = 0
         self._last_violence_bucket = -1
         self._last_point_bucket = -1
@@ -1060,7 +1063,7 @@ class MudRuntime:
             # Decay is a room lifecycle event.  Reuse the canonical async
             # transport queue so browser and Telnet observers receive the same
             # plain semantic message; objects are never rendered as owners.
-            message = f"{name} decays into dust."
+            message = f"A quivering horde of maggots consumes {name.lower()}."
             for character_id, character in list(self.active_characters.items()):
                 if str(getattr(character, "room_id", "")) == room_id:
                     self._enqueue_room_output(character_id, message, room_id=room_id, category="corpse_decay")
@@ -4460,7 +4463,15 @@ class MudRuntime:
         state = dict(ent.get("state") or {})
         state.update({"current_state":"dead", "is_alive": False, "current_health": 0})
         self.update_entity_state(entity_id, state, source_system=ctx.get("source_system", "runtime"))
-        corpse_state={"current_state":"corpse", "source_entity_id": entity_id, "source_template_id": ent.get("template_id"), "source_actor_name": name, "source_lifecycle_id": source_lifecycle_id, "death_id": death_id, "killer_actor_id": str(ctx.get("killer_actor_id") or ""), "is_alive": False, "container_open": True, "decay_state": "fresh", "created_world_time": self.get_world_time(self.active_world_id or '').get('total_minutes', 0), "created_at_utc": datetime.now(timezone.utc).isoformat(), "decay_at_utc": (datetime.now(timezone.utc) + __import__("datetime").timedelta(seconds=float((self.entity_templates.get(str(ent.get("template_id") or ""), {}) or {}).get("corpse_decay_seconds") or 180.0))).isoformat(), "decay_seconds": float((self.entity_templates.get(str(ent.get("template_id") or ""), {}) or {}).get("corpse_decay_seconds") or 180.0), "skinned": False, "butchered": False}
+        now = datetime.now(timezone.utc)
+        # NPC corpses are the currently supported corpse kind.  Keep the
+        # canonical tick count and its derived seconds together in state so a
+        # restart preserves the original absolute expiry rather than resetting
+        # it during room rendering or projection rebuilding.
+        tick_seconds = float(self.pulse_config["point_update_pulse_count"] * self.pulse_config["base_pulse_ms"]) / 1000.0
+        corpse_ticks = int(self.pulse_config["npc_corpse_ticks"])
+        decay_seconds = tick_seconds * corpse_ticks
+        corpse_state={"current_state":"corpse", "source_entity_id": entity_id, "source_template_id": ent.get("template_id"), "source_actor_name": name, "source_lifecycle_id": source_lifecycle_id, "death_id": death_id, "killer_actor_id": str(ctx.get("killer_actor_id") or ""), "is_alive": False, "container_open": True, "decay_state": "fresh", "created_world_time": self.get_world_time(self.active_world_id or '').get('total_minutes', 0), "created_at_utc": now.isoformat(), "decay_at_utc": (now + __import__("datetime").timedelta(seconds=decay_seconds)).isoformat(), "decay_seconds": decay_seconds, "decay_tick_seconds": tick_seconds, "decay_ticks": corpse_ticks, "corpse_kind": "npc", "skinned": False, "butchered": False}
         corpse = self.spawn_entity(ent.get("template_id", "corpse"), entity_type="corpse", room_id=ent.get("room_id"), state=corpse_state, flags=["corpse"], **ctx)
         corpse_name = f"The corpse of {name.lower()}"
         now = datetime.now(timezone.utc).isoformat()
