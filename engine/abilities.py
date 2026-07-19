@@ -1998,9 +1998,12 @@ class AbilityExecutionService:
                 armor_applies=bool(comp.get("armor_applies", True)),
                 resistance_applies=bool(comp.get("resistance_applies", True)),
                 save_definition=dict(comp.get("save") or comp.get("save_definition") or {}),
-                source_type="ability",
+                # Damage provenance is gameplay data, not presentation.  In
+                # particular, a spell must never fall through to the basic
+                # attack/natural-weapon message path.
+                source_type="spell" if ab.ability_type == "spell" else "ability",
                 source_id=str(comp.get("id") or ab.id),
-                metadata={"cast_id": cast_id, "component_id": str(comp.get("id") or ""), "ability_request_id": request_id, "damage_result_id": damage_result_id},
+                metadata={"cast_id": cast_id, "component_id": str(comp.get("id") or ""), "ability_request_id": request_id, "damage_result_id": damage_result_id, "source_category": "spell" if ab.ability_type == "spell" else "physical_skill"},
             )
             rr = crt.submit_action(req)
             final = int((getattr(crt, "last_resolution", {}) or {}).get("damage", 0) or 0)

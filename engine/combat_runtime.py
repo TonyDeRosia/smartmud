@@ -8,7 +8,7 @@ The legacy `rules.combat` module is not imported here and is compatibility-only.
 from __future__ import annotations
 
 import hashlib, json, sqlite3, uuid, time, contextlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -644,6 +644,36 @@ class CombatRuntimeService:
                 msg = messages.get('observers') or ''
             self.enqueue_output(cid, msg, encounter_id=eid, room_id=room_id, category=category)
 
+    @staticmethod
+    def _spell_messages(attacker: Actor, defender: Actor, ability_id: str, hit: bool) -> dict[str, str]:
+        """Source-aware semantic narration for spell damage.
+
+        Combat resolution still owns authoritative hit points, but its physical
+        attack-profile table intentionally has no authority over spell prose.
+        """
+        spell = ability_id.replace("_", " ").title() or "Magic"
+        if not hit:
+            return {"attacker": f"Your {spell} misses {defender.identity.name}.",
+                    "victim": f"{attacker.identity.name}'s {spell} misses you.",
+                    "observers": f"{attacker.identity.name}'s {spell} misses {defender.identity.name}."}
+        return {"attacker": f"Your {spell} strikes {defender.identity.name}.",
+                "victim": f"{attacker.identity.name}'s {spell} strikes you.",
+                "observers": f"{attacker.identity.name}'s {spell} strikes {defender.identity.name}."}
+
+    def engage_hostile_ability(self, attacker: Actor, defender: Actor) -> str:
+        """Join combat after a surviving hostile ability without an opening swing."""
+        eid = self.find_actor_encounter(attacker.actor_id) or self.start_encounter(attacker.identity.current_location)
+        self.join_encounter(eid, attacker, "side_1")
+        self.join_encounter(eid, defender, "side_2")
+        self.set_target(eid, attacker.actor_id, defender.actor_id)
+        self.set_target(eid, defender.actor_id, attacker.actor_id)
+        enc = self.resident_encounters.get(eid)
+        if enc:
+            enc.eligible_violence_pulse = max(enc.eligible_violence_pulse, getattr(self.runtime, "_runtime_pulse_counter", 0) + 1)
+        self._publish("combat.hostile_ability_engaged", {"encounter_id": eid, "actor_id": attacker.actor_id,
+                       "target_actor_id": defender.actor_id, "world_time": self.world_time()})
+        return eid
+
     def queue_resident_action(self, eid: str, actor_id: str, action_type: str, target_actor_id: str = "", ability_id: str = "", source: str = "player", metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         aid = 'act_' + uuid.uuid4().hex
         action = {'action_id': aid, 'action_type': action_type, 'ability_id': ability_id, 'target_actor_id': target_actor_id, 'source': source, 'metadata': dict(metadata or {})}
@@ -1098,6 +1128,10 @@ class CombatRuntimeService:
             attacker.combat_profile['natural_weapons']=[{'id':request.source_id or request.ability_id or request.attack_kind,'name':request.ability_id or request.attack_kind,'damage_type':request.damage_type,'base_damage':max(0,int(request.base_amount))}]
         ctx=__import__('engine.combat', fromlist=['CombatResolutionContext']).CombatResolutionContext(world_id=request.world_id, zone_id=request.zone_id, area_id=request.area_id, room_id=request.room_id or attacker.identity.current_location, attacker_id=attacker.actor_id, defender_id=defender.actor_id, ability_id=request.ability_id or None, attack_kind=request.attack_kind, damage_kind=request.damage_type, distance=request.distance, world_time=wt, round_id=eid, action_id=request.action_id, metadata={**(request.metadata or {}), 'base_amount': request.base_amount, 'formula_id': request.formula_id, 'coefficient': request.coefficient, 'requires_hit_roll': request.requires_hit_roll, 'can_critical': request.can_critical, 'critical_type': request.critical_type, 'armor_applies': request.armor_applies, 'resistance_applies': request.resistance_applies, **(request.save_definition or {})})
         rr=self.engine.resolution.resolve(attacker, defender, ctx)
+        if request.source_type == "spell":
+            # The generic resolver is intentionally physical-profile aware.
+            # Replace only narration here, based on structured provenance.
+            rr = replace(rr, messages=self._spell_messages(attacker, defender, request.ability_id or request.source_id, rr.hit))
         res=CombatResult(rr.hit, __import__('engine.combat', fromlist=['DamageEvent']).DamageEvent(attacker.actor_id, defender.actor_id, {}, rr.diagnostics.get('selected_attack_profile', {'name':'attack'}), rr.damage_type, rr.raw_amount, rr.critical, rr.mitigated_amount, rr.final_amount, self.engine.tick) if rr.hit else None, 'recovering', 'in_combat', rr.messages, list(rr.diagnostics.get('trace', [])))
         if request.base_amount and request.attack_kind not in {'basic_attack','melee','ranged','unarmed'}:
             if old_weapons is None: attacker.combat_profile.pop('natural_weapons', None)
@@ -1153,13 +1187,19 @@ class CombatRuntimeService:
         if defender.resources.health<=0:
             life = self.lifecycle.process_defeat_or_death(encounter_id=eid, attacker=attacker, defender=defender, trigger_action_id=request.action_id)
             self.last_resolution['lifecycle_result'] = life.__dict__
-            msgs.append(f'Your attack defeats {defender.identity.name}.')
+            terminal = (f'Your {(request.ability_id or request.source_id).replace("_", " ").title()} defeats {defender.identity.name}.'
+                        if request.source_type == 'spell' else f'Your attack defeats {defender.identity.name}.')
+            msgs.append(terminal)
             msgs.append(f'{defender.identity.name} collapses and dies.')
             self._stop_actor_fighting(eid, defender.actor_id, status='defeated', reason='target_death')
             self._stop_actor_fighting(eid, attacker.actor_id, status='ended', reason='target_death')
             self.end_if_finished(eid)
             if attacker.actor_id.startswith('character:'):
-                self.enqueue_output(attacker.actor_id.split(':',1)[1], f'Your attack defeats {defender.identity.name}.', encounter_id=eid, room_id=attacker.identity.current_location, category='death')
+                self.enqueue_output(attacker.actor_id.split(':',1)[1], terminal, encounter_id=eid, room_id=attacker.identity.current_location, category='death')
+        elif request.source_type in {'spell', 'ability'}:
+            # A hostile ability is the opening action.  It may establish an
+            # encounter, but it never invokes an unrelated physical attack.
+            eid = self.engage_hostile_ability(attacker, defender)
         return CombatRuntimeResult(True,msgs,eid)
 
     def _execute_attack(self,eid:str,attacker:Actor,defender:Actor,opening:bool=False)->CombatRuntimeResult:
